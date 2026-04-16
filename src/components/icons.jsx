@@ -225,3 +225,18 @@ export const RadialGradientIcon = ({ size = 12 }) => (
 export const AngularGradientIcon = ({ size = 12 }) => (
   <svg {...s(size)}><circle cx="8" cy="8" r="6" /><path d="M8 2v6" /><path d="M8 8l4 4" /></svg>
 )
+// Navigation / Tab icons
+export const TabViewIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <rect x="2" y="3" width="12" height="10" rx="1.5" />
+    <line x1="2" y1="6.5" x2="14" y2="6.5" />
+    <rect x="3" y="4" width="3.5" height="2" rx="0.4" fill="currentColor" strokeWidth="0" />
+    <rect x="7.5" y="4" width="3.5" height="2" rx="0.4" strokeWidth="0.8" />
+  </svg>
+)
+export const TabIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <rect x="2" y="5" width="12" height="9" rx="1" />
+    <path d="M3 5V4a1 1 0 011-1h4a1 1 0 011 1v1" fill="currentColor" strokeWidth="0" />
+  </svg>
+)

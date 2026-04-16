@@ -35,6 +35,7 @@ const makeWindow = (overrides = {}) => ({
     gestures: ['tap', 'drag']
   },
   environment: { ...DEFAULT_ENVIRONMENT },
+  modifiers: { ...DEFAULT_MODIFIERS },
   ...overrides
 })
 
@@ -49,6 +50,9 @@ const makeStack = (overrides = {}) => ({
   fixedWidth: null,
   fixedHeight: null,
   ornament: null,
+  ornamentContentAlignment: 'center',
+  ornamentVisibility: 'automatic',
+  ornamentOffset: 0,
   background: null,
   material: 'regular',
   scrollable: false,
@@ -63,7 +67,13 @@ const makeStack = (overrides = {}) => ({
   // NavStack-specific
   activeChild: 0,             // for stackType 'navstack'
   navTitle: '',
+  // TabView-specific
+  activeTab: 0,               // for stackType 'tabview' — which Tab is visible
+  // Tab-specific (child of tabview)
+  tabLabel: '',               // display label for the tab
+  tabIcon: null,              // SF Symbol name for the tab icon
   //
+  modifiers: { ...DEFAULT_MODIFIERS },
   environment: { ...DEFAULT_ENVIRONMENT },
   name: 'VStack',
   parentId: null,
@@ -88,7 +98,7 @@ const PANEL_DEFAULTS = {
     textStyle: 'body',
     fontSize: textStyleToFontSize('body'),
     fontWeight: 'regular',
-    textAlign: 'center'
+    textAlign: 'left'
   },
   button: {
     size: [ptToUnits(180), ptToUnits(44)],
@@ -788,6 +798,48 @@ export const useStore = create((set, get) => ({
   addWindow: () => undoable(set, get, (s) => {
     const w = makeWindow({ position: [Math.random() * 3 - 1.5, 2.5, -4.5] })
     return { items: [...s.items, w], selectedId: w.id }
+  }),
+
+  // Add a TabView (NavigationStack of Tabs). Creates the container plus 2 default Tabs.
+  addTabView: () => undoable(set, get, (s) => {
+    const sel = s.items.find((it) => it.id === s.selectedId)
+    let parentId = null
+    if (sel?.type === 'stack' || sel?.type === 'window') parentId = sel.id
+    else if (sel) parentId = sel.parentId
+    if (!parentId) {
+      const firstWindow = s.items.find((it) => it.type === 'window')
+      parentId = firstWindow?.id
+    }
+    const tabView = makeStack({
+      parentId,
+      stackType: 'tabview',
+      name: 'Navigation Stack',
+      activeTab: 0,
+      spacing: 0,
+      padding: 0,
+      alignment: 'center'
+    })
+    const tab1 = makeStack({
+      parentId: tabView.id,
+      stackType: 'tab',
+      name: 'Tab 1',
+      tabLabel: 'Tab 1',
+      tabIcon: 'star',
+      alignment: 'leading',
+      spacing: 12,
+      padding: 24
+    })
+    const tab2 = makeStack({
+      parentId: tabView.id,
+      stackType: 'tab',
+      name: 'Tab 2',
+      tabLabel: 'Tab 2',
+      tabIcon: 'heart',
+      alignment: 'leading',
+      spacing: 12,
+      padding: 24
+    })
+    return { items: [...s.items, tabView, tab1, tab2], selectedId: tabView.id }
   }),
 
   // Add a Navigation Bar ornament with N button items. Creates a top-bar

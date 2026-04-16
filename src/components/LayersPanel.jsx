@@ -7,17 +7,21 @@ import {
   ChevronRight, ChevronDown,
   CanvasIcon, TextIcon, ButtonIcon,
   VStackIcon, HStackIcon, ZStackIcon,
-  WindowIcon, CloseIcon
+  WindowIcon, CloseIcon,
+  TabViewIcon, TabIcon, NavStackIcon
 } from './icons'
 
 function rowIcon(item) {
   if (item.type === 'window') return <WindowIcon />
   if (item.type === 'stack') {
-    if (item.stackType === 'hstack') return <HStackIcon />
-    if (item.stackType === 'zstack') return <ZStackIcon />
+    if (item.stackType === 'hstack')   return <HStackIcon />
+    if (item.stackType === 'zstack')   return <ZStackIcon />
+    if (item.stackType === 'tabview')  return <TabViewIcon />
+    if (item.stackType === 'tab')      return <TabIcon />
+    if (item.stackType === 'navstack') return <NavStackIcon />
     return <VStackIcon />
   }
-  if (item.panelType === 'text') return <TextIcon />
+  if (item.panelType === 'text')   return <TextIcon />
   if (item.panelType === 'button') return <ButtonIcon />
   return <CanvasIcon />
 }

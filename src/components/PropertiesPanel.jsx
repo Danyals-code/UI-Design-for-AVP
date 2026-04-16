@@ -259,6 +259,58 @@ function TabButton({ active, onClick, children }) {
   )
 }
 
+// ---- Universal Modifiers (shared by Window, Stack, Panel) ----
+
+function UniversalModifiers({ item, updateItem }) {
+  const m = item.modifiers || {}
+  const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
+  return (
+    <Section title="Modifiers" defaultOpen={false}>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.opacity() · .disabled() · .clipShape()</div>
+      <Row label="Opacity">
+        <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
+      </Row>
+      <Row label="Disabled">
+        <div className="segmented flex-1">
+          <button className={m.disabled ? 'active' : ''} onClick={() => upd({ disabled: true })}>On</button>
+          <button className={!m.disabled ? 'active' : ''} onClick={() => upd({ disabled: false })}>Off</button>
+        </div>
+      </Row>
+      <Row label="Clip">
+        <Select
+          value={m.clipShape || 'none'}
+          options={[
+            { value: 'none',        label: 'None' },
+            { value: 'circle',      label: 'Circle' },
+            { value: 'capsule',     label: 'Capsule' },
+            { value: 'roundedRect', label: 'Rounded Rect' }
+          ]}
+          onChange={(v) => upd({ clipShape: v })}
+        />
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.shadow()</div>
+      <Row label="Color"><ColorRow value={m.shadowColor || '#000000'} onChange={(v) => upd({ shadowColor: v })} /></Row>
+      <Row label="Radius"><IntField value={m.shadowRadius ?? 0} min={0} onChange={(v) => upd({ shadowRadius: v })} /></Row>
+      <Row label="X / Y">
+        <IntField value={m.shadowX ?? 0} onChange={(v) => upd({ shadowX: v })} />
+        <IntField value={m.shadowY ?? 0} onChange={(v) => upd({ shadowY: v })} />
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.border()</div>
+      <Row label="Color"><ColorRow value={m.borderColor || '#000000'} onChange={(v) => upd({ borderColor: v })} /></Row>
+      <Row label="Width"><PtField value={m.borderWidth ?? 0} onChange={(v) => upd({ borderWidth: Math.max(0, v) })} /></Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotationEffect() · .scaleEffect() · .offset()</div>
+      <Row label="Rotation"><NumField value={m.rotation ?? 0} step={1} onChange={(v) => upd({ rotation: v })} suffix="°" /></Row>
+      <Row label="Scale X"><NumField value={m.scaleX ?? 1} step={0.05} onChange={(v) => upd({ scaleX: v })} /></Row>
+      <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
+      <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+      <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+    </Section>
+  )
+}
+
 // ---- main ----
 
 export default function PropertiesPanel({ width = 280 }) {
@@ -366,14 +418,12 @@ function WindowProps({ item }) {
         </div>
       </Section>
 
-      {/* Phase 12 — Environment */}
       {/* Chrome — ornament wizards (per-window, not per-scene) */}
       <Section title="Ornaments">
         <div className="text-[10px] text-textMute mb-1">
           Attach .ornament() views to this window's edges.
         </div>
         <NavBarWizard />
-        <TabBarWizard />
         <ToolbarWizard />
         <OrnamentWizards />
       </Section>
@@ -389,6 +439,8 @@ function WindowProps({ item }) {
         </Row>
         <Row label="Locale"><input value={item.environment?.locale || ''} onChange={(e) => updateItem(item.id, { environment: { ...item.environment, locale: e.target.value } })} className="field flex-1" placeholder="en-US" /></Row>
       </Section>
+
+      <UniversalModifiers item={item} updateItem={updateItem} />
     </div>
   )
 }
@@ -506,6 +558,42 @@ function StackProps({ item }) {
         </Section>
       )}
 
+      {item.stackType === 'tabview' && (
+        <Section title="Navigation Stack (TabView)">
+          <div className="text-[10px] text-textMute mb-2">
+            Only the active Tab is visible at a time. Add Tab children in the layers panel.
+          </div>
+          <Row label="Active Tab">
+            <IntField value={item.activeTab ?? 0} min={0} onChange={(v) => updateItem(item.id, { activeTab: v })} />
+            <span className="text-[9px] text-textMute">index</span>
+          </Row>
+        </Section>
+      )}
+
+      {item.stackType === 'tab' && (
+        <Section title="Tab">
+          <Row label="Label">
+            <input
+              value={item.tabLabel || ''}
+              onChange={(e) => updateItem(item.id, { tabLabel: e.target.value })}
+              className="field flex-1"
+              placeholder="Tab name"
+            />
+          </Row>
+          <Row label="Icon">
+            <input
+              value={item.tabIcon || ''}
+              onChange={(e) => updateItem(item.id, { tabIcon: e.target.value || null })}
+              className="field flex-1"
+              placeholder="SF Symbol name (e.g. star)"
+            />
+          </Row>
+          <div className="text-[10px] text-textMute mt-1">
+            Use any SF Symbol name. The parent TabView controls which tab is active.
+          </div>
+        </Section>
+      )}
+
       <Section title="Frame">
         <Row label="Width">
           <div className="flex-1">
@@ -542,19 +630,61 @@ function StackProps({ item }) {
       </Section>
 
       <Section title=".ornament()">
+        <div className="text-[9px] text-textMute mb-1">attachmentAnchor — which edge of the window</div>
         <Row label="Anchor">
           <Select
             value={item.ornament || ''}
             options={[
-              { value: '',         label: '— None —' },
-              { value: 'leading',  label: '.scene(.leading)' },
-              { value: 'trailing', label: '.scene(.trailing)' },
-              { value: 'top',      label: '.scene(.top)' },
-              { value: 'bottom',   label: '.scene(.bottom)' }
+              { value: '',                label: '— None —' },
+              { value: 'leading',         label: '.scene(.leading)' },
+              { value: 'trailing',        label: '.scene(.trailing)' },
+              { value: 'top',             label: '.scene(.top)' },
+              { value: 'bottom',          label: '.scene(.bottom)' },
+              { value: 'topLeading',      label: '.scene(.topLeading)' },
+              { value: 'topTrailing',     label: '.scene(.topTrailing)' },
+              { value: 'bottomLeading',   label: '.scene(.bottomLeading)' },
+              { value: 'bottomTrailing',  label: '.scene(.bottomTrailing)' },
+              { value: 'center',          label: '.scene(.center)' }
             ]}
             onChange={(v) => updateItem(item.id, { ornament: v || null })}
           />
         </Row>
+        <div className="text-[9px] text-textMute mt-2 mb-1">contentAlignment — ornament's own alignment</div>
+        <Row label="Alignment">
+          <Select
+            value={item.ornamentContentAlignment || 'center'}
+            options={[
+              { value: 'center',        label: '.center' },
+              { value: 'leading',       label: '.leading' },
+              { value: 'trailing',      label: '.trailing' },
+              { value: 'top',           label: '.top' },
+              { value: 'bottom',        label: '.bottom' },
+              { value: 'topLeading',    label: '.topLeading' },
+              { value: 'topTrailing',   label: '.topTrailing' },
+              { value: 'bottomLeading', label: '.bottomLeading' },
+              { value: 'bottomTrailing',label: '.bottomTrailing' }
+            ]}
+            onChange={(v) => updateItem(item.id, { ornamentContentAlignment: v })}
+          />
+        </Row>
+        <div className="text-[9px] text-textMute mt-2 mb-1">visibility</div>
+        <Row label="Visibility">
+          <div className="segmented flex-1">
+            {['automatic', 'visible', 'hidden'].map((v) => (
+              <button
+                key={v}
+                className={(item.ornamentVisibility || 'automatic') === v ? 'active' : ''}
+                onClick={() => updateItem(item.id, { ornamentVisibility: v })}
+              >{v}</button>
+            ))}
+          </div>
+        </Row>
+        <div className="text-[9px] text-textMute mt-2 mb-1">offsetFromBoundary</div>
+        <Row label="Offset">
+          <IntField value={item.ornamentOffset ?? 0} onChange={(v) => updateItem(item.id, { ornamentOffset: v })} />
+          <span className="text-[9px] text-textMute">pt</span>
+        </Row>
+        <div className="text-[9px] text-textMute mt-2 mb-1">Background &amp; Material</div>
         <Row label="Background">
           <SemanticColorPicker
             token={item.background}
@@ -592,6 +722,8 @@ function StackProps({ item }) {
         </Row>
         <Row label="Locale"><input value={item.environment?.locale || ''} onChange={(e) => updateItem(item.id, { environment: { ...item.environment, locale: e.target.value } })} className="field flex-1" placeholder="en-US" /></Row>
       </Section>
+
+      <UniversalModifiers item={item} updateItem={updateItem} />
 
       <Section title="Info" defaultOpen={false}>
         <div className="text-[10px] text-textMute font-mono">ID: {item.id}</div>
@@ -1230,28 +1362,7 @@ function PanelProps({ item, scene }) {
       )}
 
       {/* Phase 6 — Universal Modifiers */}
-      {/* .opacity(), .shadow(), .border(), .disabled() */}
-      <Section title=".opacity() & .shadow()" defaultOpen={false}>
-        <Row label="Opacity"><Slider value={(item.modifiers?.opacity ?? 1)} min={0} max={1} step={0.01} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, opacity: v } })} /></Row>
-        <Row label="Disabled"><div className="segmented flex-1"><button className={item.modifiers?.disabled ? 'active' : ''} onClick={() => updateItem(item.id, { modifiers: { ...item.modifiers, disabled: true } })}>On</button><button className={!item.modifiers?.disabled ? 'active' : ''} onClick={() => updateItem(item.id, { modifiers: { ...item.modifiers, disabled: false } })}>Off</button></div></Row>
-        <Row label="Clip"><Select value={item.modifiers?.clipShape || 'none'} options={[{value:'none',label:'None'},{value:'circle',label:'Circle'},{value:'capsule',label:'Capsule'},{value:'roundedRect',label:'Rounded Rect'}]} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, clipShape: v } })} /></Row>
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-2">.shadow()</div>
-        <Row label="Color"><ColorRow value={item.modifiers?.shadowColor || '#000000'} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, shadowColor: v } })} /></Row>
-        <Row label="Radius"><IntField value={item.modifiers?.shadowRadius ?? 0} min={0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, shadowRadius: v } })} /></Row>
-        <Row label="X / Y"><IntField value={item.modifiers?.shadowX ?? 0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, shadowX: v } })} /><IntField value={item.modifiers?.shadowY ?? 0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, shadowY: v } })} /></Row>
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-2">.border()</div>
-        <Row label="Color"><ColorRow value={item.modifiers?.borderColor || '#000000'} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, borderColor: v } })} /></Row>
-        <Row label="Width"><PtField value={item.modifiers?.borderWidth ?? 0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, borderWidth: Math.max(0, v) } })} /></Row>
-      </Section>
-
-      {/* .rotationEffect(), .scaleEffect(), .offset() */}
-      <Section title=".offset() & .scale()" defaultOpen={false}>
-        <Row label="Rotation"><NumField value={item.modifiers?.rotation ?? 0} step={1} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, rotation: v } })} suffix="°" /></Row>
-        <Row label="Scale X"><NumField value={item.modifiers?.scaleX ?? 1} step={0.05} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, scaleX: v } })} /></Row>
-        <Row label="Scale Y"><NumField value={item.modifiers?.scaleY ?? 1} step={0.05} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, scaleY: v } })} /></Row>
-        <Row label="Offset X"><IntField value={item.modifiers?.offsetX ?? 0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, offsetX: v } })} /><span className="text-[9px] text-textMute">pt</span></Row>
-        <Row label="Offset Y"><IntField value={item.modifiers?.offsetY ?? 0} onChange={(v) => updateItem(item.id, { modifiers: { ...item.modifiers, offsetY: v } })} /><span className="text-[9px] text-textMute">pt</span></Row>
-      </Section>
+      <UniversalModifiers item={item} updateItem={updateItem} />
 
       {/* Phase 7 — Style Modifiers */}
       <Section title="Styles" defaultOpen={false}>

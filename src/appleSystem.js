@@ -266,13 +266,24 @@ export const STACK_TYPES = {
     label: 'NavigationStack',
     description: 'Push/pop navigation — shows one child at a time',
     alignments: ['center']
+  },
+  tabview: {
+    label: 'TabView (Navigation Stack)',
+    description: 'Shows one Tab at a time — select via the active tab index',
+    alignments: ['center']
+  },
+  tab: {
+    label: 'Tab',
+    description: 'A single named tab within a TabView',
+    alignments: ['leading', 'center', 'trailing']
   }
 }
 
 export const STACK_TYPE_ORDER = [
   'vstack', 'hstack', 'zstack', 'grid',
   'lazyvstack', 'lazyhstack',
-  'section', 'disclosure', 'navstack'
+  'section', 'disclosure', 'navstack',
+  'tabview', 'tab'
 ]
 
 // ---- Phase 7: Style Modifiers ----
