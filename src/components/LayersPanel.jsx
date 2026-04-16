@@ -1,17 +1,27 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
 import AddDropdown from './AddDropdown'
+import { SF_SYMBOLS, SF_SYMBOL_ORDER } from '../appleSystem'
 import {
   EyeOpen, EyeClosed,
-  Folder, FolderPlus,
+  FolderPlus,
   ChevronRight, ChevronDown,
   CanvasIcon, TextIcon, ButtonIcon,
   VStackIcon, HStackIcon, ZStackIcon,
-  WindowIcon, CloseIcon,
-  TabViewIcon, TabIcon, NavStackIcon
+  WindowIcon, CloseIcon, PlusIcon,
+  TabViewIcon, TabIcon, NavStackIcon,
+  PageTabIcon
 } from './icons'
 
+// ---- tree-row icon picker ----
+
 function rowIcon(item) {
+  if (item.type === 'tab') {
+    // Render the tab's SF Symbol glyph so you can tell tabs apart at a glance.
+    const glyph = SF_SYMBOLS[item.icon]?.glyph
+    if (glyph) return <span className="inline-block w-[13px] h-[13px] text-[12px] leading-none text-center">{glyph}</span>
+    return <PageTabIcon />
+  }
   if (item.type === 'window') return <WindowIcon />
   if (item.type === 'stack') {
     if (item.stackType === 'hstack')   return <HStackIcon />
@@ -26,23 +36,65 @@ function rowIcon(item) {
   return <CanvasIcon />
 }
 
+// ---- tab icon popover ----
+// Compact SF-Symbol grid for picking a tab's icon.
+
+function IconPickerPopover({ tab, onClose }) {
+  const setTabIcon = useStore((s) => s.setTabIcon)
+  const ref = useRef(null)
+  useEffect(() => {
+    const onDoc = (e) => { if (!ref.current?.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [onClose])
+  return (
+    <div
+      ref={ref}
+      className="popover absolute left-0 top-full mt-1 z-50 p-1.5 rounded"
+      style={{ width: 208 }}
+    >
+      <div className="grid grid-cols-8 gap-0.5 max-h-[180px] overflow-y-auto scrollbar">
+        {SF_SYMBOL_ORDER.map((name) => (
+          <button
+            key={name}
+            onClick={() => { setTabIcon(tab.id, name); onClose() }}
+            className={`w-6 h-6 flex items-center justify-center rounded text-[14px] leading-none hover:bg-hover ${
+              tab.icon === name ? 'bg-accentBg text-text' : 'text-textDim'
+            }`}
+            title={SF_SYMBOLS[name].label}
+          >
+            {SF_SYMBOLS[name].glyph}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---- single layer row (recursive) ----
+
 function LayerRow({ item, depth }) {
-  const items = useStore((s) => s.items)
-  const selectedId = useStore((s) => s.selectedId)
-  const select = useStore((s) => s.select)
-  const removeItem = useStore((s) => s.removeItem)
-  const renameItem = useStore((s) => s.renameItem)
+  const items          = useStore((s) => s.items)
+  const selectedId     = useStore((s) => s.selectedId)
+  const activeTabId    = useStore((s) => s.activeTabId)
+  const select         = useStore((s) => s.select)
+  const selectTab      = useStore((s) => s.selectTab)
+  const removeItem     = useStore((s) => s.removeItem)
+  const renameItem     = useStore((s) => s.renameItem)
   const toggleVisibility = useStore((s) => s.toggleVisibility)
   const toggleCollapse = useStore((s) => s.toggleCollapse)
-  const moveItem = useStore((s) => s.moveItem)
+  const moveItem       = useStore((s) => s.moveItem)
 
-  const [editing, setEditing] = useState(false)
-  const [nameVal, setNameVal] = useState(item.name)
-  const [dropMode, setDropMode] = useState(null)
+  const [editing, setEditing]     = useState(false)
+  const [nameVal, setNameVal]     = useState(item.name)
+  const [dropMode, setDropMode]   = useState(null)
+  const [iconOpen, setIconOpen]   = useState(false)
 
   const isSel = item.id === selectedId
-  const container = item.type === 'window' || item.type === 'stack'
+  const container = item.type === 'window' || item.type === 'stack' || item.type === 'tab'
   const children = container ? items.filter((it) => it.parentId === item.id) : []
+  const isTab = item.type === 'tab'
+  const isActiveTab = isTab && item.id === activeTabId
 
   const commitRename = () => {
     const t = nameVal.trim()
@@ -51,8 +103,17 @@ function LayerRow({ item, depth }) {
     setEditing(false)
   }
 
+  const onClick = () => {
+    // Clicking a tab row both selects it AND switches the active page —
+    // that's how Apple's Finder / Xcode side-tabs behave.
+    if (isTab) selectTab(item.id)
+    select(item.id)
+  }
+
   const onDragStart = (e) => {
-    if (item.type === 'window') { e.preventDefault(); return }
+    // Tabs stay at the top level — reorder them with a dedicated handle later
+    // if needed. Windows move only between tabs, panels/stacks move freely.
+    if (isTab) { e.preventDefault(); return }
     e.stopPropagation()
     e.dataTransfer.setData('text/plain', item.id)
     e.dataTransfer.effectAllowed = 'move'
@@ -78,23 +139,30 @@ function LayerRow({ item, depth }) {
     moveItem(src, item.id, dropMode || 'after')
   }
 
+  const canDelete = !isTab || items.filter((it) => it.type === 'tab').length > 1
+  const tabsCount = items.filter((it) => it.type === 'tab').length
+
   return (
     <>
       <div
-        draggable={!editing && item.type !== 'window'}
+        draggable={!editing && !isTab}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        onClick={() => select(item.id)}
+        onClick={onClick}
         className={`relative group flex items-center gap-1.5 pr-2 h-[22px] cursor-pointer text-[11px] transition-colors ${
-          isSel ? 'bg-accentBg text-text' : 'text-text hover:bg-hover'
-        } ${dropMode === 'inside' ? 'ring-1 ring-inset ring-accent' : ''}`}
+          isSel ? 'bg-accentBg text-text'
+          : isActiveTab ? 'bg-[#1e1e20] text-text'
+          : 'text-text hover:bg-hover'
+        } ${isTab && !isActiveTab ? 'opacity-70' : ''} ${
+          dropMode === 'inside' ? 'ring-1 ring-inset ring-accent' : ''
+        }`}
         style={{ paddingLeft: 8 + depth * 12 }}
       >
-        {isSel && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />}
+        {(isSel || isActiveTab) && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-accent" />}
         {dropMode === 'before' && <div className="absolute left-0 right-0 top-0 h-[1.5px] bg-accent pointer-events-none" />}
-        {dropMode === 'after' && <div className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-accent pointer-events-none" />}
+        {dropMode === 'after'  && <div className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-accent pointer-events-none" />}
 
         {container ? (
           <button
@@ -107,11 +175,17 @@ function LayerRow({ item, depth }) {
           <span className="w-3 flex-shrink-0" />
         )}
 
-        <span className={`flex-shrink-0 ${
-          item.type === 'window' ? 'text-accent'
-          : item.type === 'stack' ? 'text-amber-400'
-          : 'text-textDim'
-        }`}>
+        {/* Icon — for tabs this button opens the SF Symbol picker */}
+        <span
+          onClick={isTab ? (e) => { e.stopPropagation(); setIconOpen(!iconOpen) } : undefined}
+          className={`flex-shrink-0 ${isTab ? 'cursor-pointer hover:text-accent' : ''} ${
+            isTab              ? (isActiveTab ? 'text-accent' : 'text-textDim')
+            : item.type === 'window' ? 'text-accent'
+            : item.type === 'stack'  ? 'text-amber-400'
+            : 'text-textDim'
+          }`}
+          title={isTab ? 'Click to change icon' : undefined}
+        >
           {rowIcon(item)}
         </span>
 
@@ -131,7 +205,7 @@ function LayerRow({ item, depth }) {
         ) : (
           <span
             onDoubleClick={(e) => { e.stopPropagation(); setNameVal(item.name); setEditing(true) }}
-            className="flex-1 truncate"
+            className={`flex-1 truncate ${isTab ? 'font-semibold uppercase tracking-wide text-[10px]' : ''}`}
             title="Double-click to rename"
           >
             {item.name}
@@ -150,7 +224,7 @@ function LayerRow({ item, depth }) {
           {item.visible ? <EyeOpen /> : <EyeClosed />}
         </button>
 
-        {item.type !== 'window' && (
+        {canDelete && (
           <button
             onClick={(e) => { e.stopPropagation(); removeItem(item.id) }}
             className="flex-shrink-0 w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-80 text-textDim hover:text-danger"
@@ -159,6 +233,8 @@ function LayerRow({ item, depth }) {
             <CloseIcon />
           </button>
         )}
+
+        {isTab && iconOpen && <IconPickerPopover tab={item} onClose={() => setIconOpen(false)} />}
       </div>
 
       {container && !item.collapsed && children.map((c) => (
@@ -176,10 +252,16 @@ function LayerRow({ item, depth }) {
   )
 }
 
+// ---- root panel ----
+
 export default function LayersPanel({ width = 240 }) {
-  const items = useStore((s) => s.items)
+  const items   = useStore((s) => s.items)
   const addStack = useStore((s) => s.addStack)
-  const roots = items.filter((it) => !it.parentId)
+  const addTab   = useStore((s) => s.addTab)
+
+  // Tabs are top-level; their windows/stacks nest beneath them. The active
+  // tab is highlighted — click any tab row to switch pages.
+  const tabs = items.filter((it) => it.type === 'tab')
 
   return (
     <div
@@ -192,6 +274,13 @@ export default function LayersPanel({ width = 240 }) {
         </span>
         <div className="flex items-center gap-1">
           <button
+            onClick={() => addTab()}
+            className="btn btn-icon btn-ghost"
+            title="New tab (page)"
+          >
+            <PageTabIcon />
+          </button>
+          <button
             onClick={() => addStack('vstack')}
             className="btn btn-icon btn-ghost"
             title="New stack"
@@ -203,11 +292,14 @@ export default function LayersPanel({ width = 240 }) {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar py-1">
-        {roots.map((it) => <LayerRow key={it.id} item={it} depth={0} />)}
+        {tabs.length === 0
+          ? <div className="px-3 py-2 text-[10px] text-textMute italic">No tabs — click the page icon to add one.</div>
+          : tabs.map((t) => <LayerRow key={t.id} item={t} depth={0} />)
+        }
       </div>
 
       <div className="h-[22px] px-3 border-t border-border text-textMute text-[10px] flex items-center">
-        {items.length} items · drag to reorder
+        {items.length} items · {tabs.length} tab{tabs.length === 1 ? '' : 's'}
       </div>
     </div>
   )

@@ -13,7 +13,73 @@ const nextId = (prefix = 'item') => `${prefix}-${idCounter++}`
 
 const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?? 17)
 
+// ---- shared defaults (hoisted so factories below can reference them) ----
+
+const DEFAULT_MODIFIERS = {
+  opacity: 1.0,
+  shadowColor: null,
+  shadowRadius: 0,
+  shadowX: 0,
+  shadowY: 0,
+  rotation: 0,
+  scaleX: 1.0,
+  scaleY: 1.0,
+  offsetX: 0,
+  offsetY: 0,
+  borderColor: null,
+  borderWidth: 0,
+  disabled: false,
+  clipShape: 'none'
+}
+
+const DEFAULT_STYLES = {
+  toggleStyle: 'switch',
+  pickerStyle: 'menu',
+  labelStyle: 'titleAndIcon',
+  textFieldStyle: 'roundedBorder',
+  controlSize: 'regular',
+  tableStyle: 'automatic'
+}
+
+const DEFAULT_ANIMATION = {
+  curve: 'default',
+  duration: 0.35,
+  transition: 'opacity',
+  springResponse: 0.55,
+  springDamping: 0.825
+}
+
+const DEFAULT_ACCESSIBILITY = {
+  label: '',
+  hint: '',
+  value: '',
+  traits: [],
+  isAccessibilityElement: true
+}
+
+const DEFAULT_ENVIRONMENT = {
+  font: null,
+  foregroundStyle: null,
+  tint: null,
+  locale: null,
+  layoutDirection: 'leftToRight'
+}
+
 // ---- element factories ----
+
+// A Tab is a top-level "page": the logical container that owns one or more
+// Windows. Only one Tab is visible at a time (via activeTabId). Tabs show up
+// as chips in the layers-panel tab bar and as roots in the layers tree.
+const makeTab = (overrides = {}) => ({
+  id: nextId('tab'),
+  type: 'tab',
+  name: 'Tab',
+  icon: 'folder',     // SF Symbol name
+  parentId: null,
+  visible: true,
+  collapsed: false,
+  ...overrides
+})
 
 const makeWindow = (overrides = {}) => ({
   id: nextId('window'),
@@ -510,59 +576,7 @@ const PANEL_DEFAULTS = {
   }
 }
 
-// Default modifiers applied to every new panel.
-const DEFAULT_MODIFIERS = {
-  opacity: 1.0,
-  shadowColor: null,
-  shadowRadius: 0,
-  shadowX: 0,
-  shadowY: 0,
-  rotation: 0,
-  scaleX: 1.0,
-  scaleY: 1.0,
-  offsetX: 0,
-  offsetY: 0,
-  borderColor: null,
-  borderWidth: 0,
-  disabled: false,
-  clipShape: 'none'
-}
-
 const cap = (s) => s[0].toUpperCase() + s.slice(1)
-
-// Default metadata sub-objects for Phases 7-12.
-const DEFAULT_STYLES = {
-  toggleStyle: 'switch',
-  pickerStyle: 'menu',
-  labelStyle: 'titleAndIcon',
-  textFieldStyle: 'roundedBorder',
-  controlSize: 'regular',
-  tableStyle: 'automatic'
-}
-
-const DEFAULT_ANIMATION = {
-  curve: 'default',
-  duration: 0.35,
-  transition: 'opacity',
-  springResponse: 0.55,
-  springDamping: 0.825
-}
-
-const DEFAULT_ACCESSIBILITY = {
-  label: '',
-  hint: '',
-  value: '',
-  traits: [],
-  isAccessibilityElement: true
-}
-
-const DEFAULT_ENVIRONMENT = {
-  font: null,
-  foregroundStyle: null,
-  tint: null,
-  locale: null,
-  layoutDirection: 'leftToRight'
-}
 
 const makePanel = (panelType, overrides = {}) => {
   const d = PANEL_DEFAULTS[panelType] || {}
@@ -589,7 +603,8 @@ const makePanel = (panelType, overrides = {}) => {
 // ---- initial scene ----
 
 function seedScene() {
-  const w = makeWindow({ name: 'Main Window' })
+  const tab = makeTab({ name: 'Main', icon: 'folder' })
+  const w = makeWindow({ name: 'Main Window', parentId: tab.id })
   const stack = makeStack({
     parentId: w.id,
     stackType: 'vstack',
@@ -619,7 +634,7 @@ function seedScene() {
     name: 'Primary Button',
     text: 'Get Started'
   })
-  return [w, stack, title, subtitle, button]
+  return { items: [tab, w, stack, title, subtitle, button], activeTabId: tab.id }
 }
 
 // ---- scene settings ----
@@ -645,15 +660,28 @@ const isDescendantOf = (items, parentId, candidateId) => {
 
 const findParent = (items, id) => items.find((it) => it.id === id)?.parentId
 
-// Walks up from the current selection to find the owning Window, or the
-// first Window in the tree as a fallback.
+// Walks up from the current selection to find the owning Window. Falls back
+// to the first Window in the active tab so "add ornament/toolbar" targets the
+// page the user is actually editing.
 const findTargetWindow = (state) => {
   let cur = state.items.find((it) => it.id === state.selectedId)
   while (cur && cur.type !== 'window' && cur.parentId) {
     cur = state.items.find((it) => it.id === cur.parentId)
   }
   if (cur?.type === 'window') return cur
-  return state.items.find((it) => it.type === 'window')
+  return state.items.find((it) => it.type === 'window' && it.parentId === state.activeTabId)
+      ?? state.items.find((it) => it.type === 'window')
+}
+
+// Walks up from any item to find the Tab it belongs to.
+const findOwningTab = (items, id) => {
+  let cur = items.find((it) => it.id === id)
+  while (cur) {
+    if (cur.type === 'tab') return cur
+    if (!cur.parentId) return null
+    cur = items.find((it) => it.id === cur.parentId)
+  }
+  return null
 }
 
 // ---- undo / redo helpers ----
@@ -664,7 +692,9 @@ const MAX_UNDO = 50
 const snapshot = (s) => ({
   items: s.items.map((it) => ({ ...it })),
   selectedId: s.selectedId,
-  scene: { ...s.scene }
+  activeTabId: s.activeTabId,
+  scene: { ...s.scene },
+  idCounter
 })
 
 // Wraps a zustand set() call so it pushes an undo snapshot first.
@@ -681,8 +711,11 @@ const undoable = (set, get, fn) => {
 
 // ---- store ----
 
+const _seed = seedScene()
+
 export const useStore = create((set, get) => ({
-  items: seedScene(),
+  items: _seed.items,
+  activeTabId: _seed.activeTabId,
   selectedId: null,
   editingId: null,
   isDragging: false,
@@ -699,11 +732,14 @@ export const useStore = create((set, get) => ({
   undo: () => set((s) => {
     if (s._past.length === 0) return s
     const prev = s._past[s._past.length - 1]
+    const future = [snapshot(s), ...s._future].slice(0, MAX_UNDO)
+    idCounter = prev.idCounter ?? idCounter
     return {
       _past: s._past.slice(0, -1),
-      _future: [snapshot(s), ...s._future].slice(0, MAX_UNDO),
+      _future: future,
       items: prev.items,
       selectedId: prev.selectedId,
+      activeTabId: prev.activeTabId,
       scene: prev.scene
     }
   }),
@@ -711,11 +747,14 @@ export const useStore = create((set, get) => ({
   redo: () => set((s) => {
     if (s._future.length === 0) return s
     const next = s._future[0]
+    const past = [...s._past, snapshot(s)].slice(-MAX_UNDO)
+    idCounter = next.idCounter ?? idCounter
     return {
       _future: s._future.slice(1),
-      _past: [...s._past, snapshot(s)].slice(-MAX_UNDO),
+      _past: past,
       items: next.items,
       selectedId: next.selectedId,
+      activeTabId: next.activeTabId,
       scene: next.scene
     }
   }),
@@ -737,6 +776,66 @@ export const useStore = create((set, get) => ({
   clearEditing: () => set({ editingId: null }),
   toggleGrid: () => set((s) => ({ showGrid: !s.showGrid })),
   togglePanMode: () => set((s) => ({ panMode: !s.panMode })),
+
+  // ---- tabs (pages) ----
+
+  // Switch the active tab. Clears selection so the Properties panel doesn't
+  // keep pointing at an item in a now-hidden tab.
+  selectTab: (id) => set((s) => {
+    if (!s.items.find((it) => it.id === id && it.type === 'tab')) return s
+    return { activeTabId: id, selectedId: null, editingId: null }
+  }),
+
+  addTab: ({ name, icon } = {}) => undoable(set, get, (s) => {
+    const count = s.items.filter((it) => it.type === 'tab').length
+    const tab = makeTab({
+      name: name || `Tab ${count + 1}`,
+      icon: icon || 'folder'
+    })
+    return {
+      items: [...s.items, tab],
+      activeTabId: tab.id,
+      selectedId: tab.id
+    }
+  }),
+
+  // Remove a tab and every window/stack/panel it owns. Keeps at least one tab
+  // in the scene — if the user tries to remove the last one, we leave it.
+  removeTab: (id) => undoable(set, get, (s) => {
+    const tabs = s.items.filter((it) => it.type === 'tab')
+    if (tabs.length <= 1) return s
+    const toRemove = new Set([id])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const it of s.items) {
+        if (!toRemove.has(it.id) && it.parentId && toRemove.has(it.parentId)) {
+          toRemove.add(it.id)
+          changed = true
+        }
+      }
+    }
+    const nextItems = s.items.filter((it) => !toRemove.has(it.id))
+    const nextTabs = nextItems.filter((it) => it.type === 'tab')
+    const nextActive = s.activeTabId === id ? nextTabs[0]?.id ?? null : s.activeTabId
+    return {
+      items: nextItems,
+      activeTabId: nextActive,
+      selectedId: toRemove.has(s.selectedId) ? null : s.selectedId
+    }
+  }),
+
+  renameTab: (id, name) => undoable(set, get, (s) => ({
+    items: s.items.map((it) =>
+      it.id === id && it.type === 'tab' ? { ...it, name } : it
+    )
+  })),
+
+  setTabIcon: (id, icon) => undoable(set, get, (s) => ({
+    items: s.items.map((it) =>
+      it.id === id && it.type === 'tab' ? { ...it, icon } : it
+    )
+  })),
 
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }
@@ -760,7 +859,8 @@ export const useStore = create((set, get) => ({
 
   addPanel: (panelType) => undoable(set, get, (s) => {
     // New panels live inside the current selection's nearest stack, or the
-    // first stack in the current window if nothing relevant is selected.
+    // first stack in the active tab's first window if nothing relevant is
+    // selected. Tabs are not valid panel parents — they only hold windows.
     let parentId = null
     const sel = s.items.find((it) => it.id === s.selectedId)
     if (sel) {
@@ -768,15 +868,22 @@ export const useStore = create((set, get) => ({
       else if (sel.type === 'window') {
         const firstStack = s.items.find((it) => it.parentId === sel.id && it.type === 'stack')
         parentId = firstStack ? firstStack.id : sel.id
+      } else if (sel.type === 'tab') {
+        // fall through to window-lookup below
       } else {
         parentId = sel.parentId
       }
     }
     if (!parentId) {
-      const firstWindow = s.items.find((it) => it.type === 'window')
-      const firstStack = firstWindow && s.items.find((it) => it.parentId === firstWindow.id && it.type === 'stack')
+      const firstWindow = s.items.find(
+        (it) => it.type === 'window' && it.parentId === s.activeTabId
+      ) ?? s.items.find((it) => it.type === 'window')
+      const firstStack = firstWindow && s.items.find(
+        (it) => it.parentId === firstWindow.id && it.type === 'stack'
+      )
       parentId = firstStack ? firstStack.id : firstWindow?.id
     }
+    if (!parentId) return s
     const p = makePanel(panelType, { parentId })
     return { items: [...s.items, p], selectedId: p.id }
   }),
@@ -785,35 +892,65 @@ export const useStore = create((set, get) => ({
     const sel = s.items.find((it) => it.id === s.selectedId)
     let parentId = null
     if (sel?.type === 'stack' || sel?.type === 'window') parentId = sel.id
-    else if (sel) parentId = sel.parentId
+    else if (sel && sel.type !== 'tab') parentId = sel.parentId
     if (!parentId) {
-      const firstWindow = s.items.find((it) => it.type === 'window')
+      const firstWindow = s.items.find(
+        (it) => it.type === 'window' && it.parentId === s.activeTabId
+      ) ?? s.items.find((it) => it.type === 'window')
       parentId = firstWindow?.id
     }
+    if (!parentId) return s
     const label = { vstack: 'VStack', hstack: 'HStack', zstack: 'ZStack' }[stackType] || 'Stack'
     const stk = makeStack({ parentId, stackType, name: label })
     return { items: [...s.items, stk], selectedId: stk.id }
   }),
 
   addWindow: () => undoable(set, get, (s) => {
-    const w = makeWindow({ position: [Math.random() * 3 - 1.5, 2.5, -4.5] })
+    // Windows belong to a Tab. Parent new windows to the active tab so they
+    // appear on the page the user is editing. Positioning is relative to
+    // other windows already on that tab.
+    let parentTabId = s.activeTabId
+    if (!parentTabId || !s.items.find((it) => it.id === parentTabId && it.type === 'tab')) {
+      parentTabId = s.items.find((it) => it.type === 'tab')?.id
+    }
+    if (!parentTabId) return s
+    const windows = s.items.filter(
+      (it) => it.type === 'window' && it.parentId === parentTabId
+    )
+    let x = 0, y = 2.5, z = -4.5
+    if (windows.length > 0) {
+      let rightmost = windows[0]
+      for (const win of windows) {
+        if (win.position[0] > rightmost.position[0]) rightmost = win
+      }
+      const gap = 0.3
+      x = rightmost.position[0] + (rightmost.size[0] / 2) + gap + 3.2
+      y = rightmost.position[1]
+      z = rightmost.position[2]
+    }
+    const w = makeWindow({ parentId: parentTabId, position: [x, y, z] })
     return { items: [...s.items, w], selectedId: w.id }
   }),
 
-  // Add a TabView (NavigationStack of Tabs). Creates the container plus 2 default Tabs.
+  // Add an in-window TabView (SwiftUI `TabView { Tab { ... } }`). Creates the
+  // container plus 2 default Tabs. Not to be confused with the top-level page
+  // tabs — this is the inline tab bar that lives inside a Window.
   addTabView: () => undoable(set, get, (s) => {
     const sel = s.items.find((it) => it.id === s.selectedId)
     let parentId = null
     if (sel?.type === 'stack' || sel?.type === 'window') parentId = sel.id
-    else if (sel) parentId = sel.parentId
+    else if (sel && sel.type !== 'tab') parentId = sel.parentId
     if (!parentId) {
-      const firstWindow = s.items.find((it) => it.type === 'window')
+      const firstWindow = s.items.find(
+        (it) => it.type === 'window' && it.parentId === s.activeTabId
+      ) ?? s.items.find((it) => it.type === 'window')
       parentId = firstWindow?.id
     }
+    if (!parentId) return s
     const tabView = makeStack({
       parentId,
       stackType: 'tabview',
-      name: 'Navigation Stack',
+      name: 'Tab View',
       activeTab: 0,
       spacing: 0,
       padding: 0,
@@ -948,10 +1085,13 @@ export const useStore = create((set, get) => ({
     return { items: [...s.items, bar, ...buttons], selectedId: bar.id }
   }),
 
-  // Attach a floating ornament (capsule bar) to the current Window.
+  // Attach a floating ornament (capsule bar) to the current Window. Vertical
+  // ornaments (leading / trailing) are seeded with two default tabs so they
+  // read as a tab bar out of the box; the cross-axis size is fixed (the pill
+  // width) but the long axis is left auto so the bar grows with tab count —
+  // matching Apple's HIG.
   addOrnament: (placement) => undoable(set, get, (s) => {
     const sel = s.items.find((it) => it.id === s.selectedId)
-    // Walk up to find the owning window.
     let cur = sel
     while (cur && cur.type !== 'window' && cur.parentId) {
       cur = s.items.find((it) => it.id === cur.parentId)
@@ -959,23 +1099,55 @@ export const useStore = create((set, get) => ({
     const targetWindow =
       cur?.type === 'window'
         ? cur
-        : s.items.find((it) => it.type === 'window')
+        : s.items.find(
+            (it) => it.type === 'window' && it.parentId === s.activeTabId
+          ) ?? s.items.find((it) => it.type === 'window')
     if (!targetWindow) return s
     const d = ORNAMENT_DEFAULTS[placement]
     if (!d) return s
+
+    const isVertical = placement === 'leading' || placement === 'trailing'
+    const barW = isVertical ? 60 : null                         // fixed short axis
+    const barH = isVertical ? null : d.height                   // long axis auto for vertical
+
     const stk = makeStack({
       parentId: targetWindow.id,
       stackType: d.stackType,
       name: d.name,
       ornament: placement,
-      fixedWidth: d.width,
-      fixedHeight: d.height,
-      padding: d.padding,
-      spacing: d.spacing,
+      fixedWidth: isVertical ? barW : d.width,
+      fixedHeight: barH,
+      padding: isVertical ? 8 : d.padding,
+      spacing: isVertical ? 6 : d.spacing,
       alignment: 'center',
       background: 'glassThick'
     })
-    return { items: [...s.items, stk], selectedId: stk.id }
+
+    // Seed vertical bars with two default tab buttons so they look/feel like
+    // tab bars from the moment they're created. Horizontal ornaments stay
+    // empty — users typically populate those with toolbar actions.
+    const children = []
+    if (isVertical) {
+      for (const label of ['Home', 'Library']) {
+        children.push(makePanel('button', {
+          parentId: stk.id,
+          name: label,
+          text: label,
+          textStyle: 'caption',
+          fontSize: textStyleToFontSize('caption'),
+          fontWeight: 'medium',
+          size: [ptToUnits(44), ptToUnits(44)],
+          cornerRadius: ptToUnits(22),
+          buttonStyle: 'plain',
+          color: '#ffffff',
+          colorToken: null,
+          textColor: '#000000',
+          textColorToken: 'primary'
+        }))
+      }
+    }
+
+    return { items: [...s.items, stk, ...children], selectedId: stk.id }
   }),
 
   // Create a Navigation Split View — a Window containing an HStack that
@@ -1063,6 +1235,32 @@ export const useStore = create((set, get) => ({
   }),
 
   removeItem: (id) => undoable(set, get, (s) => {
+    const target = s.items.find((it) => it.id === id)
+    if (!target) return s
+    // Route tab removal through removeTab so we preserve the "keep at least
+    // one tab" invariant.
+    if (target.type === 'tab') {
+      const tabs = s.items.filter((it) => it.type === 'tab')
+      if (tabs.length <= 1) return s
+      const toRemove = new Set([id])
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const it of s.items) {
+          if (!toRemove.has(it.id) && it.parentId && toRemove.has(it.parentId)) {
+            toRemove.add(it.id); changed = true
+          }
+        }
+      }
+      const nextItems = s.items.filter((it) => !toRemove.has(it.id))
+      const nextTabs = nextItems.filter((it) => it.type === 'tab')
+      return {
+        items: nextItems,
+        activeTabId: s.activeTabId === id ? nextTabs[0]?.id ?? null : s.activeTabId,
+        selectedId: toRemove.has(s.selectedId) ? null : s.selectedId
+      }
+    }
+
     const toRemove = new Set([id])
     let changed = true
     while (changed) {
@@ -1074,8 +1272,32 @@ export const useStore = create((set, get) => ({
         }
       }
     }
+    // Repair `activeTab`/`activeChild` on any container whose indexed child
+    // is being removed, so nothing renders past the end of the visible set.
+    const items = s.items
+      .filter((it) => !toRemove.has(it.id))
+      .map((it) => {
+        if (it.type !== 'stack') return it
+        if (it.stackType === 'tabview') {
+          const tabs = s.items.filter(
+            (c) => c.parentId === it.id && !toRemove.has(c.id)
+          )
+          if (tabs.length > 0 && (it.activeTab ?? 0) >= tabs.length) {
+            return { ...it, activeTab: Math.max(0, tabs.length - 1) }
+          }
+        }
+        if (it.stackType === 'navstack') {
+          const kids = s.items.filter(
+            (c) => c.parentId === it.id && !toRemove.has(c.id)
+          )
+          if (kids.length > 0 && (it.activeChild ?? 0) >= kids.length) {
+            return { ...it, activeChild: Math.max(0, kids.length - 1) }
+          }
+        }
+        return it
+      })
     return {
-      items: s.items.filter((it) => !toRemove.has(it.id)),
+      items,
       selectedId: toRemove.has(s.selectedId) ? null : s.selectedId
     }
   }),
@@ -1084,21 +1306,21 @@ export const useStore = create((set, get) => ({
     items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it))
   })),
 
-  // Switch a panel's panelType while preserving shared fields (position, modifiers, etc.)
-  // Used by Properties panel to switch shape geometry, picker type, list style etc.
+  // Switch a panel's panelType while preserving shared fields (position,
+  // modifiers, etc.). Size is taken from the new type's default so each
+  // variant gets sensible dimensions — the user can still resize afterwards.
   switchPanelType: (id, newType) => undoable(set, get, (s) => {
     const defaults = PANEL_DEFAULTS[newType] || {}
     return {
       items: s.items.map((it) => {
         if (it.id !== id || it.type !== 'panel') return it
-        // Keep existing shared fields, overlay new type's defaults for type-specific ones
+        // Start from the new type's defaults, then layer identity/placement/
+        // meta from the original. Order matters: defaults first, identity last.
         return {
-          ...it,
-          panelType: newType,
           ...defaults,
-          // Preserve these from the original
           id: it.id,
           type: 'panel',
+          panelType: newType,
           name: it.name,
           parentId: it.parentId,
           visible: it.visible,
@@ -1146,17 +1368,26 @@ export const useStore = create((set, get) => ({
     const src = s.items.find((it) => it.id === sourceId)
     const tgt = s.items.find((it) => it.id === targetId)
     if (!src || !tgt) return s
-    if (src.type === 'window') return s  // windows don't get reparented
+    if (src.type === 'tab') return s  // tabs stay top-level
     if (isDescendantOf(s.items, tgt.id, src.id)) return s
+
+    // A Window can only be re-parented to a Tab.
+    if (src.type === 'window') {
+      if (mode === 'inside' && tgt.type !== 'tab') return s
+      if (mode !== 'inside' && tgt.type !== 'window') return s
+    }
 
     const items = s.items.filter((it) => it.id !== sourceId)
     let newParentId
     let insertIdx
-    if (mode === 'inside' && (tgt.type === 'stack' || tgt.type === 'window')) {
+    // Allowed "inside" targets: stack, window, or tab (the latter only for windows).
+    const canDropInside =
+      (tgt.type === 'stack' || tgt.type === 'window' || tgt.type === 'tab')
+    if (mode === 'inside' && canDropInside) {
       newParentId = tgt.id
       let last = items.findIndex((it) => it.id === targetId)
-      for (let i = items.length - 1; i > last; i--) {
-        if (items[i].parentId === tgt.id) { last = i; break }
+      for (let i = last + 1; i < items.length; i++) {
+        if (items[i].parentId === tgt.id) last = i
       }
       insertIdx = last + 1
     } else {
@@ -1164,27 +1395,71 @@ export const useStore = create((set, get) => ({
       const tIdx = items.findIndex((it) => it.id === targetId)
       insertIdx = mode === 'before' ? tIdx : tIdx + 1
     }
-    if (!newParentId) return s  // can't orphan
+    if (!newParentId) return s  // can't orphan (windows must live under a tab)
     const moved = { ...src, parentId: newParentId }
     items.splice(insertIdx, 0, moved)
-    return { items }
+
+    // Auto-expand the destination container so the moved row doesn't appear
+    // to vanish into a collapsed folder.
+    const items2 = items.map((it) =>
+      it.id === newParentId && it.collapsed ? { ...it, collapsed: false } : it
+    )
+    return { items: items2 }
   }),
 
+  // Stash a deep subtree snapshot on the clipboard so paste can reproduce the
+  // full hierarchy (was previously losing children of a copied stack).
   copyItem: (id) => set((s) => {
-    const item = s.items.find((it) => it.id === id)
-    if (!item || item.type === 'window') return s
-    return { clipboard: { ...item } }
+    const root = s.items.find((it) => it.id === id)
+    if (!root || root.type === 'tab' || root.type === 'window') return s
+    const collect = (parentId) =>
+      s.items.filter((it) => it.parentId === parentId).flatMap((c) => [c, ...collect(c.id)])
+    const subtree = [root, ...collect(root.id)].map((it) => ({ ...it }))
+    return { clipboard: { rootId: root.id, items: subtree } }
   }),
 
   pasteItem: () => undoable(set, get, (s) => {
     if (!s.clipboard) return s
-    const c = s.clipboard
-    const newItem = {
-      ...c,
-      id: nextId(c.type === 'panel' ? 'panel' : 'stack'),
-      name: `${c.name} copy`
+    // Back-compat with the old single-item shape.
+    if (!s.clipboard.items) {
+      const c = s.clipboard
+      const newItem = {
+        ...c,
+        id: nextId(c.type === 'panel' ? 'panel' : 'stack'),
+        name: `${c.name} copy`
+      }
+      return { items: [...s.items, newItem], selectedId: newItem.id }
     }
-    return { items: [...s.items, newItem], selectedId: newItem.id }
+
+    const { rootId, items: subtree } = s.clipboard
+    const idMap = new Map()
+    for (const it of subtree) {
+      const prefix = it.type === 'panel' ? 'panel' : it.type === 'stack' ? 'stack' : it.type
+      idMap.set(it.id, nextId(prefix))
+    }
+
+    // Drop the paste into the selection if it's a valid parent, otherwise
+    // reparent to the original root's parent (usually its former sibling).
+    const oldRoot = subtree.find((it) => it.id === rootId)
+    const sel = s.items.find((it) => it.id === s.selectedId)
+    let newRootParent = oldRoot?.parentId ?? null
+    if (sel && (sel.type === 'stack' || sel.type === 'window')) {
+      newRootParent = sel.id
+    }
+
+    const cloned = subtree.map((it) => ({
+      ...it,
+      id: idMap.get(it.id),
+      parentId: it.id === rootId
+        ? newRootParent
+        : idMap.get(it.parentId) ?? it.parentId,
+      name: it.id === rootId ? `${it.name} copy` : it.name
+    }))
+    const newRootId = idMap.get(rootId)
+    return {
+      items: [...s.items, ...cloned],
+      selectedId: newRootId
+    }
   })
 }))
 

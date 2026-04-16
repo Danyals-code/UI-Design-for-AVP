@@ -265,7 +265,7 @@ function UniversalModifiers({ item, updateItem }) {
   const m = item.modifiers || {}
   const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
   return (
-    <Section title="Modifiers" defaultOpen={false}>
+    <Section title="Modifiers" defaultOpen={true}>
       <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.opacity() · .disabled() · .clipShape()</div>
       <Row label="Opacity">
         <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
@@ -333,6 +333,7 @@ export default function PropertiesPanel({ width = 280 }) {
       {tab === 'object'
         ? !item
           ? <Empty />
+          : item.type === 'tab'      ? <TabProps item={item} />
           : item.type === 'window'   ? <WindowProps item={item} />
           : item.type === 'stack'    ? <StackProps item={item} />
           : <PanelProps item={item} scene={scene} />
@@ -345,6 +346,48 @@ function Empty() {
   return (
     <div className="p-6 text-center text-textMute text-[11px] leading-relaxed">
       Select an item in the canvas or layers list to edit its properties.
+    </div>
+  )
+}
+
+// ---- tab (page) ----
+// Tabs are top-level pages. They have a name + SF-Symbol icon and hold
+// Windows. No geometry/material of their own.
+
+function TabProps({ item }) {
+  const renameTab   = useStore((s) => s.renameTab)
+  const setTabIcon  = useStore((s) => s.setTabIcon)
+  const removeTab   = useStore((s) => s.removeTab)
+  const tabCount    = useStore((s) => s.items.filter((it) => it.type === 'tab').length)
+  return (
+    <div className="flex-1 overflow-y-auto scrollbar">
+      <Section title="Tab">
+        <Row label="Name">
+          <input
+            value={item.name}
+            onChange={(e) => renameTab(item.id, e.target.value)}
+            className="field flex-1"
+          />
+        </Row>
+        <Row label="Icon">
+          <input
+            value={item.icon || ''}
+            onChange={(e) => setTabIcon(item.id, e.target.value)}
+            placeholder="SF Symbol name"
+            className="field flex-1"
+          />
+        </Row>
+      </Section>
+      {tabCount > 1 && (
+        <Section title="Actions">
+          <button
+            className="btn btn-ghost text-danger w-full"
+            onClick={() => removeTab(item.id)}
+          >
+            Delete Tab
+          </button>
+        </Section>
+      )}
     </div>
   )
 }
