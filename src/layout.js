@@ -249,25 +249,25 @@ export function layoutStack(stack, items) {
   for (let i = 0; i < children.length; i++) {
     const c = children[i]
     const [cw, ch] = effectiveSizes[i]
-    // Text/link panels with left/right anchor render the group origin AT the
-    // text's edge (not its center). For those, position the group directly at
-    // the stack's leading/trailing boundary so the text renders flush against it.
+    // Text & Link: `textAlign` overrides stack alignment for that child, so
+    // .leading text inside a .center VStack still hugs the stack's left edge
+    // (matches the user's mental model of "left-aligned text touches the left
+    // side of the stack"). For every other child we fall back to the stack's
+    // own alignment value.
     const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
-    const leftAnchored = isTextLike && (c.textAlign === 'left' || (!c.textAlign && !c.size))
+    const leftAnchored  = isTextLike && c.textAlign === 'left'
     const rightAnchored = isTextLike && c.textAlign === 'right'
-    let x = padOffsetX
-    if (stack.alignment === 'leading') {
-      x = leftAnchored
-        ? -innerW / 2 + padOffsetX                      // group origin at left edge
-        : -innerW / 2 + cw / 2 + padOffsetX             // center so left edge at boundary
+    let x
+    if (leftAnchored) {
+      x = -innerW / 2 + cw / 2 + padOffsetX
+    } else if (rightAnchored) {
+      x = innerW / 2 - cw / 2 + padOffsetX
+    } else if (stack.alignment === 'leading') {
+      x = -innerW / 2 + cw / 2 + padOffsetX
     } else if (stack.alignment === 'trailing') {
-      x = rightAnchored
-        ? innerW / 2 + padOffsetX                       // group origin at right edge
-        : innerW / 2 - cw / 2 + padOffsetX
+      x = innerW / 2 - cw / 2 + padOffsetX
     } else {
-      // center alignment: text with left-anchor should still be centered visually
-      if (leftAnchored) x = -cw / 2 + padOffsetX
-      else if (rightAnchored) x = cw / 2 + padOffsetX
+      x = padOffsetX                                    // center (default)
     }
     y -= ch / 2
     out.set(c.id, [x, y + padOffsetY, 0])

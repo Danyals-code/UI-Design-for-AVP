@@ -164,7 +164,18 @@ const PANEL_DEFAULTS = {
     textStyle: 'body',
     fontSize: textStyleToFontSize('body'),
     fontWeight: 'regular',
-    textAlign: 'left'
+    textAlign: 'left',
+    // SwiftUI Text-only modifiers (kept on the panel root so they appear
+    // alongside the existing text fields rather than in the generic
+    // `.modifiers` blob — they're part of what a Text *is*, not a modifier
+    // layered on top of it).
+    italic:        false,   // .italic()
+    underline:     false,   // .underline()
+    strikethrough: false,   // .strikethrough()
+    lineLimit:     0,       // .lineLimit(n) — 0 = unlimited
+    lineSpacing:   0,       // .lineSpacing(pt)
+    tracking:      0,       // .tracking(pt)
+    textCase:      'none'   // .textCase(.uppercase / .lowercase)
   },
   button: {
     size: [ptToUnits(180), ptToUnits(44)],
@@ -469,7 +480,14 @@ const PANEL_DEFAULTS = {
     textStyle: 'body',
     fontSize: textStyleToFontSize('body'),
     fontWeight: 'regular',
-    textAlign: 'left'
+    textAlign: 'left',
+    italic:        false,
+    underline:     true,    // links conventionally underlined by default
+    strikethrough: false,
+    lineLimit:     1,
+    lineSpacing:   0,
+    tracking:      0,
+    textCase:      'none'
   },
   asyncimage: {
     size: [ptToUnits(320), ptToUnits(200)],

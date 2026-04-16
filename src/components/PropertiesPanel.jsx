@@ -259,6 +259,79 @@ function TabButton({ active, onClick, children }) {
   )
 }
 
+// ---- Text Modifiers (Text / Link only) ----
+// Narrower set: only modifiers that SwiftUI's `Text` actually responds to.
+// No `.border()` (fine on Text but rarely used and clutters the panel), no
+// `.disabled()` (Text isn't interactive — it's a no-op), no `.clipShape()`
+// (rarely meaningful for glyphs). Instead: text-specific mods like
+// `.italic()`, `.underline()`, `.strikethrough()`, `.lineLimit()`,
+// `.lineSpacing()`, `.tracking()`, `.textCase()`.
+
+function TextModifiers({ item, updateItem }) {
+  const m = item.modifiers || {}
+  const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
+  const setField = (patch) => updateItem(item.id, patch)
+  return (
+    <Section title="Modifiers" defaultOpen={true}>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.italic() · .underline() · .strikethrough()</div>
+      <Row label="Italic">
+        <div className="segmented flex-1">
+          <button className={item.italic ? 'active' : ''} onClick={() => setField({ italic: true })}>On</button>
+          <button className={!item.italic ? 'active' : ''} onClick={() => setField({ italic: false })}>Off</button>
+        </div>
+      </Row>
+      <Row label="Underline">
+        <div className="segmented flex-1">
+          <button className={item.underline ? 'active' : ''} onClick={() => setField({ underline: true })}>On</button>
+          <button className={!item.underline ? 'active' : ''} onClick={() => setField({ underline: false })}>Off</button>
+        </div>
+      </Row>
+      <Row label="Strike">
+        <div className="segmented flex-1">
+          <button className={item.strikethrough ? 'active' : ''} onClick={() => setField({ strikethrough: true })}>On</button>
+          <button className={!item.strikethrough ? 'active' : ''} onClick={() => setField({ strikethrough: false })}>Off</button>
+        </div>
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.textCase() · .lineLimit() · .lineSpacing() · .tracking()</div>
+      <Row label="Case">
+        <Select
+          value={item.textCase || 'none'}
+          options={[
+            { value: 'none',      label: 'None' },
+            { value: 'uppercase', label: 'UPPERCASE' },
+            { value: 'lowercase', label: 'lowercase' }
+          ]}
+          onChange={(v) => setField({ textCase: v })}
+        />
+      </Row>
+      <Row label="Lines"><IntField value={item.lineLimit ?? 0} min={0} max={20} onChange={(v) => setField({ lineLimit: Math.max(0, v) })} /></Row>
+      <Row label="Line Sp."><PtField value={item.lineSpacing ?? 0} onChange={(v) => setField({ lineSpacing: Math.max(0, v) })} /></Row>
+      <Row label="Tracking"><NumField value={item.tracking ?? 0} step={0.1} onChange={(v) => setField({ tracking: v })} suffix="pt" /></Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.opacity()</div>
+      <Row label="Opacity">
+        <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.shadow()</div>
+      <Row label="Color"><ColorRow value={m.shadowColor || '#000000'} onChange={(v) => upd({ shadowColor: v })} /></Row>
+      <Row label="Radius"><IntField value={m.shadowRadius ?? 0} min={0} onChange={(v) => upd({ shadowRadius: v })} /></Row>
+      <Row label="X / Y">
+        <IntField value={m.shadowX ?? 0} onChange={(v) => upd({ shadowX: v })} />
+        <IntField value={m.shadowY ?? 0} onChange={(v) => upd({ shadowY: v })} />
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotationEffect() · .scaleEffect() · .offset()</div>
+      <Row label="Rotation"><NumField value={m.rotation ?? 0} step={1} onChange={(v) => upd({ rotation: v })} suffix="°" /></Row>
+      <Row label="Scale X"><NumField value={m.scaleX ?? 1} step={0.05} onChange={(v) => upd({ scaleX: v })} /></Row>
+      <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
+      <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+      <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+    </Section>
+  )
+}
+
 // ---- Universal Modifiers (shared by Window, Stack, Panel) ----
 
 function UniversalModifiers({ item, updateItem }) {
@@ -1404,8 +1477,12 @@ function PanelProps({ item, scene }) {
         </Section>
       )}
 
-      {/* Phase 6 — Universal Modifiers */}
-      <UniversalModifiers item={item} updateItem={updateItem} />
+      {/* Phase 6 — Modifiers. Text & Link use a narrower, SwiftUI-accurate
+          modifier set; everything else gets the generic .opacity/.shadow/
+          .border/.rotation/.scale/.offset/.disabled/.clipShape list. */}
+      {(panelType === 'text' || panelType === 'link')
+        ? <TextModifiers item={item} updateItem={updateItem} />
+        : <UniversalModifiers item={item} updateItem={updateItem} />}
 
       {/* Phase 7 — Style Modifiers */}
       <Section title="Styles" defaultOpen={false}>
