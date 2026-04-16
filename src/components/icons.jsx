@@ -225,6 +225,13 @@ export const RadialGradientIcon = ({ size = 12 }) => (
 export const AngularGradientIcon = ({ size = 12 }) => (
   <svg {...s(size)}><circle cx="8" cy="8" r="6" /><path d="M8 2v6" /><path d="M8 8l4 4" /></svg>
 )
+// Top-level page tab icon (used in the layers panel tab bar). Distinct
+// from TabIcon / TabViewIcon which refer to the SwiftUI TabView primitive.
+export const PageTabIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <path d="M2 5a1 1 0 011-1h3l2 2h5a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1V5z" />
+  </svg>
+)
 // Navigation / Tab icons
 export const TabViewIcon = ({ size = 13 }) => (
   <svg {...s(size)}>

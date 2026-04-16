@@ -67,6 +67,17 @@ export function computeSize(item, items) {
     return [fixedW ?? (cw + padW(pad)), fixedH ?? (ch + titleH + padH(pad))]
   }
 
+  // TabView: size of active tab + auto tab bar (at bottom, 64pt tall).
+  // Tab bar width scales with number of tabs: 80pt per tab + 24pt padding.
+  if (item.stackType === 'tabview') {
+    const active = children[Math.min(item.activeTab ?? 0, children.length - 1)]
+    const tabBarH = ptToUnits(64)
+    if (!active) return [fixedW ?? ptToUnits(children.length * 80 + 24), fixedH ?? tabBarH]
+    const [cw, ch] = computeSize(active, items)
+    const barW = ptToUnits(children.length * 80 + 24)
+    return [fixedW ?? Math.max(cw, barW) + padW(pad), fixedH ?? (ch + tabBarH + padH(pad))]
+  }
+
   if (children.length === 0) {
     return [
       fixedW ?? Math.max(0.2, padW(pad)),
@@ -130,6 +141,18 @@ export function layoutStack(stack, items) {
     const titleH = stack.navTitle ? ptToUnits(40) : 0
     const out = new Map()
     out.set(active.id, [0, -titleH / 2, 0])
+    return out
+  }
+
+  // TabView: only the active Tab, shifted up to leave room for the bottom tab bar.
+  if (stack.stackType === 'tabview') {
+    const idx = Math.min(stack.activeTab ?? 0, children.length - 1)
+    const active = children[idx]
+    const out = new Map()
+    if (active) {
+      const tabBarH = ptToUnits(64)
+      out.set(active.id, [0, tabBarH / 2, 0])
+    }
     return out
   }
 
@@ -224,13 +247,30 @@ export function layoutStack(stack, items) {
   const padOffsetY = (pad.top - pad.bottom) / 2
 
   for (let i = 0; i < children.length; i++) {
+    const c = children[i]
     const [cw, ch] = effectiveSizes[i]
+    // Text/link panels with left/right anchor render the group origin AT the
+    // text's edge (not its center). For those, position the group directly at
+    // the stack's leading/trailing boundary so the text renders flush against it.
+    const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
+    const leftAnchored = isTextLike && (c.textAlign === 'left' || (!c.textAlign && !c.size))
+    const rightAnchored = isTextLike && c.textAlign === 'right'
     let x = padOffsetX
-    // SwiftUI: leading = child's left edge at stack's left padding boundary
-    if (stack.alignment === 'leading') x = -innerW / 2 + cw / 2 + padOffsetX
-    else if (stack.alignment === 'trailing') x = innerW / 2 - cw / 2 + padOffsetX
+    if (stack.alignment === 'leading') {
+      x = leftAnchored
+        ? -innerW / 2 + padOffsetX                      // group origin at left edge
+        : -innerW / 2 + cw / 2 + padOffsetX             // center so left edge at boundary
+    } else if (stack.alignment === 'trailing') {
+      x = rightAnchored
+        ? innerW / 2 + padOffsetX                       // group origin at right edge
+        : innerW / 2 - cw / 2 + padOffsetX
+    } else {
+      // center alignment: text with left-anchor should still be centered visually
+      if (leftAnchored) x = -cw / 2 + padOffsetX
+      else if (rightAnchored) x = cw / 2 + padOffsetX
+    }
     y -= ch / 2
-    out.set(children[i].id, [x, y + padOffsetY, 0])
+    out.set(c.id, [x, y + padOffsetY, 0])
     y -= ch / 2 + gap
   }
   return out

@@ -5,7 +5,9 @@ import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize } from '../layout'
 import { roundedRectShape, rimRingShape } from '../shapes'
-import { resolveSemantic, ptToUnits, ORNAMENT_GAP, MATERIALS } from '../appleSystem'
+import { resolveSemantic, ptToUnits, ORNAMENT_GAP, MATERIALS, SF_SYMBOLS } from '../appleSystem'
+
+const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 
@@ -294,12 +296,84 @@ function Stack3D({ stack, localPosition, items }) {
         </Text>
       )}
 
+      {/* TabView: auto-render bottom tab bar with clickable tabs */}
+      {stack.stackType === 'tabview' && <TabBar3D stack={stack} children={children} w={w} h={h} scene={scene} />}
+
       {children.map((c) => {
-        const pos = childPositions.get(c.id) || [0, 0, 0]
+        // In a TabView, only the active Tab is positioned by layoutStack.
+        const pos = childPositions.get(c.id)
+        if (!pos) return null
         if (c.type === 'stack') {
           return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} />
         }
         return <Panel3D key={c.id} panel={c} localPosition={pos} />
+      })}
+    </group>
+  )
+}
+
+// Auto-rendered tab bar at the bottom of a TabView stack.
+// Shows each Tab's label + icon, highlights the active one, clickable.
+function TabBar3D({ stack, children, w, h, scene }) {
+  const updateItem = useStore((s) => s.updateItem)
+  const tabs = children.filter((c) => c.stackType === 'tab')
+  if (tabs.length === 0) return null
+
+  const barH = ptToUnits(64)
+  const barY = -h / 2 + barH / 2
+  const tabW = ptToUnits(80)
+  const activeIdx = stack.activeTab ?? 0
+  const tint = scene.tintColor || '#007aff'
+  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+
+  return (
+    <group position={[0, barY, 0.01]}>
+      {/* Bar background */}
+      <mesh>
+        <shapeGeometry args={[roundedRectShape(w, barH, barH / 2)]} />
+        <meshBasicMaterial
+          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          transparent
+          opacity={0.88}
+        />
+      </mesh>
+      {/* Tabs */}
+      {tabs.map((tab, i) => {
+        const xOffset = -((tabs.length - 1) * tabW) / 2 + i * tabW
+        const active = i === activeIdx
+        return (
+          <group
+            key={tab.id}
+            position={[xOffset, 0, 0.005]}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              updateItem(stack.id, { activeTab: i })
+            }}
+          >
+            {tab.tabIcon && (
+              <Text
+                position={[0, ptToUnits(8), 0.001]}
+                fontSize={ptToUnits(18)}
+                color={active ? tint : dimColor}
+                anchorX="center"
+                anchorY="middle"
+              >
+                {getSymbolGlyph(tab.tabIcon)}
+              </Text>
+            )}
+            <Text
+              position={[0, -ptToUnits(14), 0.001]}
+              font={getInterFont('medium')}
+              fontSize={ptToUnits(10)}
+              color={active ? tint : dimColor}
+              anchorX="center"
+              anchorY="middle"
+              maxWidth={tabW * 0.9}
+            >
+              {tab.tabLabel || tab.name}
+            </Text>
+          </group>
+        )
       })}
     </group>
   )
@@ -460,16 +534,131 @@ function Window3D({ window: win, items }) {
   )
 }
 
+// ---- Page tab navigation bar (floating, left of the primary window) ----
+// visionOS-style vertical pill of page tabs. Appears whenever there are two
+// or more Tabs in the scene — clicking an icon switches the active page.
+// Height scales with tab count so it never wastes space.
+
+function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHeight, scene, selectTab }) {
+  const tabW = ptToUnits(56)
+  const tabH = ptToUnits(56)
+  const padding = ptToUnits(10)
+  const gap = ptToUnits(6)
+  const barW = tabW + padding * 2
+  const barH = tabs.length * tabH + (tabs.length - 1) * gap + padding * 2
+  const tint = scene.tintColor || '#007aff'
+  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+  const gapFromWindow = ptToUnits(24)
+
+  // Pin to the left edge of the anchor window, vertically centered.
+  const x = anchorPosition[0] - anchorWidth / 2 - gapFromWindow - barW / 2
+  const y = anchorPosition[1]
+  const z = anchorPosition[2]
+
+  const bgShape = roundedRectShape(barW, barH, Math.min(barW, barH) / 2)
+
+  return (
+    <group position={[x, y, z]}>
+      {/* Liquid glass background */}
+      <mesh position={[0, 0, -0.005]}>
+        <shapeGeometry args={[bgShape]} />
+        <meshBasicMaterial
+          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          transparent
+          opacity={0.88}
+        />
+      </mesh>
+
+      {/* Stack the tabs top → bottom so the order matches the layers panel. */}
+      {tabs.map((tab, i) => {
+        const yOffset = barH / 2 - padding - tabH / 2 - i * (tabH + gap)
+        const active = tab.id === activeTabId
+        const glyph = getSymbolGlyph(tab.icon)
+        const chipShape = roundedRectShape(tabW, tabH, tabH / 2)
+        return (
+          <group
+            key={tab.id}
+            position={[0, yOffset, 0.005]}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              selectTab(tab.id)
+            }}
+          >
+            {active && (
+              <mesh position={[0, 0, -0.001]}>
+                <shapeGeometry args={[chipShape]} />
+                <meshBasicMaterial color={tint} transparent opacity={0.18} />
+              </mesh>
+            )}
+            <Text
+              position={[0, ptToUnits(6), 0.001]}
+              fontSize={ptToUnits(20)}
+              color={active ? tint : dimColor}
+              anchorX="center"
+              anchorY="middle"
+            >
+              {glyph}
+            </Text>
+            <Text
+              position={[0, -ptToUnits(14), 0.001]}
+              font={getInterFont('medium')}
+              fontSize={ptToUnits(9)}
+              color={active ? tint : dimColor}
+              anchorX="center"
+              anchorY="middle"
+              maxWidth={tabW * 0.92}
+            >
+              {tab.name}
+            </Text>
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
 // ---- Root ----
 
 export default function SceneTree() {
   const items = useStore((s) => s.items)
-  const windows = items.filter((it) => it.type === 'window' && it.visible !== false)
+  const activeTabId = useStore((s) => s.activeTabId)
+  const scene = useStore((s) => s.scene)
+  const selectTab = useStore((s) => s.selectTab)
+
+  // Only windows belonging to the active Tab render. Inactive tabs keep their
+  // windows in the data but don't paint in the 3D scene.
+  const windows = items.filter(
+    (it) =>
+      it.type === 'window' &&
+      it.visible !== false &&
+      it.parentId === activeTabId
+  )
+  const tabs = items.filter((it) => it.type === 'tab')
+
+  // Anchor the page-tab sidebar to the leftmost window of the active tab so
+  // it reads as "attached to the window group" — matching the user's mental
+  // model of "tab nav bar on the left of the window".
+  const anchor = windows.reduce(
+    (acc, w) => (!acc || w.position[0] < acc.position[0] ? w : acc),
+    null
+  )
+
   return (
     <>
       {windows.map((w) => (
         <Window3D key={w.id} window={w} items={items} />
       ))}
+      {tabs.length >= 2 && anchor && (
+        <PageTabBar3D
+          tabs={tabs}
+          activeTabId={activeTabId}
+          anchorPosition={anchor.position}
+          anchorWidth={anchor.size[0]}
+          anchorHeight={anchor.size[1]}
+          scene={scene}
+          selectTab={selectTab}
+        />
+      )}
     </>
   )
 }

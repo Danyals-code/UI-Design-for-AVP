@@ -8,7 +8,7 @@ import {
   SlideshowIcon, TickerIcon,
   SheetIcon, PopoverIcon, AlertIcon,
   WindowIcon, PlusIcon, ChevronRight,
-  ToolbarIcon, TabViewIcon, NavStackIcon
+  ToolbarIcon, TabViewIcon, NavStackIcon, PageTabIcon
 } from './icons'
 
 // Each group shows as a row with a right-arrow. Hovering the row reveals a
@@ -28,6 +28,22 @@ export default function AddDropdown({ variant = 'compact' }) {
   const [open, setOpen]               = useState(false)
   const [hoveredGroup, setHoveredGroup] = useState(null)
   const ref = useRef(null)
+  // A small close delay means the mouse can cross the tiny gap between the
+  // group row and its fly-out submenu without instantly dismissing it. The
+  // timer is cancelled whenever the pointer enters *either* the row or the
+  // submenu — that's what makes the interaction forgiving.
+  const closeTimer = useRef(null)
+  const cancelClose = () => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+  }
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimer.current = setTimeout(() => setHoveredGroup(null), 180)
+  }
+  const enterGroup = (gi) => {
+    cancelClose()
+    setHoveredGroup(gi)
+  }
 
   const addPanel       = useStore((s) => s.addPanel)
   const addStack       = useStore((s) => s.addStack)
@@ -35,11 +51,12 @@ export default function AddDropdown({ variant = 'compact' }) {
   const addPresentation = useStore((s) => s.addPresentation)
   const addToolbar     = useStore((s) => s.addToolbar)
   const addTabView     = useStore((s) => s.addTabView)
+  const addTab         = useStore((s) => s.addTab)
 
   useEffect(() => {
     const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
+    return () => { document.removeEventListener('mousedown', onDoc); cancelClose() }
   }, [])
 
   const choose = (fn) => { fn(); setOpen(false) }
@@ -69,9 +86,10 @@ export default function AddDropdown({ variant = 'compact' }) {
     {
       label: 'Layout',
       items: [
-        { label: 'Stack',          Icon: VStackIcon,  onSel: () => addStack('vstack') },
-        { label: 'Navigation Stack', Icon: NavStackIcon, onSel: () => addTabView() },
-        { label: 'Toolbar',        Icon: ToolbarIcon, onSel: () => addToolbar({ placement: 'top', items: ['Action 1', 'Action 2', 'Action 3'] }) },
+        { label: 'Stack',            Icon: VStackIcon,  onSel: () => addStack('vstack') },
+        { label: 'Tab View',         Icon: TabViewIcon, onSel: () => addTabView() },
+        { label: 'Navigation Stack', Icon: NavStackIcon, onSel: () => addStack('navstack') },
+        { label: 'Toolbar',          Icon: ToolbarIcon, onSel: () => addToolbar({ placement: 'top', items: ['Action 1', 'Action 2', 'Action 3'] }) },
         { label: 'Spacer',         Icon: SpacerIcon,  onSel: () => addPanel('spacer') },
         { label: 'Divider',        Icon: DividerIcon, onSel: () => addPanel('divider') },
         { label: 'Shape',          Icon: RectangleIcon, onSel: () => addPanel('rectangle') }
@@ -103,7 +121,8 @@ export default function AddDropdown({ variant = 'compact' }) {
     {
       label: 'Windows',
       items: [
-        { label: 'Window', Icon: WindowIcon, onSel: () => addWindow() }
+        { label: 'Tab (Page)', Icon: PageTabIcon, onSel: () => addTab() },
+        { label: 'Window',     Icon: WindowIcon,  onSel: () => addWindow() }
       ]
     }
   ]
@@ -135,8 +154,8 @@ export default function AddDropdown({ variant = 'compact' }) {
             left:  variant === 'compact' ? 'auto' : 0,
             minWidth: 180
           }}
-          /* Keep the submenu alive while the mouse moves across to it */
-          onMouseLeave={() => setHoveredGroup(null)}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
         >
           {groups.map((g, gi) => {
             const GroupIcon = GROUP_ICONS[g.label] || VStackIcon
@@ -145,7 +164,7 @@ export default function AddDropdown({ variant = 'compact' }) {
               <div
                 key={g.label}
                 className="relative"
-                onMouseEnter={() => setHoveredGroup(gi)}
+                onMouseEnter={() => enterGroup(gi)}
               >
                 {/* Group row */}
                 <div
@@ -160,11 +179,23 @@ export default function AddDropdown({ variant = 'compact' }) {
                   <ChevronRight size={9} className="text-textMute flex-shrink-0" />
                 </div>
 
-                {/* Submenu — flies out to the right */}
+                {/* Submenu — flies out to the right. The negative marginLeft
+                    lets the submenu overlap the parent column by a pixel so
+                    the pointer never enters a "no-hover" strip on the way
+                    across. Combined with the close delay, this makes the
+                    interaction feel forgiving instead of twitchy. */}
                 {isHovered && g.items.length > 0 && (
                   <div
                     className="popover absolute rounded z-[60] py-1"
-                    style={{ left: '100%', top: 0, marginLeft: 4, minWidth: 180 }}
+                    style={{
+                      left: '100%',
+                      top: -4,
+                      marginLeft: -2,
+                      paddingLeft: 2,
+                      minWidth: 180
+                    }}
+                    onMouseEnter={cancelClose}
+                    onMouseLeave={scheduleClose}
                   >
                     {g.items.map(({ label, Icon, onSel }) => (
                       <button
