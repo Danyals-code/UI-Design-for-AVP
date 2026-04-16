@@ -1,0 +1,27 @@
+# Dependencies (The heavy stuff)
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production (The "Build" output)
+/dist
+
+# Environment variables (Sensitive data/API keys)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vite / IDE logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# System files
+.DS_Store
+Thumbs.db
