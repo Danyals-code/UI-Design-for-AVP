@@ -534,14 +534,31 @@ function WindowProps({ item }) {
         </div>
       </Section>
 
-      {/* Chrome — ornament wizards (per-window, not per-scene) */}
+      {/* Chrome — ornament wizards (per-window, not per-scene).
+          visionOS exposes two first-party window attachments:
+           • `.toolbar { ... }` — a bar of actions pinned to the top or
+             bottom edge, with leading / principal / trailing slots that
+             mirror SwiftUI's `ToolbarItem(placement:)` API.
+           • `NavigationSplitView` — a two-column sidebar+detail layout
+             embedded *inside* the current window.
+          Sidebars for page navigation live on the scene's Tabs (pages),
+          not as ornaments. */}
       <Section title="Ornaments">
-        <div className="text-[10px] text-textMute mb-1">
-          Attach .ornament() views to this window's edges.
+        <div className="text-[10px] text-textMute mb-1 leading-relaxed">
+          Attach a SwiftUI <code>.toolbar</code> (top or bottom) with
+          leading / principal / trailing items. For side navigation, use
+          the scene's Tabs (pages) — they render as a sidebar automatically.
         </div>
-        <NavBarWizard />
         <ToolbarWizard />
-        <OrnamentWizards />
+      </Section>
+
+      <Section title="Navigation Split View">
+        <div className="text-[10px] text-textMute mb-1 leading-relaxed">
+          Adds a <code>NavigationSplitView</code> (sidebar + detail) inside
+          this window. The sidebar gets a list of navigation rows; the
+          detail column fills the remaining space.
+        </div>
+        <SplitViewWizard />
       </Section>
 
       <Section title="Environment" defaultOpen={false}>
@@ -600,12 +617,12 @@ function StackProps({ item }) {
         </Row>
         {item.stackType !== 'zstack' && (
           <Row label="Spacing">
-            <IntField value={item.spacing} onChange={(v) => updateItem(item.id, { spacing: v })} />
+            <IntField value={item.spacing} min={0} onChange={(v) => updateItem(item.id, { spacing: v })} />
             <span className="text-[9px] text-textMute">pt</span>
           </Row>
         )}
         <Row label="Padding">
-          <IntField value={item.paddingEdges ? -1 : item.padding} onChange={(v) => updateItem(item.id, { padding: v, paddingEdges: null })} />
+          <IntField value={item.paddingEdges ? -1 : item.padding} min={0} onChange={(v) => updateItem(item.id, { padding: v, paddingEdges: null })} />
           <span className="text-[9px] text-textMute">pt</span>
           <button
             className={`btn btn-ghost text-[9px] ${item.paddingEdges ? 'text-accent' : ''}`}
@@ -622,10 +639,10 @@ function StackProps({ item }) {
         </Row>
         {item.paddingEdges && (
           <div className="grid grid-cols-2 gap-1 mt-1">
-            <Row label="Top"><IntField value={item.paddingEdges.top ?? 0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, top: v } })} /></Row>
-            <Row label="Bottom"><IntField value={item.paddingEdges.bottom ?? 0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, bottom: v } })} /></Row>
-            <Row label="Leading"><IntField value={item.paddingEdges.leading ?? 0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, leading: v } })} /></Row>
-            <Row label="Trailing"><IntField value={item.paddingEdges.trailing ?? 0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, trailing: v } })} /></Row>
+            <Row label="Top"><IntField value={item.paddingEdges.top ?? 0} min={0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, top: v } })} /></Row>
+            <Row label="Bottom"><IntField value={item.paddingEdges.bottom ?? 0} min={0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, bottom: v } })} /></Row>
+            <Row label="Leading"><IntField value={item.paddingEdges.leading ?? 0} min={0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, leading: v } })} /></Row>
+            <Row label="Trailing"><IntField value={item.paddingEdges.trailing ?? 0} min={0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, trailing: v } })} /></Row>
           </div>
         )}
         {item.stackType === 'grid' && (
@@ -711,38 +728,96 @@ function StackProps({ item }) {
       )}
 
       <Section title="Frame">
-        <Row label="Width">
-          <div className="flex-1">
-            <input
-              type="number"
-              step={1}
-              placeholder="auto"
-              value={item.fixedWidth ?? ''}
-              onChange={(e) => {
-                const v = e.target.value === '' ? null : parseFloat(e.target.value)
-                updateItem(item.id, { fixedWidth: isNaN(v) ? null : v })
-              }}
-              className="field"
-            />
-          </div>
-          <span className="text-[9px] text-textMute">pt</span>
-        </Row>
-        <Row label="Height">
-          <div className="flex-1">
-            <input
-              type="number"
-              step={1}
-              placeholder="auto"
-              value={item.fixedHeight ?? ''}
-              onChange={(e) => {
-                const v = e.target.value === '' ? null : parseFloat(e.target.value)
-                updateItem(item.id, { fixedHeight: isNaN(v) ? null : v })
-              }}
-              className="field"
-            />
-          </div>
-          <span className="text-[9px] text-textMute">pt</span>
-        </Row>
+        {/* Width axis — SwiftUI `.frame(maxWidth: .infinity)` / Figma fill/fit/fixed. */}
+        {(() => {
+          // Backwards-compat: legacy stacks without widthMode but with
+          // fixedWidth set should be treated as 'fixed' for display.
+          const wMode = item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')
+          return (
+            <Row label="Width">
+              <div className="segmented flex-1">
+                <button
+                  className={wMode === 'fit' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fit', fixedWidth: null })}
+                  title="Hug contents"
+                >Fit</button>
+                <button
+                  className={wMode === 'fixed' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fixed', fixedWidth: item.fixedWidth ?? 300 })}
+                  title=".frame(width:)"
+                >Fixed</button>
+                <button
+                  className={wMode === 'fill' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fill' })}
+                  title=".frame(maxWidth: .infinity)"
+                >Fill</button>
+              </div>
+            </Row>
+          )
+        })()}
+        {(item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')) === 'fixed' && (
+          <Row label="W">
+            <div className="flex-1">
+              <input
+                type="number"
+                step={1}
+                min={0}
+                placeholder="pt"
+                value={item.fixedWidth ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                  updateItem(item.id, { fixedWidth: isNaN(v) ? null : Math.max(0, v) })
+                }}
+                className="field"
+              />
+            </div>
+            <span className="text-[9px] text-textMute">pt</span>
+          </Row>
+        )}
+        {/* Height axis — same three modes. */}
+        {(() => {
+          const hMode = item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')
+          return (
+            <Row label="Height">
+              <div className="segmented flex-1">
+                <button
+                  className={hMode === 'fit' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fit', fixedHeight: null })}
+                  title="Hug contents"
+                >Fit</button>
+                <button
+                  className={hMode === 'fixed' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fixed', fixedHeight: item.fixedHeight ?? 200 })}
+                  title=".frame(height:)"
+                >Fixed</button>
+                <button
+                  className={hMode === 'fill' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fill' })}
+                  title=".frame(maxHeight: .infinity)"
+                >Fill</button>
+              </div>
+            </Row>
+          )
+        })()}
+        {(item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')) === 'fixed' && (
+          <Row label="H">
+            <div className="flex-1">
+              <input
+                type="number"
+                step={1}
+                min={0}
+                placeholder="pt"
+                value={item.fixedHeight ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                  updateItem(item.id, { fixedHeight: isNaN(v) ? null : Math.max(0, v) })
+                }}
+                className="field"
+              />
+            </div>
+            <span className="text-[9px] text-textMute">pt</span>
+          </Row>
+        )}
       </Section>
 
       <Section title=".ornament()">
@@ -977,14 +1052,60 @@ function PanelProps({ item, scene }) {
         )}
       </Section>
 
-      {/* Frame — only for elements with explicit size (not auto-sized text) */}
-      {item.size && (
+      {/* Frame — text & link get a Figma/Framer-style sizing mode picker
+          (Fit / Fixed / Fill) that maps onto SwiftUI's frame semantics.
+          Everything else uses the regular explicit-size editor. */}
+      {(panelType === 'text' || panelType === 'link') ? (
+        <Section title="Frame">
+          <Row label="Width">
+            <div className="segmented flex-1">
+              <button
+                className={(item.widthMode || 'fit') === 'fit' ? 'active' : ''}
+                onClick={() => updateItem(item.id, { widthMode: 'fit' })}
+                title="Hug contents (SwiftUI default — Text is intrinsic)"
+              >Fit</button>
+              <button
+                className={item.widthMode === 'fixed' ? 'active' : ''}
+                onClick={() => {
+                  // Seed a frame if none exists so the Width field has something to show.
+                  const next = Array.isArray(item.size) ? item.size : [ptToUnits(200), ptToUnits(40)]
+                  updateItem(item.id, { widthMode: 'fixed', size: next })
+                }}
+                title=".frame(width:) — explicit width"
+              >Fixed</button>
+              <button
+                className={item.widthMode === 'fill' ? 'active' : ''}
+                onClick={() => updateItem(item.id, { widthMode: 'fill' })}
+                title=".frame(maxWidth: .infinity) — fill parent stack width"
+              >Fill</button>
+            </div>
+          </Row>
+          {item.widthMode === 'fixed' && Array.isArray(item.size) && (
+            <Row label="Size">
+              <PtField
+                value={item.size[0]}
+                onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1] ?? ptToUnits(40)] })}
+              />
+              <PtField
+                value={item.size[1] ?? ptToUnits(40)}
+                onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })}
+              />
+            </Row>
+          )}
+          <div className="text-[10px] text-textMute leading-relaxed mt-1">
+            {item.widthMode === 'fill'
+              ? 'Fills the parent stack\u2019s inner width. Padding still applies.'
+              : item.widthMode === 'fixed'
+              ? 'Uses the explicit size below. Content that overflows is truncated by .lineLimit.'
+              : 'Hugs the content \u2014 the native SwiftUI Text behaviour.'}
+          </div>
+        </Section>
+      ) : item.size ? (
         <Section title="Frame">
           <Row label="Width"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1]] })} /></Row>
           <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })} /></Row>
         </Section>
-      )}
-      {!item.size && (
+      ) : (
         <Section title="Frame">
           <div className="text-[10px] text-textMute">Auto-sized from content (SwiftUI default).</div>
           <button className="btn w-full justify-center mt-1" onClick={() => updateItem(item.id, { size: [ptToUnits(200), ptToUnits(40)] })}>Set explicit frame</button>
@@ -1576,68 +1697,6 @@ function SymbolSection({ item, updateItem }) {
 
 // ---- scene ----
 
-function NavBarWizard() {
-  const [open, setOpen] = useState(false)
-  const [height, setHeight] = useState(56)
-  const [count, setCount] = useState(3)
-  const [labels, setLabels] = useState(['Home', 'Search', 'Profile'])
-  const addNavBar = useStore((s) => s.addNavBar)
-
-  const setCountClamped = (n) => {
-    const c = Math.max(1, Math.min(6, n))
-    setCount(c)
-    if (labels.length < c) {
-      setLabels([...labels, ...Array(c - labels.length).fill('').map((_, i) => `Item ${labels.length + i + 1}`)])
-    }
-  }
-
-  if (!open) {
-    return (
-      <button className="btn w-full justify-center" onClick={() => setOpen(true)}>
-        + Navigation Bar
-      </button>
-    )
-  }
-  return (
-    <div className="flex flex-col gap-2 p-2 bg-surface2 border border-border rounded">
-      <Row label="Height">
-        <IntField value={height} min={44} max={96} onChange={setHeight} />
-        <span className="text-[9px] text-textMute">pt</span>
-      </Row>
-      <Row label="Items">
-        <IntField value={count} min={1} max={6} onChange={setCountClamped} />
-      </Row>
-      {Array.from({ length: count }).map((_, i) => (
-        <Row key={i} label={`#${i + 1}`}>
-          <input
-            value={labels[i] || ''}
-            onChange={(e) => {
-              const next = [...labels]
-              next[i] = e.target.value
-              setLabels(next)
-            }}
-            className="field flex-1"
-          />
-        </Row>
-      ))}
-      <div className="flex gap-1 mt-1">
-        <button
-          className="btn btn-primary flex-1 justify-center"
-          onClick={() => {
-            addNavBar({ height, labels: labels.slice(0, count) })
-            setOpen(false)
-          }}
-        >
-          Add
-        </button>
-        <button className="btn flex-1 justify-center" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function TabBarWizard() {
   const [open, setOpen] = useState(false)
   const [pages, setPages] = useState(4)
@@ -1697,25 +1756,30 @@ function SplitViewWizard() {
   const addSplitView = useStore((s) => s.addSplitView)
   return (
     <button className="btn w-full justify-center" onClick={() => addSplitView()}>
-      + Split View (new Window)
+      + Navigation Split View
     </button>
   )
 }
 
+// SwiftUI `.toolbar` — one bar per call, attached to `.topBar` or
+// `.bottomBar`. Items split into three placements that mirror
+// `ToolbarItem(placement: .topBarLeading / .principal / .topBarTrailing)`:
+//   • leading  — pinned left
+//   • principal — centered (typically the navigation title)
+//   • trailing — pinned right
+// We keep the inputs as comma-separated lists so users can seed several
+// buttons without clicking +. Blank groups collapse — a toolbar with only
+// a principal behaves like a classic navigation-title bar.
 function ToolbarWizard() {
   const [open, setOpen] = useState(false)
   const [placement, setPlacement] = useState('top')
-  const [count, setCount] = useState(3)
-  const [items, setItems] = useState(['Action 1', 'Action 2', 'Action 3'])
+  const [leading,   setLeading]   = useState('Edit')
+  const [principal, setPrincipal] = useState('Title')
+  const [trailing,  setTrailing]  = useState('Done')
   const addToolbar = useStore((s) => s.addToolbar)
 
-  const setCountClamped = (n) => {
-    const c = Math.max(1, Math.min(8, n))
-    setCount(c)
-    if (items.length < c) {
-      setItems([...items, ...Array(c - items.length).fill('').map((_, i) => `Action ${items.length + i + 1}`)])
-    }
-  }
+  const parseList = (s) =>
+    (s || '').split(',').map((x) => x.trim()).filter((x) => x.length > 0)
 
   if (!open) {
     return (
@@ -1727,53 +1791,65 @@ function ToolbarWizard() {
   return (
     <div className="flex flex-col gap-2 p-2 bg-surface2 border border-border rounded">
       <Row label="Placement">
-        <Select
-          value={placement}
-          options={[
-            { value: 'top',      label: 'Top' },
-            { value: 'bottom',   label: 'Bottom' },
-            { value: 'leading',  label: 'Leading' },
-            { value: 'trailing', label: 'Trailing' }
-          ]}
-          onChange={setPlacement}
+        <div className="segmented flex-1">
+          <button
+            className={placement === 'top' ? 'active' : ''}
+            onClick={() => setPlacement('top')}
+            title=".toolbar(placement: .topBar)"
+          >Top Bar</button>
+          <button
+            className={placement === 'bottom' ? 'active' : ''}
+            onClick={() => setPlacement('bottom')}
+            title=".toolbar(placement: .bottomBar)"
+          >Bottom Bar</button>
+        </div>
+      </Row>
+      <Row label="Leading">
+        <input
+          value={leading}
+          onChange={(e) => setLeading(e.target.value)}
+          placeholder="Edit, Cancel"
+          className="field flex-1"
+          title="Comma-separated button labels pinned to the left"
         />
       </Row>
-      <Row label="Items">
-        <IntField value={count} min={1} max={8} onChange={setCountClamped} />
+      <Row label="Principal">
+        <input
+          value={principal}
+          onChange={(e) => setPrincipal(e.target.value)}
+          placeholder="Title"
+          className="field flex-1"
+          title="Centered title (leave blank to skip)"
+        />
       </Row>
-      {Array.from({ length: count }).map((_, i) => (
-        <Row key={i} label={`#${i + 1}`}>
-          <input
-            value={items[i] || ''}
-            onChange={(e) => {
-              const next = [...items]
-              next[i] = e.target.value
-              setItems(next)
-            }}
-            className="field flex-1"
-          />
-        </Row>
-      ))}
+      <Row label="Trailing">
+        <input
+          value={trailing}
+          onChange={(e) => setTrailing(e.target.value)}
+          placeholder="Done, Save"
+          className="field flex-1"
+          title="Comma-separated button labels pinned to the right"
+        />
+      </Row>
+      <div className="text-[9px] text-textMute leading-relaxed">
+        Tip: Separate multiple labels with commas. Leave a slot blank to
+        skip it. Principal accepts a single string (the title).
+      </div>
       <div className="flex gap-1 mt-1">
         <button
           className="btn btn-primary flex-1 justify-center"
           onClick={() => {
-            addToolbar({ placement, items: items.slice(0, count) })
+            addToolbar({
+              placement,
+              leading:   parseList(leading),
+              principal: principal,
+              trailing:  parseList(trailing)
+            })
             setOpen(false)
           }}
         >Add</button>
         <button className="btn flex-1 justify-center" onClick={() => setOpen(false)}>Cancel</button>
       </div>
-    </div>
-  )
-}
-
-function OrnamentWizards() {
-  const addOrnament = useStore((s) => s.addOrnament)
-  return (
-    <div className="grid grid-cols-2 gap-1">
-      <button className="btn justify-center" onClick={() => addOrnament('leading')}>+ Leading</button>
-      <button className="btn justify-center" onClick={() => addOrnament('trailing')}>+ Trailing</button>
     </div>
   )
 }

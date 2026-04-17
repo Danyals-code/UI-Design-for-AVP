@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
-import { layoutStack, computeSize } from '../layout'
+import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
 import { roundedRectShape, rimRingShape } from '../shapes'
 import { resolveSemantic, ptToUnits, ORNAMENT_GAP, MATERIALS, SF_SYMBOLS } from '../appleSystem'
 
@@ -170,14 +170,24 @@ function LiquidGlass({
 
 // ---- Stack renderer ----
 
-function Stack3D({ stack, localPosition, items }) {
+function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const scene = useStore((s) => s.scene)
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
   const isSelected = selectedId === stack.id
 
-  const [w, h] = computeSize(stack, items)
-  const childPositions = useMemo(() => layoutStack(stack, items), [stack, items])
+  // `resolvedSize` comes from the parent's `resolvedChildSizes` — it already
+  // accounts for `widthMode: 'fill'` / `heightMode: 'fill'` expansion. Fall
+  // back to the stack's own intrinsic size when we're a top-level stack
+  // (no parent resolving us). We pass the resolved size as an override to
+  // the layout engine so fill children inside us get leftover space
+  // relative to our actual rendered size, not our intrinsic one.
+  const intrinsic = computeSize(stack, items)
+  const w = resolvedSize?.[0] ?? intrinsic[0]
+  const h = resolvedSize?.[1] ?? intrinsic[1]
+  const outerSize = resolvedSize || null
+  const childPositions = useMemo(() => layoutStack(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
+  const childSizes     = useMemo(() => resolvedChildSizes(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
   const children = items.filter((c) => c.parentId === stack.id && isEffectivelyVisible(items, c.id))
 
   const hasBackground = stack.ornament != null || stack.background != null
@@ -303,10 +313,13 @@ function Stack3D({ stack, localPosition, items }) {
         // In a TabView, only the active Tab is positioned by layoutStack.
         const pos = childPositions.get(c.id)
         if (!pos) return null
+        const resolved = childSizes.get(c.id)
         if (c.type === 'stack') {
-          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} />
+          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
         }
-        return <Panel3D key={c.id} panel={c} localPosition={pos} />
+        // Pass the resolved size so fill-width text renders at the stack's
+        // inner width rather than its intrinsic content width.
+        return <Panel3D key={c.id} panel={c} localPosition={pos} resolvedSize={resolved} />
       })}
     </group>
   )
@@ -446,12 +459,18 @@ function Window3D({ window: win, items }) {
   const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
   const gap = ptToUnits(ORNAMENT_GAP)
 
-  // Stack multiple ornaments on the same edge instead of overlapping.
+  // Stack multiple ornaments on the same edge instead of overlapping. Each
+  // ornament may declare widthMode/heightMode 'fill' to match the window's
+  // corresponding axis (e.g. a top toolbar that spans the full window width).
   const edgeOffsets = { leading: 0, trailing: 0, top: 0, bottom: 0 }
   const ornPositions = new Map()
+  const ornSizes = new Map()
   for (const orn of ornamentChildren) {
-    const [ow, oh] = computeSize(orn, items)
+    const intrinsic = computeSize(orn, items)
     const edge = orn.ornament
+    const isHorizEdge = edge === 'top' || edge === 'bottom'
+    const ow = (orn.widthMode  === 'fill' && isHorizEdge) ? w : intrinsic[0]
+    const oh = (orn.heightMode === 'fill' && !isHorizEdge) ? h : intrinsic[1]
     let ox = 0, oy = 0
 
     if (edge === 'leading') {
@@ -469,6 +488,7 @@ function Window3D({ window: win, items }) {
     }
 
     ornPositions.set(orn.id, [ox, oy, 0.015])
+    ornSizes.set(orn.id, [ow, oh])
   }
 
   return (
@@ -493,11 +513,19 @@ function Window3D({ window: win, items }) {
         }}
       />
 
-      {/* Content stacks — centered in window */}
+      {/* Content stacks — centered in window. A stack with fill widthMode /
+          heightMode expands to the window's bounds (useful for
+          NavigationSplitView / full-bleed layouts). */}
       {contentChildren.map((c) => {
         const pos = c.type === 'stack' ? [0, 0, 0.005] : (c.position || [0, 0, 0.005])
         if (c.type === 'stack') {
-          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} />
+          const intrinsic = computeSize(c, items)
+          const fillW = c.widthMode  === 'fill'
+          const fillH = c.heightMode === 'fill'
+          const resolved = (fillW || fillH)
+            ? [fillW ? w : intrinsic[0], fillH ? h : intrinsic[1]]
+            : undefined
+          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
         }
         return <Panel3D key={c.id} panel={c} localPosition={pos} />
       })}
@@ -509,6 +537,7 @@ function Window3D({ window: win, items }) {
           stack={o}
           localPosition={ornPositions.get(o.id)}
           items={items}
+          resolvedSize={ornSizes.get(o.id)}
         />
       ))}
 
