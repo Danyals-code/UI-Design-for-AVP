@@ -212,7 +212,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.8} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.4} />
         </mesh>
       )}
 
@@ -496,7 +496,7 @@ function Window3D({ window: win, items }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.9} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
         </mesh>
       )}
 

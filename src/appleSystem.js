@@ -327,6 +327,45 @@ export const TABLE_STYLES = [
   { value: 'bordered',  label: 'Bordered' }
 ]
 
+// List styles mirror SwiftUI's ListStyle protocol: DefaultListStyle,
+// PlainListStyle, InsetListStyle, InsetGroupedListStyle, GroupedListStyle,
+// SidebarListStyle, BorderedListStyle (macOS), CarouselListStyle (watchOS),
+// EllipticalListStyle (watchOS). Each style drives row height, outer padding,
+// horizontal inset, whether the list has its own glass background, whether
+// separators are drawn, and whether rows are grouped into a rounded card.
+// Row height is style-driven (Apple doesn't expose a user knob for it on
+// List — consistent spacing is part of the style contract).
+//
+// All values are in POINTS.
+export const LIST_STYLES = {
+  default:      { label: 'Default',       rowH: 44, pad: 12, inset: 20, gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  plain:        { label: 'Plain',         rowH: 44, pad: 0,  inset: 16, gap: 0,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
+  inset:        { label: 'Inset',         rowH: 44, pad: 10, inset: 24, gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  insetGrouped: { label: 'Inset Grouped', rowH: 44, pad: 12, inset: 20, gap: 0,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
+  sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 2,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
+  bordered:     { label: 'Bordered',      rowH: 28, pad: 0,  inset: 0,  gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 6,  showGroupCard: false, bordered: true },
+  carousel:     { label: 'Carousel',      rowH: 72, pad: 12, inset: 16, gap: 10, showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 16, showGroupCard: false },
+  elliptical:   { label: 'Elliptical',    rowH: 72, pad: 12, inset: 28, gap: 8,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 22, showGroupCard: false, tapered: true }
+}
+
+export const LIST_STYLE_ORDER = [
+  'default', 'plain', 'inset', 'insetGrouped', 'grouped',
+  'sidebar', 'bordered', 'carousel', 'elliptical'
+]
+
+// Auto-height for a List based on its style + row count. Row height is
+// style-driven (Apple doesn't expose per-row overrides on List).
+// Returns height in POINTS.
+export function computeListHeightPt(panel) {
+  const style = LIST_STYLES[panel.listStyle] || LIST_STYLES.default
+  const rows = panel.rows || []
+  const n = rows.length
+  if (n === 0) return style.pad * 2 + style.rowH  // empty-state shows one row slot
+  const rowsH = n * style.rowH + Math.max(0, n - 1) * (style.gap || 0)
+  return rowsH + style.pad * 2
+}
+
 // ---- Phase 8: SF Symbols ----
 // Curated subset of ~60 commonly-used SF Symbols for visionOS.
 // Each entry maps a symbol name to a Unicode glyph that visually

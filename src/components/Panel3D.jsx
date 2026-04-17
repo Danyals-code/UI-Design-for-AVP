@@ -4,7 +4,7 @@ import { Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore } from '../store'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS } from '../appleSystem'
+import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
 import { getInterFont } from '../fonts'
 
 const DEG2RAD = Math.PI / 180
@@ -53,6 +53,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       const glyphAdv = fontSize * 0.55 + ptToUnits(panel.tracking || 0)
       const w = Math.max(ptToUnits(40), text.length * glyphAdv)
       const h = fontSize * 1.5 + ptToUnits(panel.lineSpacing || 0)
+      return [w, h]
+    }
+    // List: height auto-derived from (row count × style row height) + style
+    // pad. Apple doesn't let you set List row height or total height manually;
+    // the list grows with its rows. Width stays user-editable.
+    if (panelType === 'list') {
+      const w = Array.isArray(panel.size) && panel.size[0] ? panel.size[0] : ptToUnits(360)
+      const h = ptToUnits(computeListHeightPt(panel))
       return [w, h]
     }
     if (Array.isArray(panel.size)) return panel.size
@@ -108,7 +116,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   }, [size[0], size[1], cornerRadius])
 
   const parent = useStore((s) => s.items.find((it) => it.id === panel.parentId))
-  const canDrag = true  // all panels are draggable
+  // A panel can only be freely dragged if its parent is a Window (or it's a
+  // top-level item with no parent). Panels inside a stack are positioned by
+  // the layout engine — dragging would write to panel.position but the
+  // layout ignores it, causing a visible snap-back glitch. This also matches
+  // SwiftUI: you can't arbitrarily position an item inside VStack/HStack.
+  const canDrag = !parent || parent.type === 'window'
 
   // -- ticker scroll animation --
   const tickerRef = useRef()
@@ -311,7 +324,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
         onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
       >
         <circleGeometry args={[circleRadius, 64]} />
@@ -398,56 +411,127 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- List ----
+  // Style-aware rendering — visuals change with panel.listStyle. Row height,
+  // padding, inset, group card, separators, etc. all come from LIST_STYLES.
   const listOverlay = panelType === 'list' && (() => {
     const rows = panel.rows || []
-    const pad = ptToUnits(14)
-    const rowH = ptToUnits(panel.rowHeight || 60)
-    const innerW = size[0] - pad * 2
-    const startY = size[1] / 2 - pad
+    const style = LIST_STYLES[panel.listStyle] || LIST_STYLES.default
+    const padY = ptToUnits(style.pad)
+    const inset = ptToUnits(style.inset)
+    const rowH = ptToUnits(style.rowH)
+    const gap = ptToUnits(style.gap)
+    const innerW = size[0] - inset * 2
+    const startY = size[1] / 2 - padY
     const primary = resolveSemantic('primary', scheme)
     const secondary = resolveSemantic('secondary', scheme)
     const separator = resolveSemantic('tertiary', scheme)
+    const tint = scene.tintColor || '#007aff'
+    const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
+    const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
+
+    // Optional rounded group card behind all rows (insetGrouped / default).
+    const groupCardShape = style.showGroupCard
+      ? roundedRectShape(innerW, rows.length * rowH, ptToUnits(style.groupRadius))
+      : null
+
+    // Optional bordered-list outer ring (macOS .bordered).
+    const borderRingShape = style.bordered
+      ? rimRingShape(size[0], size[1], ptToUnits(style.groupRadius), ptToUnits(1))
+      : null
+
     return (
-      <>
+      <group position={[0, 0, 0.004]}>
+        {/* Group card background (insetGrouped, default) */}
+        {groupCardShape && (
+          <mesh position={[0, startY - (rows.length * rowH) / 2, -0.001]}>
+            <shapeGeometry args={[groupCardShape]} />
+            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scheme)} transparent opacity={0.95} />
+          </mesh>
+        )}
+        {/* Bordered-style outer ring */}
+        {borderRingShape && (
+          <mesh position={[0, 0, 0.001]}>
+            <shapeGeometry args={[borderRingShape]} />
+            <meshBasicMaterial color={separator} />
+          </mesh>
+        )}
         {rows.map((r, i) => {
-          const cy = startY - rowH / 2 - i * rowH
+          const cy = startY - rowH / 2 - i * (rowH + gap)
+          const hasSub = !!r.subtitle
+          // Per-row rounded card (sidebar / carousel / elliptical).
+          const rowCard = style.roundedRows
+            ? roundedRectShape(
+                // elliptical: subtle horizontal taper for edge rows
+                style.tapered ? innerW - Math.abs(i - (rows.length - 1) / 2) * ptToUnits(8) : innerW,
+                rowH - (style.gap ? ptToUnits(2) : 0),
+                ptToUnits(style.groupRadius)
+              )
+            : null
           return (
-            <group key={i} position={[0, cy, 0.005]}>
+            <group key={i} position={[0, cy, 0]}>
+              {rowCard && (
+                <mesh position={[0, 0, -0.001]}>
+                  <shapeGeometry args={[rowCard]} />
+                  <meshBasicMaterial
+                    color={resolveSemantic(
+                      style.showBg ? 'tertiarySystemBackground' : 'secondarySystemBackground',
+                      scheme
+                    )}
+                    transparent
+                    opacity={style.roundedRows ? 0.9 : 0.0}
+                  />
+                </mesh>
+              )}
+              {/* Title (and optional subtitle stacked) */}
               <Text
-                position={[-innerW / 2, ptToUnits(8), 0]}
-                fontSize={ptToUnits(15)}
+                position={[-innerW / 2 + ptToUnits(12), hasSub ? ptToUnits(7) : 0, 0]}
+                font={getInterFont(panel.listStyle === 'sidebar' ? 'medium' : 'regular')}
+                fontSize={fontSizeTitle}
                 color={primary}
                 anchorX="left"
                 anchorY="middle"
-                maxWidth={innerW * 0.85}
+                maxWidth={innerW * 0.78}
               >{r.title || ''}</Text>
-              {r.subtitle && (
+              {hasSub && (
                 <Text
-                  position={[-innerW / 2, -ptToUnits(8), 0]}
-                  fontSize={ptToUnits(12)}
+                  position={[-innerW / 2 + ptToUnits(12), -ptToUnits(8), 0]}
+                  fontSize={fontSizeSub}
                   color={secondary}
                   anchorX="left"
                   anchorY="middle"
-                  maxWidth={innerW * 0.85}
+                  maxWidth={innerW * 0.78}
                 >{r.subtitle}</Text>
               )}
-              <Text
-                position={[innerW / 2, 0, 0]}
-                fontSize={ptToUnits(14)}
-                color={secondary}
-                anchorX="right"
-                anchorY="middle"
-              >›</Text>
-              {i < rows.length - 1 && (
-                <mesh position={[0, -rowH / 2, -0.001]}>
-                  <planeGeometry args={[innerW, 0.003]} />
+              {/* Trailing chevron — omitted on sidebar/carousel/elliptical where
+                  rows look like cards, not navigation links. */}
+              {!style.roundedRows && (
+                <Text
+                  position={[innerW / 2 - ptToUnits(8), 0, 0]}
+                  fontSize={ptToUnits(14)}
+                  color={secondary}
+                  anchorX="right"
+                  anchorY="middle"
+                >›</Text>
+              )}
+              {/* Separator line (plain/inset/insetGrouped/grouped/bordered) */}
+              {style.showSeparators && i < rows.length - 1 && (
+                <mesh
+                  position={[
+                    // Separator has a small leading inset on plain/inset so it
+                    // visually aligns with the text — matches Apple.
+                    (style.inset > 0 ? ptToUnits(6) : 0),
+                    -rowH / 2,
+                    -0.0005
+                  ]}
+                >
+                  <planeGeometry args={[innerW - (style.inset > 0 ? ptToUnits(12) : 0), 0.003]} />
                   <meshBasicMaterial color={separator} />
                 </mesh>
               )}
             </group>
           )
         })}
-      </>
+      </group>
     )
   })()
 
@@ -872,14 +956,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {isSelected && !isEditing && panelType !== 'text' && panelType !== 'link' && panelType !== 'label' && (
         <mesh position={[0, 0, -0.002]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.85} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
         </mesh>
       )}
       {/* Text/Link/Label selection: subtle underline instead of bounding box */}
       {isSelected && !isEditing && (panelType === 'text' || panelType === 'link' || panelType === 'label') && (
         <mesh position={[0, -size[1] / 2 - ptToUnits(2), -0.001]}>
           <planeGeometry args={[size[0], ptToUnits(2)]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.9} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.6} />
         </mesh>
       )}
 
@@ -889,7 +973,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[fillShape]} />
@@ -1087,7 +1171,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[capsuleShape]} />

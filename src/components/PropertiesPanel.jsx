@@ -9,6 +9,7 @@ import {
   MATERIALS, MATERIAL_ORDER,
   TOGGLE_STYLES, PICKER_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
   CONTROL_SIZES, TABLE_STYLES,
+  LIST_STYLES, LIST_STYLE_ORDER,
   SF_SYMBOLS,
   SYMBOL_RENDERING_MODES, SYMBOL_VARIANTS,
   ANIMATION_CURVES, TRANSITION_TYPES,
@@ -1103,7 +1104,13 @@ function PanelProps({ item, scene }) {
       ) : item.size ? (
         <Section title="Frame">
           <Row label="Width"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1]] })} /></Row>
-          <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })} /></Row>
+          {isList ? (
+            <div className="text-[10px] text-textMute">
+              Height is auto — grows with the row count at the style's fixed row height.
+            </div>
+          ) : (
+            <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })} /></Row>
+          )}
         </Section>
       ) : (
         <Section title="Frame">
@@ -1239,19 +1246,16 @@ function PanelProps({ item, scene }) {
         <Section title="List">
           <Row label="Style">
             <Select
-              value={item.listStyle || 'plain'}
-              options={[
-                { value: 'plain',  label: 'Plain' },
-                { value: 'inset',  label: 'Inset' },
-                { value: 'sidebar', label: 'Sidebar' }
-              ]}
+              value={item.listStyle || 'insetGrouped'}
+              options={LIST_STYLE_ORDER.map((k) => ({ value: k, label: LIST_STYLES[k].label }))}
               onChange={(v) => updateItem(item.id, { listStyle: v })}
             />
           </Row>
-          <Row label="Row Height">
-            <IntField value={item.rowHeight || 60} min={32} max={120} onChange={(v) => updateItem(item.id, { rowHeight: v })} />
-            <span className="text-[9px] text-textMute">pt</span>
-          </Row>
+          <div className="text-[10px] text-textMute leading-snug">
+            Row height &amp; spacing are fixed by the list style — Apple keeps these
+            consistent so lists feel uniform across the system. The list grows
+            in height as you add rows; width stays user-editable.
+          </div>
           <div className="text-[10px] text-textMute uppercase tracking-wider mt-2">Rows</div>
           {(item.rows || []).map((r, i) => (
             <div key={i} className="flex flex-col gap-1">

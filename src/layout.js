@@ -2,7 +2,7 @@
 // DisclosureGroup/NavigationStack semantics. Given a stack item and its children,
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
-import { ptToUnits } from './appleSystem'
+import { ptToUnits, computeListHeightPt } from './appleSystem'
 
 // ---- padding helpers ----
 
@@ -58,6 +58,14 @@ export function computeSize(item, items) {
       // fit and fill both start from intrinsic at this stage. fill gets
       // resized later inside layoutStack once innerW is known.
       return [iw, ih]
+    }
+    // List: height is driven by (row count × style row height) + style pad.
+    // Width uses the stored frame or a sensible default — Apple lets Lists
+    // fill their parent, so width stays user-editable.
+    if (item.type === 'panel' && item.panelType === 'list') {
+      const w = Array.isArray(item.size) && item.size[0] ? item.size[0] : ptToUnits(360)
+      const h = ptToUnits(computeListHeightPt(item))
+      return [w, h]
     }
     // Legacy text auto-sizing: if size is null, estimate from content.
     if (item.size === null || item.size === undefined) {

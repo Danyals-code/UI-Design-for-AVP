@@ -267,7 +267,10 @@ const PANEL_DEFAULTS = {
     textAlign: 'left'
   },
   list: {
-    size: [ptToUnits(360), ptToUnits(280)],
+    // Height is auto-derived from (row count × style row height) + style
+    // padding at render time; see computeListHeightPt in appleSystem.js.
+    // Only width is user-editable.
+    size: [ptToUnits(360), ptToUnits(0)],
     color: '#ffffff',
     colorToken: 'systemBackground',
     cornerRadius: ptToUnits(14),
@@ -277,8 +280,9 @@ const PANEL_DEFAULTS = {
       { title: 'Third Item',  subtitle: 'Subtitle text' },
       { title: 'Fourth Item', subtitle: 'Subtitle text' }
     ],
-    rowHeight: 60,
-    listStyle: 'plain'  // 'plain' | 'inset' | 'sidebar'
+    // 'default' | 'plain' | 'inset' | 'insetGrouped' | 'grouped' |
+    // 'sidebar' | 'bordered' | 'carousel' | 'elliptical'
+    listStyle: 'insetGrouped'
   },
   table: {
     size: [ptToUnits(440), ptToUnits(260)],
