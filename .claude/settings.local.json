@@ -3,7 +3,12 @@
     "allow": [
       "Bash(npm install:*)",
       "mcp__Claude_Preview__preview_start",
-      "mcp__Claude_in_Chrome__tabs_context_mcp"
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(npx vite:*)",
+      "Bash(gh pr create --title 'feat: NavigationStack/TabView, hover submenus, universal modifiers, ornament params' --body ':*)",
+      "Bash(where gh:*)",
+      "Bash(winget list:*)",
+      "Bash(gh pr create --base main --head tabs-as-pages --title 'Tabs-as-pages model, 3D page tab bar, UX polish' --body ':*)"
     ]
   }
 }

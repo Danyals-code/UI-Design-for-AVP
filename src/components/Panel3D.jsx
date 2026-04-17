@@ -187,6 +187,31 @@ export default function Panel3D({ panel, localPosition }) {
     : panel.textAlign === 'right' ? 'right'
     : 'center'
 
+  // For any text-rendering panel, put the text at the panel box's correct
+  // edge so textAlign is visually honoured (not just anchored at the center
+  // going outward). A tiny inset keeps the glyphs from kissing the border
+  // on non-Text panels (button, picker etc.). Pure text/link panels have no
+  // inset — the panel box already equals the text's bounds.
+  const textInset = (panelType === 'text' || panelType === 'link') ? 0 : ptToUnits(4)
+  const textX =
+    panel.textAlign === 'left'  ? -size[0] / 2 + textInset
+  : panel.textAlign === 'right' ?  size[0] / 2 - textInset
+  : 0
+
+  // Text-specific modifiers (.italic, .underline, .strikethrough, .lineLimit,
+  // .lineSpacing, .tracking, .textCase). Kept on the panel itself — cleaner
+  // than stuffing them inside the generic `modifiers` blob.
+  const applyCase = (s) => {
+    if (!s) return ''
+    if (panel.textCase === 'uppercase') return s.toUpperCase()
+    if (panel.textCase === 'lowercase') return s.toLowerCase()
+    return s
+  }
+  const textFontStyle = panel.italic ? 'italic' : 'normal'
+  const lineLimit = panel.lineLimit && panel.lineLimit > 0 ? panel.lineLimit : undefined
+  const letterSpacing = panel.tracking ? ptToUnits(panel.tracking) : 0
+  const lineHeight = panel.lineSpacing ? 1 + (panel.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17))) : undefined
+
   // ---- type-specific overlays ----
 
   const segments = panel.segments || []
@@ -804,8 +829,10 @@ export default function Panel3D({ panel, localPosition }) {
       scale={[modScaleX, modScaleY, 1]}
       rotation={[0, 0, modRot]}
     >
-      {/* Modifier: shadow */}
-      {hasShadow && (
+      {/* Modifier: shadow — rect shadow only for panels with a visible fill.
+          Pure Text / Link get their shadow rendered as a duplicate Text copy
+          below. */}
+      {hasShadow && panelType !== 'text' && panelType !== 'link' && (
         <mesh position={[ptToUnits(mod.shadowX || 0), -ptToUnits(mod.shadowY || 0), -0.01]}>
           <shapeGeometry args={[fillShape]} />
           <meshBasicMaterial color={mod.shadowColor} transparent opacity={0.35} />
@@ -874,20 +901,68 @@ export default function Panel3D({ panel, localPosition }) {
         <ImageTextureMesh url={panel.imageUrl} size={size} cornerRadius={cornerRadius} />
       )}
 
-      {showDefaultLabel && (
-        <Text
-          position={[0, panelType === 'slideshow' ? size[1] * 0.05 : 0, 0.005]}
-          font={fontUrl}
-          fontSize={finalFontSize}
-          color={resolvedTextColor}
-          anchorX={anchorX}
-          anchorY="middle"
-          maxWidth={size[0] * 0.95}
-          textAlign={panel.textAlign || 'center'}
-        >
-          {panel.text || (panelType === 'image' ? 'Image' : panelType === 'slideshow' ? 'Slideshow' : '')}
-        </Text>
-      )}
+      {showDefaultLabel && (() => {
+        const textY = panelType === 'slideshow' ? size[1] * 0.05 : 0
+        const rendered = applyCase(panel.text || (panelType === 'image' ? 'Image' : panelType === 'slideshow' ? 'Slideshow' : ''))
+        // For text/link, shadow is drawn as a second Text copy behind the main
+        // one — a flat rectangle shadow looks wrong behind transparent glyphs.
+        const textShadow = hasShadow && (panelType === 'text' || panelType === 'link') && (
+          <Text
+            position={[textX + ptToUnits(mod.shadowX || 0), textY - ptToUnits(mod.shadowY || 0), 0.004]}
+            font={fontUrl}
+            fontStyle={textFontStyle}
+            fontSize={finalFontSize}
+            color={mod.shadowColor}
+            anchorX={anchorX}
+            anchorY="middle"
+            maxWidth={size[0] * 0.95}
+            textAlign={panel.textAlign || 'center'}
+            letterSpacing={letterSpacing}
+            lineHeight={lineHeight}
+            maxLines={lineLimit}
+            overflowWrap="break-word"
+          >
+            {rendered}
+          </Text>
+        )
+        return (
+          <>
+            {textShadow}
+            <Text
+              position={[textX, textY, 0.005]}
+              font={fontUrl}
+              fontStyle={textFontStyle}
+              fontSize={finalFontSize}
+              color={resolvedTextColor}
+              anchorX={anchorX}
+              anchorY="middle"
+              maxWidth={size[0] * 0.95}
+              textAlign={panel.textAlign || 'center'}
+              letterSpacing={letterSpacing}
+              lineHeight={lineHeight}
+              maxLines={lineLimit}
+              overflowWrap="break-word"
+            >
+              {rendered}
+            </Text>
+            {/* .underline / .strikethrough: thin mesh lines under/through the
+                text. Width is clamped to the measured text width (approx) so a
+                short string doesn't get a line running the panel's full width. */}
+            {panel.underline && (
+              <mesh position={[textX, textY - finalFontSize * 0.55, 0.004]}>
+                <planeGeometry args={[Math.min(size[0] * 0.95, (rendered.length || 1) * finalFontSize * 0.55), ptToUnits(1)]} />
+                <meshBasicMaterial color={resolvedTextColor} />
+              </mesh>
+            )}
+            {panel.strikethrough && (
+              <mesh position={[textX, textY + finalFontSize * 0.05, 0.004]}>
+                <planeGeometry args={[Math.min(size[0] * 0.95, (rendered.length || 1) * finalFontSize * 0.55), ptToUnits(1)]} />
+                <meshBasicMaterial color={resolvedTextColor} />
+              </mesh>
+            )}
+          </>
+        )
+      })()}
 
       {/* Ticker — scrolls the text horizontally */}
       {panelType === 'ticker' && (
