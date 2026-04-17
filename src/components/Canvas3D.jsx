@@ -1,15 +1,23 @@
-import { useEffect, useRef, Suspense } from 'react'
+import { useEffect, useRef, Suspense, memo } from 'react'
 import * as THREE from 'three'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
 import { useStore } from '../store'
 import SceneTree from './SceneTree'
 
+// Camera routing:
+//   - preview3D=true  → angled orbit camera, regardless of sceneMode
+//   - window mode     → flat head-on camera
+//   - volume (non-3D) → placeholder is shown by the App, canvas isn't rendered
 function ModeHandler() {
   const sceneMode = useStore((s) => s.scene.sceneMode)
+  const preview3D = useStore((s) => s.scene.preview3D)
   const { camera, controls } = useThree()
   useEffect(() => {
-    if (sceneMode === 'window') {
+    if (preview3D) {
+      camera.position.set(6, 3.5, 4)
+      if (controls?.target) controls.target.set(0, 2.5, -4.5)
+    } else if (sceneMode === 'window') {
       camera.position.set(0, 2.5, 2.5)
       if (controls?.target) controls.target.set(0, 2.5, -4.5)
     } else {
@@ -17,7 +25,7 @@ function ModeHandler() {
       if (controls?.target) controls.target.set(0, 2.5, -4.5)
     }
     controls?.update?.()
-  }, [sceneMode, camera, controls])
+  }, [sceneMode, preview3D, camera, controls])
   return null
 }
 
@@ -40,12 +48,9 @@ function ZoomController() {
     camera.position.copy(controls.target).add(dir.multiplyScalar(zoomDistance))
     controls.update()
     invalidate()
-    // Reset guard after a tick so the 'end' event from this update is ignored.
     requestAnimationFrame(() => { fromSlider.current = false })
   }, [zoomDistance, controls, camera, invalidate])
 
-  // Camera → Slider: only sync on 'end' (after user finishes interacting)
-  // to avoid fighting damping.
   useEffect(() => {
     if (!controls) return
     const onEnd = () => {
@@ -63,25 +68,37 @@ function ZoomController() {
   return null
 }
 
-export default function Canvas3D() {
+function Canvas3D() {
   const select = useStore((s) => s.select)
   const isDragging = useStore((s) => s.isDragging)
   const showGrid = useStore((s) => s.showGrid)
   const panMode = useStore((s) => s.panMode)
   const scene = useStore((s) => s.scene)
+  const preview3D = scene.preview3D
   const isWindow = scene.sceneMode === 'window'
 
-  const mouseButtons = isWindow
+  // Rotate/orbit is only available while actually in 3D preview. Outside of
+  // it (window head-on), LEFT=PAN everywhere so panel clicks never race with
+  // an orbit gesture. panMode (hand icon) swaps LEFT→ROTATE for users who
+  // want to orbit with one button.
+  const mouseButtons = !preview3D
     ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
     : panMode
-      ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-      : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
+      ? { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
+      : { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
 
-  const enableRotate = !isWindow && !isDragging
+  const enableRotate = preview3D && !isDragging
 
   const viewportBg = scene.colorScheme === 'dark' ? '#1e1e20' : '#e4e4e7'
   const gridMain = scene.colorScheme === 'dark' ? '#2a2a2c' : '#c9c9cc'
   const gridSub = scene.colorScheme === 'dark' ? '#1a1a1c' : '#d8d8dc'
+
+  // When not in 3D preview, dim the gizmo so it reads as an inactive hint
+  // rather than a loud overlay. Full tint kicks in only in 3D preview.
+  const gizmoAxisColors = preview3D
+    ? ['#e5484d', '#30a46c', '#3b9eff']
+    : ['#6a6a6e', '#6a6a6e', '#6a6a6e']
+  const gizmoLabelColor = preview3D ? 'white' : '#9a9a9a'
 
   return (
     <Canvas
@@ -90,6 +107,11 @@ export default function Canvas3D() {
       onPointerMissed={() => select(null)}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       dpr={[1, 1.75]}
+      // Debounce the resize observer — when the user drags a side-panel
+      // gutter, flex resizes our container every frame. Without this the
+      // renderer buffer resizes + the scene reflows constantly, which looks
+      // laggy. 200ms means the buffer only updates once the drag pauses.
+      resize={{ debounce: 200 }}
     >
       <color attach="background" args={[viewportBg]} />
       {!scene.hdri && <fog attach="fog" args={[viewportBg, 12, 40]} />}
@@ -131,17 +153,19 @@ export default function Canvas3D() {
         enableRotate={enableRotate}
         enableDamping
         dampingFactor={0.12}
-        target={isWindow ? [0, 2.5, -4.5] : [0, 2.5, -4.5]}
+        target={[0, 2.5, -4.5]}
         minDistance={1.0}
         maxDistance={20}
         mouseButtons={mouseButtons}
       />
 
-      {!isWindow && (
-        <GizmoHelper alignment="top-right" margin={[80, 80]}>
-          <GizmoViewport axisColors={['#e5484d', '#30a46c', '#3b9eff']} labelColor="white" />
-        </GizmoHelper>
-      )}
+      {/* Gizmo lives further down so it doesn't sit under the viewport
+          toolbar; greyed out when we aren't actively in 3D preview. */}
+      <GizmoHelper alignment="top-right" margin={[80, 140]}>
+        <GizmoViewport axisColors={gizmoAxisColors} labelColor={gizmoLabelColor} />
+      </GizmoHelper>
     </Canvas>
   )
 }
+
+export default memo(Canvas3D)

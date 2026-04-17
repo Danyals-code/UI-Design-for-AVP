@@ -198,9 +198,9 @@ export const SYSTEM_COLORS = {
     systemPink:                '#ff375f',
     systemBrown:               '#ac8e68',
     systemGray:                '#8e8e93',
-    glassRegular:              '#2c2c2e',
-    glassThin:                 '#3a3a3c',
-    glassThick:                '#1c1c1e'
+    glassRegular:              '#39393c',
+    glassThin:                 '#45454a',
+    glassThick:                '#2c2c2f'
   }
 }
 

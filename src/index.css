@@ -243,6 +243,25 @@ input[type="checkbox"] {
   background: #0a84ff;
 }
 
+/* Keyboard hint chips used in the viewport footer. */
+.kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 4px;
+  margin: 0 1px;
+  text-align: center;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 500;
+  color: #e4e4e4;
+  background: #262626;
+  border: 1px solid #3a3a3a;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  line-height: 14px;
+  letter-spacing: 0;
+}
+
 /* Legacy helpers kept so existing class names keep working */
 .num-input {
   background: #262626;

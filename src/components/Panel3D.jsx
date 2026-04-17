@@ -9,25 +9,103 @@ import { getInterFont } from '../fonts'
 
 const DEG2RAD = Math.PI / 180
 
-// Loads an image URL as a THREE.Texture and renders it on a plane.
-function ImageTextureMesh({ url, size, cornerRadius }) {
+// Renders an image onto a rounded-rect shape. We draw the image into an
+// offscreen canvas first so we can apply the fit mode (stretch / fill (cover)
+// / fit (contain) / tile) with correct aspect handling — the canvas is then
+// used as a CanvasTexture on a shapeGeometry, giving us corner-radius
+// clipping "for free" along with transparent letterboxing where appropriate.
+function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
   const [texture, setTexture] = useState(null)
+  const [w, h] = size
+
   useEffect(() => {
     if (!url) { setTexture(null); return }
-    const loader = new THREE.TextureLoader()
-    loader.load(
-      url,
-      (tex) => { tex.colorSpace = THREE.SRGBColorSpace; setTexture(tex) },
-      undefined,
-      () => setTexture(null)
-    )
+    let disposed = false
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      if (disposed) return
+      const CANVAS_W = 1024
+      const CANVAS_H = Math.max(16, Math.round(CANVAS_W * (h / Math.max(0.001, w))))
+      const canvas = document.createElement('canvas')
+      canvas.width = CANVAS_W
+      canvas.height = CANVAS_H
+      const ctx = canvas.getContext('2d')
+      const iw = img.naturalWidth || img.width
+      const ih = img.naturalHeight || img.height
+      const ra = iw / ih
+      const rm = CANVAS_W / CANVAS_H
+
+      if (imageFit === 'stretch') {
+        ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H)
+      } else if (imageFit === 'fit') {
+        // contain — letterbox with transparent background
+        let dw, dh
+        if (ra > rm) { dw = CANVAS_W; dh = CANVAS_W / ra }
+        else         { dh = CANVAS_H; dw = CANVAS_H * ra }
+        const dx = (CANVAS_W - dw) / 2
+        const dy = (CANVAS_H - dh) / 2
+        ctx.drawImage(img, dx, dy, dw, dh)
+      } else if (imageFit === 'tile') {
+        // Repeat the image at a modest tile size relative to the shape's
+        // short side so several copies are visible.
+        const pattern = ctx.createPattern(img, 'repeat')
+        if (pattern) {
+          const shortCanvas = Math.min(CANVAS_W, CANVAS_H)
+          const scale = (shortCanvas / 3) / Math.max(iw, ih)
+          ctx.save()
+          ctx.scale(scale, scale)
+          ctx.fillStyle = pattern
+          ctx.fillRect(0, 0, CANVAS_W / scale, CANVAS_H / scale)
+          ctx.restore()
+        }
+      } else {
+        // 'fill' / default — cover, center-crop
+        let sw, sh
+        if (ra > rm) { sh = ih; sw = ih * rm }
+        else         { sw = iw; sh = iw / rm }
+        const sx = (iw - sw) / 2
+        const sy = (ih - sh) / 2
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_W, CANVAS_H)
+      }
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.needsUpdate = true
+      setTexture(tex)
+    }
+    img.onerror = () => setTexture(null)
+    img.src = url
+    return () => { disposed = true }
+  }, [url, imageFit, w, h])
+
+  // Dispose textures when replaced.
+  useEffect(() => {
     return () => { if (texture) texture.dispose() }
-  }, [url])
+  }, [texture])
+
+  // Rounded-rect geometry clips the image to the panel's corner radius.
+  const geometry = useMemo(() => {
+    const r = Math.max(0, Math.min(cornerRadius || 0, Math.min(w, h) / 2 - 0.0001))
+    const shape = roundedRectShape(w, h, r)
+    const g = new THREE.ShapeGeometry(shape, 16)
+    // ShapeGeometry's default UVs are the vertex XY — normalize to 0..1 so
+    // the canvas texture maps edge-to-edge across the shape's bounding box.
+    const pos = g.attributes.position
+    const uvs = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i)
+      const y = pos.getY(i)
+      uvs[i * 2]     = (x + w / 2) / w
+      uvs[i * 2 + 1] = (y + h / 2) / h
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    return g
+  }, [w, h, cornerRadius])
 
   if (!texture) return null
   return (
-    <mesh position={[0, 0, 0.003]}>
-      <planeGeometry args={[size[0], size[1]]} />
+    <mesh position={[0, 0, 0.003]} geometry={geometry}>
       <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
     </mesh>
   )
@@ -76,6 +154,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const setEditing = useStore((s) => s.setEditing)
   const clearEditing = useStore((s) => s.clearEditing)
   const updateItem = useStore((s) => s.updateItem)
+  const moveItem = useStore((s) => s.moveItem)
+  const items = useStore((s) => s.items)
   const setDragging = useStore((s) => s.setDragging)
   const isSelected = selectedId === id
   const isEditing = editingId === id
@@ -83,6 +163,10 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const [hovered, setHovered] = useState(false)
   const { camera, gl, invalidate } = useThree()
   const dragData = useRef(null)
+  // Ref on the outer group so we can imperatively offset the panel while
+  // it's being drag-reordered inside a stack — avoids re-renders during
+  // the high-frequency pointer move stream.
+  const groupRef = useRef()
 
   const plane = useMemo(() => new THREE.Plane(), [])
   const intersect = useMemo(() => new THREE.Vector3(), [])
@@ -116,12 +200,21 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   }, [size[0], size[1], cornerRadius])
 
   const parent = useStore((s) => s.items.find((it) => it.id === panel.parentId))
-  // A panel can only be freely dragged if its parent is a Window (or it's a
-  // top-level item with no parent). Panels inside a stack are positioned by
-  // the layout engine — dragging would write to panel.position but the
-  // layout ignores it, causing a visible snap-back glitch. This also matches
-  // SwiftUI: you can't arbitrarily position an item inside VStack/HStack.
+  // A panel can be freely *positioned* only when not inside a stack (windows
+  // or top-level). Inside a stack, the layout engine owns the position —
+  // instead we allow drag-to-reorder: the user drags the panel up/down (or
+  // left/right for HStack) and on release we swap slots via moveItem.
   const canDrag = !parent || parent.type === 'window'
+  const parentStackType = parent?.type === 'stack' ? parent.stackType : null
+  const reorderAxis =
+    parentStackType === 'vstack' || parentStackType === 'lazyvstack' ||
+    parentStackType === 'section' || parentStackType === 'disclosure' ||
+    parentStackType === 'navstack'
+      ? 'y'
+      : (parentStackType === 'hstack' || parentStackType === 'lazyhstack')
+        ? 'x'
+        : null
+  const canReorder = reorderAxis !== null
 
   // -- ticker scroll animation --
   const tickerRef = useRef()
@@ -140,7 +233,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     e.stopPropagation()
     if (isEditing) return
     select(id)
-    if (!canDrag) return
+    if (!canDrag && !canReorder) return
     const camDir = new THREE.Vector3()
     camera.getWorldDirection(camDir)
     const worldPos = new THREE.Vector3()
@@ -148,7 +241,13 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     plane.setFromNormalAndCoplanarPoint(camDir, worldPos)
     if (e.ray.intersectPlane(plane, intersect)) {
       offset.copy(intersect).sub(worldPos)
-      dragData.current = { dragging: true, parentPos: parent?.position || [0, 0, 0] }
+      dragData.current = {
+        dragging: true,
+        mode: canDrag ? 'position' : 'reorder',
+        parentPos: parent?.position || [0, 0, 0],
+        startX: intersect.x,
+        startY: intersect.y
+      }
       setDragging(true)
       gl.domElement.style.cursor = 'grabbing'
       try { e.target.setPointerCapture(e.pointerId) } catch {}
@@ -158,18 +257,64 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     if (!dragData.current?.dragging) return
     e.stopPropagation()
     if (e.ray.intersectPlane(plane, intersect)) {
-      const p = intersect.clone().sub(offset)
-      const pp = dragData.current.parentPos
-      updateItem(id, { position: [p.x - pp[0], p.y - pp[1], p.z - pp[2]] })
-      invalidate()
+      if (dragData.current.mode === 'position') {
+        const p = intersect.clone().sub(offset)
+        const pp = dragData.current.parentPos
+        updateItem(id, { position: [p.x - pp[0], p.y - pp[1], p.z - pp[2]] })
+        invalidate()
+      } else {
+        // Reorder: imperatively offset the group for visual feedback. We
+        // don't touch panel.position — the layout engine owns that. On drop
+        // we'll call moveItem to commit the slot swap.
+        const dx = intersect.x - dragData.current.startX
+        const dy = intersect.y - dragData.current.startY
+        if (groupRef.current) {
+          // Lift slightly forward in Z + raise opacity-feel so it looks
+          // "picked up" without needing to poke every mesh material.
+          groupRef.current.position.x = (localPosition?.[0] || 0) + modOffX + (reorderAxis === 'x' ? dx : 0)
+          groupRef.current.position.y = (localPosition?.[1] || 0) + modOffY + (reorderAxis === 'y' ? dy : 0)
+          groupRef.current.position.z = (localPosition?.[2] || 0) + 0.05
+        }
+        dragData.current.curX = intersect.x
+        dragData.current.curY = intersect.y
+        invalidate()
+      }
     }
   }
   const onPointerUp = (e) => {
     if (dragData.current?.dragging) {
+      const d = dragData.current
+      if (d.mode === 'reorder' && parent) {
+        const siblings = items.filter((it) => it.parentId === parent.id)
+        const myIdx = siblings.findIndex((it) => it.id === id)
+        const dx = (d.curX ?? d.startX) - d.startX
+        const dy = (d.curY ?? d.startY) - d.startY
+        // Average slot extent = own size + a small gap; good enough since
+        // siblings in a stack tend to have comparable dimensions.
+        const slot = reorderAxis === 'y' ? (size[1] + ptToUnits(8)) : (size[0] + ptToUnits(8))
+        // In world space, Y up is positive — but in the stack list, earlier
+        // items render higher (more positive Y). So dragging UP (dy>0) means
+        // moving to a LOWER index. For X-axis, dragging right = higher index.
+        const raw = reorderAxis === 'y' ? -(dy / slot) : (dx / slot)
+        const shift = Math.round(raw)
+        const targetIdx = Math.max(0, Math.min(siblings.length - 1, myIdx + shift))
+        if (targetIdx !== myIdx) {
+          const target = siblings[targetIdx]
+          const mode = targetIdx > myIdx ? 'after' : 'before'
+          moveItem(id, target.id, mode)
+        }
+        // Reset the imperative offset — layout will place us correctly next frame.
+        if (groupRef.current) {
+          groupRef.current.position.x = (localPosition?.[0] || 0) + modOffX
+          groupRef.current.position.y = (localPosition?.[1] || 0) + modOffY
+          groupRef.current.position.z = (localPosition?.[2] || 0)
+        }
+      }
       dragData.current = null
       setDragging(false)
       gl.domElement.style.cursor = hovered ? 'grab' : 'auto'
       try { e.target.releasePointerCapture(e.pointerId) } catch {}
+      invalidate()
     }
   }
   const onDoubleClick = (e) => {
@@ -324,7 +469,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
         onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
       >
         <circleGeometry args={[circleRadius, 64]} />
@@ -935,6 +1080,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
 
   return (
     <group
+      ref={groupRef}
       position={[
         (localPosition?.[0] || 0) + modOffX,
         (localPosition?.[1] || 0) + modOffY,
@@ -973,7 +1119,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[fillShape]} />
@@ -990,7 +1136,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'text' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'text' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <planeGeometry args={[size[0], size[1]]} />
@@ -1012,7 +1158,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         </>
       )}
       {(panelType === 'image' || panelType === 'asyncimage') && panel.imageUrl && (
-        <ImageTextureMesh url={panel.imageUrl} size={size} cornerRadius={cornerRadius} />
+        <ImageTextureMesh
+          url={panel.imageUrl}
+          size={size}
+          cornerRadius={cornerRadius}
+          imageFit={panel.imageFit || 'fill'}
+        />
       )}
 
       {showDefaultLabel && (() => {
@@ -1171,7 +1322,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'default' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[capsuleShape]} />

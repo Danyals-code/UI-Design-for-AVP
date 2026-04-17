@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
-import { GridIcon, HandIcon, HdriIcon } from './icons'
+import { GridIcon, HandIcon, HdriIcon, VolumeIcon } from './icons'
 import { HDRI_PRESETS } from '../appleSystem'
 
 function HdriButton() {
@@ -48,13 +48,21 @@ function HdriButton() {
 function ZoomSlider() {
   const zoomDistance = useStore((s) => s.zoomDistance)
   const setZoomDistance = useStore((s) => s.setZoomDistance)
-  // Slider goes from 1 (zoomed in) to 20 (zoomed out).
-  // We show a percentage: default distance (~7) = 100%.
   const DEFAULT_DIST = 7.0
   const pct = Math.round((DEFAULT_DIST / Math.max(0.5, zoomDistance)) * 100)
 
+  // Height/border intentionally matches vp-btn (28px, border, dark tint)
+  // so the toolbar row reads as a single aligned group.
   return (
-    <div className="flex items-center gap-1 bg-[#151515]/90 border border-border rounded px-2 py-1 backdrop-blur">
+    <div
+      className="flex items-center gap-1 rounded px-2"
+      style={{
+        height: 28,
+        border: '1px solid #2e2e2e',
+        background: 'rgba(21, 21, 21, 0.88)',
+        backdropFilter: 'blur(8px)'
+      }}
+    >
       <span className="text-[9px] text-textMute w-7 text-right">{pct}%</span>
       <input
         type="range"
@@ -76,25 +84,62 @@ export default function ViewportOverlay() {
   const toggleGrid = useStore((s) => s.toggleGrid)
   const togglePanMode = useStore((s) => s.togglePanMode)
   const sceneMode = useStore((s) => s.scene.sceneMode)
+  const preview3D = useStore((s) => s.scene.preview3D)
+  const updateScene = useStore((s) => s.updateScene)
+
+  const isVolume = sceneMode === 'volume'
+  const isWindow = sceneMode === 'window'
+  // The 3D-only controls only make sense when a canvas is visible —
+  // i.e. window mode (always has canvas) or volume + preview3D.
+  const showSceneControls = isWindow || (isVolume && preview3D)
 
   return (
     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10 pointer-events-auto">
-      <ZoomSlider />
-      <button
-        onClick={toggleGrid}
-        title={showGrid ? 'Hide grid' : 'Show grid'}
-        className={`vp-btn ${showGrid ? 'active' : ''}`}
-      >
-        <GridIcon />
-      </button>
-      <HdriButton />
-      {sceneMode === 'volume' && (
+      {showSceneControls && (
+        <>
+          <ZoomSlider />
+          <button
+            onClick={toggleGrid}
+            title={showGrid ? 'Hide grid' : 'Show grid'}
+            className={`vp-btn ${showGrid ? 'active' : ''}`}
+          >
+            <GridIcon />
+          </button>
+          <HdriButton />
+          {preview3D && (
+            <button
+              onClick={togglePanMode}
+              title={panMode ? 'Orbit mode' : 'Pan mode'}
+              className={`vp-btn ${panMode ? 'active' : ''}`}
+            >
+              <HandIcon />
+            </button>
+          )}
+        </>
+      )}
+      {/* "See in 3D" is a window-level action — it rotates to the angled
+          preview camera. Hidden in volume mode because volume is still
+          placeholder-only. */}
+      {isWindow && (
         <button
-          onClick={togglePanMode}
-          title={panMode ? 'Orbit mode' : 'Pan mode'}
-          className={`vp-btn ${panMode ? 'active' : ''}`}
+          onClick={() => updateScene({ preview3D: !preview3D })}
+          title={preview3D ? 'Exit 3D preview' : 'See in 3D (experimental)'}
+          className={`vp-btn ${preview3D ? 'active' : ''}`}
+          style={
+            !preview3D
+              ? {
+                  width: 'auto',
+                  paddingLeft: 10,
+                  paddingRight: 10,
+                  gap: 6,
+                  fontSize: 11,
+                  color: '#e4e4e4'
+                }
+              : undefined
+          }
         >
-          <HandIcon />
+          <VolumeIcon />
+          {!preview3D && <span>See in 3D</span>}
         </button>
       )}
     </div>

@@ -680,9 +680,15 @@ const DEFAULT_SCENE = {
   windowPreset: 'regular',
   volumePreset: 'medium',
   colorScheme: 'light',         // viewport background only
-  designScheme: 'light',        // resolves semantic tokens in the design
+  designScheme: 'dark',         // resolves semantic tokens in the design.
+                                // visionOS defaults to dark glass + white
+                                // primary text, so we match that out-of-box.
   tintColor: '#007aff',
-  hdri: null                    // null | drei Environment preset
+  hdri: null,                   // null | drei Environment preset
+  // Volume mode is still under development — the 3D preview is hidden behind
+  // a "See in 3D" affordance. When `preview3D` is true AND sceneMode==='volume'
+  // we render the Canvas; otherwise we show the placeholder.
+  preview3D: false
 }
 
 // ---- tree helpers ----
@@ -875,6 +881,11 @@ export const useStore = create((set, get) => ({
 
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }
+    // Switching sceneMode always resets the experimental 3D preview so the
+    // user lands on the placeholder next time they open Volume mode.
+    if (patch.sceneMode !== undefined && patch.sceneMode !== s.scene.sceneMode) {
+      next.preview3D = false
+    }
     // Apply preset size changes to the root window.
     const items = s.items.map((it) => {
       if (it.type !== 'window') return it

@@ -1049,6 +1049,30 @@ function PanelProps({ item, scene }) {
                 placeholder="https://..."
               />
             </Row>
+            <Row label="Fit">
+              <div className="segmented flex-1">
+                <button
+                  className={(item.imageFit || 'fill') === 'fill' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { imageFit: 'fill' })}
+                  title="Scale to cover — crops edges (default)"
+                >Fill</button>
+                <button
+                  className={item.imageFit === 'fit' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { imageFit: 'fit' })}
+                  title="Scale to fit — letterbox"
+                >Fit</button>
+                <button
+                  className={item.imageFit === 'stretch' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { imageFit: 'stretch' })}
+                  title="Stretch to frame — ignores aspect"
+                >Stretch</button>
+                <button
+                  className={item.imageFit === 'tile' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { imageFit: 'tile' })}
+                  title="Repeat image as tiles"
+                >Tile</button>
+              </div>
+            </Row>
           </>
         )}
       </Section>
