@@ -3,181 +3,75 @@ import { useThree } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
-import { layoutStack, computeSize } from '../layout'
-import { roundedRectShape, rimRingShape } from '../shapes'
-import { resolveSemantic, ptToUnits, ORNAMENT_GAP, MATERIALS, SF_SYMBOLS } from '../appleSystem'
+import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
+import { roundedRectShape } from '../shapes'
+import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS } from '../appleSystem'
 
 const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 
-// ---- Liquid Glass ----
-// A multi-layer approximation of visionOS Liquid Glass. True refraction
-// would need MeshTransmissionMaterial + FBO passes which we skip for perf.
-// We instead stack:
-//
-//   1. Drop shadow — slightly larger, soft, behind
-//   2. Back tint fill — the base frosted color at tier opacity
-//   3. Top gradient — extra light along the upper half (2x thin rects so the
-//      cumulative alpha creates a soft falloff)
-//   4. Outer rim glow — slightly larger than the glass, dimmer, to fake a
-//      soft halo when the glass floats against a busy HDRI
-//   5. Inner rim highlight — bright ring along the edge
-//   6. Top specular strip — thin bright band near the top
-//
-// Ornament capsules skip the top gradient/specular since their shape is all
-// curvature and the highlights look off on tiny pills.
+// ---- Plane fill ----
+// Earlier we layered a six-pass approximation of visionOS Liquid Glass
+// (shadow, fill, gradient, halo, rim, specular). The multi-plane stack read
+// well head-on but produced visible parallax banding in the 3D preview — a
+// mix of z-fighting at tilted angles and layer edges that looked like
+// artifacts. We've dropped it in favour of a flat plane fill with a single
+// soft drop shadow, which is what the user asked for (plain colour, no
+// glass). Semantic colour tokens still resolve per-scheme so the fill picks
+// up the dark-mode palette.
 function LiquidGlass({
   size,
   cornerRadius,
   color,
-  material = 'regular',
-  schemeDark = false,
-  hitEvents = {},
-  capsule = false
+  hitEvents = {}
+  // `material`, `schemeDark`, `capsule` are accepted (but unused) for
+  // call-site compatibility with the previous glass implementation.
 }) {
   const [w, h] = size
-  const tier = MATERIALS[material] || MATERIALS.regular
-  const fillOpacity = tier.opacity
-  const rimOpacity = tier.rimOpacity
-  const specOpacity = tier.specularOpacity
-  const shadowOpacity = tier.shadowOpacity
-
   const fillShape = useMemo(() => roundedRectShape(w, h, cornerRadius), [w, h, cornerRadius])
-
-  // Softer, larger shadow — two rects stacked to fake blur.
-  const shadowShapeA = useMemo(
-    () => roundedRectShape(w + 0.02, h + 0.02, cornerRadius + 0.01),
+  const shadowShape = useMemo(
+    () => roundedRectShape(w + 0.04, h + 0.04, cornerRadius + 0.02),
     [w, h, cornerRadius]
   )
-  const shadowShapeB = useMemo(
-    () => roundedRectShape(w + 0.05, h + 0.05, cornerRadius + 0.025),
-    [w, h, cornerRadius]
-  )
-
-  // Rim is proportional to the short side so small capsules get a thin rim.
-  const shortSide = Math.min(w, h)
-  const rimThickness = Math.min(ptToUnits(2.2), shortSide * 0.04)
-  const rimShape = useMemo(
-    () => rimRingShape(w, h, cornerRadius, rimThickness),
-    [w, h, cornerRadius, rimThickness]
-  )
-
-  // Outer halo: a wider rounded rect, slightly brighter, low opacity.
-  const haloShape = useMemo(
-    () => rimRingShape(w + 0.04, h + 0.04, cornerRadius + 0.02, 0.02),
-    [w, h, cornerRadius]
-  )
-
-  // Top specular strip — a thin pill sitting just inside the top edge.
-  const specH = Math.min(ptToUnits(8), h * 0.08)
-  const specW = w * 0.82
-  const specY = h / 2 - rimThickness - specH / 2 - ptToUnits(2)
-  const specShape = useMemo(
-    () => roundedRectShape(specW, specH, specH / 2),
-    [specW, specH]
-  )
-
-  // Top-half gradient fill — two stacked translucent rects (top stronger,
-  // middle weaker) that compound to fake a vertical light gradient.
-  const gradientTopShape = useMemo(
-    () => roundedRectShape(w - rimThickness * 2, h * 0.45, cornerRadius * 0.7),
-    [w, h, cornerRadius, rimThickness]
-  )
-  const gradientMidShape = useMemo(
-    () => roundedRectShape(w - rimThickness * 2, h * 0.22, cornerRadius * 0.5),
-    [w, h, cornerRadius, rimThickness]
-  )
-
-  const shadowColor = schemeDark ? '#000000' : '#1a1a1a'
-  const haloColor = schemeDark ? '#ffffff' : '#ffffff'
-  const rimColor = schemeDark ? '#ffffff' : '#ffffff'
-  const gradColor = schemeDark ? '#ffffff' : '#ffffff'
-  const specColor = '#ffffff'
 
   return (
     <>
-      {/* 1a. Softer outer shadow */}
-      <mesh position={[0, -0.012, -0.022]}>
-        <shapeGeometry args={[shadowShapeB]} />
-        <meshBasicMaterial color={shadowColor} transparent opacity={shadowOpacity * 0.5} />
-      </mesh>
-      {/* 1b. Closer shadow */}
-      <mesh position={[0, -0.005, -0.016]}>
-        <shapeGeometry args={[shadowShapeA]} />
-        <meshBasicMaterial color={shadowColor} transparent opacity={shadowOpacity} />
+      {/* Contact shadow to keep the plane readable against any background */}
+      <mesh position={[0, -0.01, -0.02]}>
+        <shapeGeometry args={[shadowShape]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.22} />
       </mesh>
 
-      {/* 2. Frosted base fill (drag target) */}
+      {/* Solid fill (drag / click target) */}
       <mesh position={[0, 0, -0.010]} {...hitEvents}>
         <shapeGeometry args={[fillShape]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={fillOpacity}
-          side={THREE.DoubleSide}
-        />
+        <meshBasicMaterial color={color} side={THREE.DoubleSide} />
       </mesh>
-
-      {/* 3. Top half gradient — two stacked soft rects */}
-      {!capsule && specOpacity > 0 && (
-        <>
-          <mesh position={[0, h * 0.27, -0.009]}>
-            <shapeGeometry args={[gradientTopShape]} />
-            <meshBasicMaterial
-              color={gradColor}
-              transparent
-              opacity={(schemeDark ? 0.12 : 0.14) * (specOpacity / 0.4)}
-            />
-          </mesh>
-          <mesh position={[0, h * 0.12, -0.008]}>
-            <shapeGeometry args={[gradientMidShape]} />
-            <meshBasicMaterial
-              color={gradColor}
-              transparent
-              opacity={(schemeDark ? 0.06 : 0.08) * (specOpacity / 0.4)}
-            />
-          </mesh>
-        </>
-      )}
-
-      {/* 4. Outer halo ring */}
-      {rimOpacity > 0 && (
-        <mesh position={[0, 0, -0.012]}>
-          <shapeGeometry args={[haloShape]} />
-          <meshBasicMaterial color={haloColor} transparent opacity={rimOpacity * 0.18} />
-        </mesh>
-      )}
-
-      {/* 5. Inner rim highlight */}
-      {rimOpacity > 0 && (
-        <mesh position={[0, 0, -0.007]}>
-          <shapeGeometry args={[rimShape]} />
-          <meshBasicMaterial color={rimColor} transparent opacity={rimOpacity} />
-        </mesh>
-      )}
-
-      {/* 6. Top specular strip */}
-      {specOpacity > 0 && !capsule && (
-        <mesh position={[0, specY, -0.006]}>
-          <shapeGeometry args={[specShape]} />
-          <meshBasicMaterial color={specColor} transparent opacity={specOpacity} />
-        </mesh>
-      )}
     </>
   )
 }
 
 // ---- Stack renderer ----
 
-function Stack3D({ stack, localPosition, items }) {
+function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const scene = useStore((s) => s.scene)
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
   const isSelected = selectedId === stack.id
 
-  const [w, h] = computeSize(stack, items)
-  const childPositions = useMemo(() => layoutStack(stack, items), [stack, items])
+  // `resolvedSize` comes from the parent's `resolvedChildSizes` — it already
+  // accounts for `widthMode: 'fill'` / `heightMode: 'fill'` expansion. Fall
+  // back to the stack's own intrinsic size when we're a top-level stack
+  // (no parent resolving us). We pass the resolved size as an override to
+  // the layout engine so fill children inside us get leftover space
+  // relative to our actual rendered size, not our intrinsic one.
+  const intrinsic = computeSize(stack, items)
+  const w = resolvedSize?.[0] ?? intrinsic[0]
+  const h = resolvedSize?.[1] ?? intrinsic[1]
+  const outerSize = resolvedSize || null
+  const childPositions = useMemo(() => layoutStack(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
+  const childSizes     = useMemo(() => resolvedChildSizes(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
   const children = items.filter((c) => c.parentId === stack.id && isEffectivelyVisible(items, c.id))
 
   const hasBackground = stack.ornament != null || stack.background != null
@@ -202,7 +96,7 @@ function Stack3D({ stack, localPosition, items }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.8} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.4} />
         </mesh>
       )}
 
@@ -303,10 +197,13 @@ function Stack3D({ stack, localPosition, items }) {
         // In a TabView, only the active Tab is positioned by layoutStack.
         const pos = childPositions.get(c.id)
         if (!pos) return null
+        const resolved = childSizes.get(c.id)
         if (c.type === 'stack') {
-          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} />
+          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
         }
-        return <Panel3D key={c.id} panel={c} localPosition={pos} />
+        // Pass the resolved size so fill-width text renders at the stack's
+        // inner width rather than its intrinsic content width.
+        return <Panel3D key={c.id} panel={c} localPosition={pos} resolvedSize={resolved} />
       })}
     </group>
   )
@@ -446,12 +343,18 @@ function Window3D({ window: win, items }) {
   const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
   const gap = ptToUnits(ORNAMENT_GAP)
 
-  // Stack multiple ornaments on the same edge instead of overlapping.
+  // Stack multiple ornaments on the same edge instead of overlapping. Each
+  // ornament may declare widthMode/heightMode 'fill' to match the window's
+  // corresponding axis (e.g. a top toolbar that spans the full window width).
   const edgeOffsets = { leading: 0, trailing: 0, top: 0, bottom: 0 }
   const ornPositions = new Map()
+  const ornSizes = new Map()
   for (const orn of ornamentChildren) {
-    const [ow, oh] = computeSize(orn, items)
+    const intrinsic = computeSize(orn, items)
     const edge = orn.ornament
+    const isHorizEdge = edge === 'top' || edge === 'bottom'
+    const ow = (orn.widthMode  === 'fill' && isHorizEdge) ? w : intrinsic[0]
+    const oh = (orn.heightMode === 'fill' && !isHorizEdge) ? h : intrinsic[1]
     let ox = 0, oy = 0
 
     if (edge === 'leading') {
@@ -469,6 +372,7 @@ function Window3D({ window: win, items }) {
     }
 
     ornPositions.set(orn.id, [ox, oy, 0.015])
+    ornSizes.set(orn.id, [ow, oh])
   }
 
   return (
@@ -476,7 +380,7 @@ function Window3D({ window: win, items }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.9} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
         </mesh>
       )}
 
@@ -493,24 +397,43 @@ function Window3D({ window: win, items }) {
         }}
       />
 
-      {/* Content stacks — centered in window */}
+      {/* Depth layering for the 3D preview (volume mode only). visionOS
+          parallaxes three tiers: the window sits at the back, content stacks
+          float just in front, and chrome (ornaments, tab bars, nav bars) is
+          furthest forward. In window mode we stay flat so the orthographic-
+          feeling view doesn't shift. */}
       {contentChildren.map((c) => {
-        const pos = c.type === 'stack' ? [0, 0, 0.005] : (c.position || [0, 0, 0.005])
+        const chromeStack = c.type === 'stack' && (c.stackType === 'tabview' || c.stackType === 'navstack')
+        const zStack = scene.preview3D ? (chromeStack ? 0.18 : 0.08) : 0.005
+        const zPanel = scene.preview3D ? 0.08 : 0.005
+        const pos = c.type === 'stack' ? [0, 0, zStack] : (c.position || [0, 0, zPanel])
         if (c.type === 'stack') {
-          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} />
+          const intrinsic = computeSize(c, items)
+          const fillW = c.widthMode  === 'fill'
+          const fillH = c.heightMode === 'fill'
+          const resolved = (fillW || fillH)
+            ? [fillW ? w : intrinsic[0], fillH ? h : intrinsic[1]]
+            : undefined
+          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
         }
         return <Panel3D key={c.id} panel={c} localPosition={pos} />
       })}
 
-      {/* Ornaments — pinned to edges */}
-      {ornamentChildren.map((o) => (
-        <Stack3D
-          key={o.id}
-          stack={o}
-          localPosition={ornPositions.get(o.id)}
-          items={items}
-        />
-      ))}
+      {/* Ornaments — pinned to edges, top depth tier in 3D preview */}
+      {ornamentChildren.map((o) => {
+        const basePos = ornPositions.get(o.id)
+        const z = scene.preview3D ? 0.18 : 0.015
+        const pos = [basePos[0], basePos[1], z]
+        return (
+          <Stack3D
+            key={o.id}
+            stack={o}
+            localPosition={pos}
+            items={items}
+            resolvedSize={ornSizes.get(o.id)}
+          />
+        )
+      })}
 
       {/* Presentation overlays (sheet / alert / popover) — render above everything */}
       {presentationChildren.length > 0 && (

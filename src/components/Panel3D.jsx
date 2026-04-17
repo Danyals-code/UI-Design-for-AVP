@@ -4,39 +4,144 @@ import { Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore } from '../store'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS } from '../appleSystem'
+import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
 import { getInterFont } from '../fonts'
 
 const DEG2RAD = Math.PI / 180
 
-// Loads an image URL as a THREE.Texture and renders it on a plane.
-function ImageTextureMesh({ url, size, cornerRadius }) {
+// Renders an image onto a rounded-rect shape. We draw the image into an
+// offscreen canvas first so we can apply the fit mode (stretch / fill (cover)
+// / fit (contain) / tile) with correct aspect handling — the canvas is then
+// used as a CanvasTexture on a shapeGeometry, giving us corner-radius
+// clipping "for free" along with transparent letterboxing where appropriate.
+function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
   const [texture, setTexture] = useState(null)
+  const [w, h] = size
+
   useEffect(() => {
     if (!url) { setTexture(null); return }
-    const loader = new THREE.TextureLoader()
-    loader.load(
-      url,
-      (tex) => { tex.colorSpace = THREE.SRGBColorSpace; setTexture(tex) },
-      undefined,
-      () => setTexture(null)
-    )
+    let disposed = false
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      if (disposed) return
+      const CANVAS_W = 1024
+      const CANVAS_H = Math.max(16, Math.round(CANVAS_W * (h / Math.max(0.001, w))))
+      const canvas = document.createElement('canvas')
+      canvas.width = CANVAS_W
+      canvas.height = CANVAS_H
+      const ctx = canvas.getContext('2d')
+      const iw = img.naturalWidth || img.width
+      const ih = img.naturalHeight || img.height
+      const ra = iw / ih
+      const rm = CANVAS_W / CANVAS_H
+
+      if (imageFit === 'stretch') {
+        ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H)
+      } else if (imageFit === 'fit') {
+        // contain — letterbox with transparent background
+        let dw, dh
+        if (ra > rm) { dw = CANVAS_W; dh = CANVAS_W / ra }
+        else         { dh = CANVAS_H; dw = CANVAS_H * ra }
+        const dx = (CANVAS_W - dw) / 2
+        const dy = (CANVAS_H - dh) / 2
+        ctx.drawImage(img, dx, dy, dw, dh)
+      } else if (imageFit === 'tile') {
+        // Repeat the image at a modest tile size relative to the shape's
+        // short side so several copies are visible.
+        const pattern = ctx.createPattern(img, 'repeat')
+        if (pattern) {
+          const shortCanvas = Math.min(CANVAS_W, CANVAS_H)
+          const scale = (shortCanvas / 3) / Math.max(iw, ih)
+          ctx.save()
+          ctx.scale(scale, scale)
+          ctx.fillStyle = pattern
+          ctx.fillRect(0, 0, CANVAS_W / scale, CANVAS_H / scale)
+          ctx.restore()
+        }
+      } else {
+        // 'fill' / default — cover, center-crop
+        let sw, sh
+        if (ra > rm) { sh = ih; sw = ih * rm }
+        else         { sw = iw; sh = iw / rm }
+        const sx = (iw - sw) / 2
+        const sy = (ih - sh) / 2
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_W, CANVAS_H)
+      }
+
+      const tex = new THREE.CanvasTexture(canvas)
+      tex.colorSpace = THREE.SRGBColorSpace
+      tex.needsUpdate = true
+      setTexture(tex)
+    }
+    img.onerror = () => setTexture(null)
+    img.src = url
+    return () => { disposed = true }
+  }, [url, imageFit, w, h])
+
+  // Dispose textures when replaced.
+  useEffect(() => {
     return () => { if (texture) texture.dispose() }
-  }, [url])
+  }, [texture])
+
+  // Rounded-rect geometry clips the image to the panel's corner radius.
+  const geometry = useMemo(() => {
+    const r = Math.max(0, Math.min(cornerRadius || 0, Math.min(w, h) / 2 - 0.0001))
+    const shape = roundedRectShape(w, h, r)
+    const g = new THREE.ShapeGeometry(shape, 16)
+    // ShapeGeometry's default UVs are the vertex XY — normalize to 0..1 so
+    // the canvas texture maps edge-to-edge across the shape's bounding box.
+    const pos = g.attributes.position
+    const uvs = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i)
+      const y = pos.getY(i)
+      uvs[i * 2]     = (x + w / 2) / w
+      uvs[i * 2 + 1] = (y + h / 2) / h
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    return g
+  }, [w, h, cornerRadius])
 
   if (!texture) return null
   return (
-    <mesh position={[0, 0, 0.003]}>
-      <planeGeometry args={[size[0], size[1]]} />
+    <mesh position={[0, 0, 0.003]} geometry={geometry}>
       <meshBasicMaterial map={texture} transparent side={THREE.DoubleSide} />
     </mesh>
   )
 }
 
-export default function Panel3D({ panel, localPosition }) {
+export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const { id, panelType } = panel
-  // Auto-size text: if size is null, estimate from content (matches layout.js).
-  const size = panel.size || (() => {
+  // Size resolution precedence:
+  //   1. `resolvedSize` — width/height the parent stack handed us (honours
+  //      `widthMode: 'fill'` expansions).
+  //   2. For text/link with widthMode 'fit' and no explicit size — intrinsic.
+  //   3. panel.size — explicit user-set frame.
+  //   4. auto-estimate from text content (legacy fallback).
+  const size = (() => {
+    if (resolvedSize && Array.isArray(resolvedSize)) return resolvedSize
+    const isTextLike = panelType === 'text' || panelType === 'link'
+    if (isTextLike) {
+      const mode = panel.widthMode || 'fit'
+      if (mode === 'fixed' && Array.isArray(panel.size)) return panel.size
+      // fit / fill without a parent (top-level text): intrinsic.
+      const text = panel.text || ''
+      const fontSize = panel.fontSize || ptToUnits(17)
+      const glyphAdv = fontSize * 0.55 + ptToUnits(panel.tracking || 0)
+      const w = Math.max(ptToUnits(40), text.length * glyphAdv)
+      const h = fontSize * 1.5 + ptToUnits(panel.lineSpacing || 0)
+      return [w, h]
+    }
+    // List: height auto-derived from (row count × style row height) + style
+    // pad. Apple doesn't let you set List row height or total height manually;
+    // the list grows with its rows. Width stays user-editable.
+    if (panelType === 'list') {
+      const w = Array.isArray(panel.size) && panel.size[0] ? panel.size[0] : ptToUnits(360)
+      const h = ptToUnits(computeListHeightPt(panel))
+      return [w, h]
+    }
+    if (Array.isArray(panel.size)) return panel.size
     const text = panel.text || ''
     const fontSize = panel.fontSize || ptToUnits(17)
     return [Math.max(ptToUnits(40), text.length * fontSize * 0.55), fontSize * 1.5]
@@ -49,6 +154,8 @@ export default function Panel3D({ panel, localPosition }) {
   const setEditing = useStore((s) => s.setEditing)
   const clearEditing = useStore((s) => s.clearEditing)
   const updateItem = useStore((s) => s.updateItem)
+  const moveItem = useStore((s) => s.moveItem)
+  const items = useStore((s) => s.items)
   const setDragging = useStore((s) => s.setDragging)
   const isSelected = selectedId === id
   const isEditing = editingId === id
@@ -56,6 +163,10 @@ export default function Panel3D({ panel, localPosition }) {
   const [hovered, setHovered] = useState(false)
   const { camera, gl, invalidate } = useThree()
   const dragData = useRef(null)
+  // Ref on the outer group so we can imperatively offset the panel while
+  // it's being drag-reordered inside a stack — avoids re-renders during
+  // the high-frequency pointer move stream.
+  const groupRef = useRef()
 
   const plane = useMemo(() => new THREE.Plane(), [])
   const intersect = useMemo(() => new THREE.Vector3(), [])
@@ -89,7 +200,21 @@ export default function Panel3D({ panel, localPosition }) {
   }, [size[0], size[1], cornerRadius])
 
   const parent = useStore((s) => s.items.find((it) => it.id === panel.parentId))
-  const canDrag = true  // all panels are draggable
+  // A panel can be freely *positioned* only when not inside a stack (windows
+  // or top-level). Inside a stack, the layout engine owns the position —
+  // instead we allow drag-to-reorder: the user drags the panel up/down (or
+  // left/right for HStack) and on release we swap slots via moveItem.
+  const canDrag = !parent || parent.type === 'window'
+  const parentStackType = parent?.type === 'stack' ? parent.stackType : null
+  const reorderAxis =
+    parentStackType === 'vstack' || parentStackType === 'lazyvstack' ||
+    parentStackType === 'section' || parentStackType === 'disclosure' ||
+    parentStackType === 'navstack'
+      ? 'y'
+      : (parentStackType === 'hstack' || parentStackType === 'lazyhstack')
+        ? 'x'
+        : null
+  const canReorder = reorderAxis !== null
 
   // -- ticker scroll animation --
   const tickerRef = useRef()
@@ -108,7 +233,7 @@ export default function Panel3D({ panel, localPosition }) {
     e.stopPropagation()
     if (isEditing) return
     select(id)
-    if (!canDrag) return
+    if (!canDrag && !canReorder) return
     const camDir = new THREE.Vector3()
     camera.getWorldDirection(camDir)
     const worldPos = new THREE.Vector3()
@@ -116,7 +241,13 @@ export default function Panel3D({ panel, localPosition }) {
     plane.setFromNormalAndCoplanarPoint(camDir, worldPos)
     if (e.ray.intersectPlane(plane, intersect)) {
       offset.copy(intersect).sub(worldPos)
-      dragData.current = { dragging: true, parentPos: parent?.position || [0, 0, 0] }
+      dragData.current = {
+        dragging: true,
+        mode: canDrag ? 'position' : 'reorder',
+        parentPos: parent?.position || [0, 0, 0],
+        startX: intersect.x,
+        startY: intersect.y
+      }
       setDragging(true)
       gl.domElement.style.cursor = 'grabbing'
       try { e.target.setPointerCapture(e.pointerId) } catch {}
@@ -126,18 +257,64 @@ export default function Panel3D({ panel, localPosition }) {
     if (!dragData.current?.dragging) return
     e.stopPropagation()
     if (e.ray.intersectPlane(plane, intersect)) {
-      const p = intersect.clone().sub(offset)
-      const pp = dragData.current.parentPos
-      updateItem(id, { position: [p.x - pp[0], p.y - pp[1], p.z - pp[2]] })
-      invalidate()
+      if (dragData.current.mode === 'position') {
+        const p = intersect.clone().sub(offset)
+        const pp = dragData.current.parentPos
+        updateItem(id, { position: [p.x - pp[0], p.y - pp[1], p.z - pp[2]] })
+        invalidate()
+      } else {
+        // Reorder: imperatively offset the group for visual feedback. We
+        // don't touch panel.position — the layout engine owns that. On drop
+        // we'll call moveItem to commit the slot swap.
+        const dx = intersect.x - dragData.current.startX
+        const dy = intersect.y - dragData.current.startY
+        if (groupRef.current) {
+          // Lift slightly forward in Z + raise opacity-feel so it looks
+          // "picked up" without needing to poke every mesh material.
+          groupRef.current.position.x = (localPosition?.[0] || 0) + modOffX + (reorderAxis === 'x' ? dx : 0)
+          groupRef.current.position.y = (localPosition?.[1] || 0) + modOffY + (reorderAxis === 'y' ? dy : 0)
+          groupRef.current.position.z = (localPosition?.[2] || 0) + 0.05
+        }
+        dragData.current.curX = intersect.x
+        dragData.current.curY = intersect.y
+        invalidate()
+      }
     }
   }
   const onPointerUp = (e) => {
     if (dragData.current?.dragging) {
+      const d = dragData.current
+      if (d.mode === 'reorder' && parent) {
+        const siblings = items.filter((it) => it.parentId === parent.id)
+        const myIdx = siblings.findIndex((it) => it.id === id)
+        const dx = (d.curX ?? d.startX) - d.startX
+        const dy = (d.curY ?? d.startY) - d.startY
+        // Average slot extent = own size + a small gap; good enough since
+        // siblings in a stack tend to have comparable dimensions.
+        const slot = reorderAxis === 'y' ? (size[1] + ptToUnits(8)) : (size[0] + ptToUnits(8))
+        // In world space, Y up is positive — but in the stack list, earlier
+        // items render higher (more positive Y). So dragging UP (dy>0) means
+        // moving to a LOWER index. For X-axis, dragging right = higher index.
+        const raw = reorderAxis === 'y' ? -(dy / slot) : (dx / slot)
+        const shift = Math.round(raw)
+        const targetIdx = Math.max(0, Math.min(siblings.length - 1, myIdx + shift))
+        if (targetIdx !== myIdx) {
+          const target = siblings[targetIdx]
+          const mode = targetIdx > myIdx ? 'after' : 'before'
+          moveItem(id, target.id, mode)
+        }
+        // Reset the imperative offset — layout will place us correctly next frame.
+        if (groupRef.current) {
+          groupRef.current.position.x = (localPosition?.[0] || 0) + modOffX
+          groupRef.current.position.y = (localPosition?.[1] || 0) + modOffY
+          groupRef.current.position.z = (localPosition?.[2] || 0)
+        }
+      }
       dragData.current = null
       setDragging(false)
       gl.domElement.style.cursor = hovered ? 'grab' : 'auto'
       try { e.target.releasePointerCapture(e.pointerId) } catch {}
+      invalidate()
     }
   }
   const onDoubleClick = (e) => {
@@ -181,7 +358,14 @@ export default function Panel3D({ panel, localPosition }) {
     ? ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 17)
     : (panel.fontSize || 0.15)
   const finalFontSize = baseFontSize
-  const fontUrl = getInterFont(panel.fontWeight)
+  // For text/link, swap to an italic font file when .italic() is on —
+  // troika's `fontStyle` prop only takes effect if the font file itself
+  // carries italic glyphs. For non-text panel kinds (button, picker, …)
+  // italic isn't exposed in the UI so we stay on the upright face.
+  const fontUrl = getInterFont(
+    panel.fontWeight,
+    (panelType === 'text' || panelType === 'link') && !!panel.italic
+  )
 
   const anchorX = panel.textAlign === 'left' ? 'left'
     : panel.textAlign === 'right' ? 'right'
@@ -207,10 +391,14 @@ export default function Panel3D({ panel, localPosition }) {
     if (panel.textCase === 'lowercase') return s.toLowerCase()
     return s
   }
-  const textFontStyle = panel.italic ? 'italic' : 'normal'
   const lineLimit = panel.lineLimit && panel.lineLimit > 0 ? panel.lineLimit : undefined
   const letterSpacing = panel.tracking ? ptToUnits(panel.tracking) : 0
-  const lineHeight = panel.lineSpacing ? 1 + (panel.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17))) : undefined
+  // SwiftUI .lineSpacing(pt) — the gap between baselines in addition to the
+  // natural font line-height. We convert to a multiplier relative to the
+  // text style's point size (troika takes `lineHeight` as a scalar).
+  const lineHeight = panel.lineSpacing
+    ? 1 + (panel.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17)))
+    : undefined
 
   // ---- type-specific overlays ----
 
@@ -281,7 +469,7 @@ export default function Panel3D({ panel, localPosition }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
         onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
       >
         <circleGeometry args={[circleRadius, 64]} />
@@ -368,56 +556,127 @@ export default function Panel3D({ panel, localPosition }) {
   })()
 
   // ---- List ----
+  // Style-aware rendering — visuals change with panel.listStyle. Row height,
+  // padding, inset, group card, separators, etc. all come from LIST_STYLES.
   const listOverlay = panelType === 'list' && (() => {
     const rows = panel.rows || []
-    const pad = ptToUnits(14)
-    const rowH = ptToUnits(panel.rowHeight || 60)
-    const innerW = size[0] - pad * 2
-    const startY = size[1] / 2 - pad
+    const style = LIST_STYLES[panel.listStyle] || LIST_STYLES.default
+    const padY = ptToUnits(style.pad)
+    const inset = ptToUnits(style.inset)
+    const rowH = ptToUnits(style.rowH)
+    const gap = ptToUnits(style.gap)
+    const innerW = size[0] - inset * 2
+    const startY = size[1] / 2 - padY
     const primary = resolveSemantic('primary', scheme)
     const secondary = resolveSemantic('secondary', scheme)
     const separator = resolveSemantic('tertiary', scheme)
+    const tint = scene.tintColor || '#007aff'
+    const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
+    const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
+
+    // Optional rounded group card behind all rows (insetGrouped / default).
+    const groupCardShape = style.showGroupCard
+      ? roundedRectShape(innerW, rows.length * rowH, ptToUnits(style.groupRadius))
+      : null
+
+    // Optional bordered-list outer ring (macOS .bordered).
+    const borderRingShape = style.bordered
+      ? rimRingShape(size[0], size[1], ptToUnits(style.groupRadius), ptToUnits(1))
+      : null
+
     return (
-      <>
+      <group position={[0, 0, 0.004]}>
+        {/* Group card background (insetGrouped, default) */}
+        {groupCardShape && (
+          <mesh position={[0, startY - (rows.length * rowH) / 2, -0.001]}>
+            <shapeGeometry args={[groupCardShape]} />
+            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scheme)} transparent opacity={0.95} />
+          </mesh>
+        )}
+        {/* Bordered-style outer ring */}
+        {borderRingShape && (
+          <mesh position={[0, 0, 0.001]}>
+            <shapeGeometry args={[borderRingShape]} />
+            <meshBasicMaterial color={separator} />
+          </mesh>
+        )}
         {rows.map((r, i) => {
-          const cy = startY - rowH / 2 - i * rowH
+          const cy = startY - rowH / 2 - i * (rowH + gap)
+          const hasSub = !!r.subtitle
+          // Per-row rounded card (sidebar / carousel / elliptical).
+          const rowCard = style.roundedRows
+            ? roundedRectShape(
+                // elliptical: subtle horizontal taper for edge rows
+                style.tapered ? innerW - Math.abs(i - (rows.length - 1) / 2) * ptToUnits(8) : innerW,
+                rowH - (style.gap ? ptToUnits(2) : 0),
+                ptToUnits(style.groupRadius)
+              )
+            : null
           return (
-            <group key={i} position={[0, cy, 0.005]}>
+            <group key={i} position={[0, cy, 0]}>
+              {rowCard && (
+                <mesh position={[0, 0, -0.001]}>
+                  <shapeGeometry args={[rowCard]} />
+                  <meshBasicMaterial
+                    color={resolveSemantic(
+                      style.showBg ? 'tertiarySystemBackground' : 'secondarySystemBackground',
+                      scheme
+                    )}
+                    transparent
+                    opacity={style.roundedRows ? 0.9 : 0.0}
+                  />
+                </mesh>
+              )}
+              {/* Title (and optional subtitle stacked) */}
               <Text
-                position={[-innerW / 2, ptToUnits(8), 0]}
-                fontSize={ptToUnits(15)}
+                position={[-innerW / 2 + ptToUnits(12), hasSub ? ptToUnits(7) : 0, 0]}
+                font={getInterFont(panel.listStyle === 'sidebar' ? 'medium' : 'regular')}
+                fontSize={fontSizeTitle}
                 color={primary}
                 anchorX="left"
                 anchorY="middle"
-                maxWidth={innerW * 0.85}
+                maxWidth={innerW * 0.78}
               >{r.title || ''}</Text>
-              {r.subtitle && (
+              {hasSub && (
                 <Text
-                  position={[-innerW / 2, -ptToUnits(8), 0]}
-                  fontSize={ptToUnits(12)}
+                  position={[-innerW / 2 + ptToUnits(12), -ptToUnits(8), 0]}
+                  fontSize={fontSizeSub}
                   color={secondary}
                   anchorX="left"
                   anchorY="middle"
-                  maxWidth={innerW * 0.85}
+                  maxWidth={innerW * 0.78}
                 >{r.subtitle}</Text>
               )}
-              <Text
-                position={[innerW / 2, 0, 0]}
-                fontSize={ptToUnits(14)}
-                color={secondary}
-                anchorX="right"
-                anchorY="middle"
-              >›</Text>
-              {i < rows.length - 1 && (
-                <mesh position={[0, -rowH / 2, -0.001]}>
-                  <planeGeometry args={[innerW, 0.003]} />
+              {/* Trailing chevron — omitted on sidebar/carousel/elliptical where
+                  rows look like cards, not navigation links. */}
+              {!style.roundedRows && (
+                <Text
+                  position={[innerW / 2 - ptToUnits(8), 0, 0]}
+                  fontSize={ptToUnits(14)}
+                  color={secondary}
+                  anchorX="right"
+                  anchorY="middle"
+                >›</Text>
+              )}
+              {/* Separator line (plain/inset/insetGrouped/grouped/bordered) */}
+              {style.showSeparators && i < rows.length - 1 && (
+                <mesh
+                  position={[
+                    // Separator has a small leading inset on plain/inset so it
+                    // visually aligns with the text — matches Apple.
+                    (style.inset > 0 ? ptToUnits(6) : 0),
+                    -rowH / 2,
+                    -0.0005
+                  ]}
+                >
+                  <planeGeometry args={[innerW - (style.inset > 0 ? ptToUnits(12) : 0), 0.003]} />
                   <meshBasicMaterial color={separator} />
                 </mesh>
               )}
             </group>
           )
         })}
-      </>
+      </group>
     )
   })()
 
@@ -821,6 +1080,7 @@ export default function Panel3D({ panel, localPosition }) {
 
   return (
     <group
+      ref={groupRef}
       position={[
         (localPosition?.[0] || 0) + modOffX,
         (localPosition?.[1] || 0) + modOffY,
@@ -842,14 +1102,14 @@ export default function Panel3D({ panel, localPosition }) {
       {isSelected && !isEditing && panelType !== 'text' && panelType !== 'link' && panelType !== 'label' && (
         <mesh position={[0, 0, -0.002]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.85} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
         </mesh>
       )}
       {/* Text/Link/Label selection: subtle underline instead of bounding box */}
       {isSelected && !isEditing && (panelType === 'text' || panelType === 'link' || panelType === 'label') && (
         <mesh position={[0, -size[1] / 2 - ptToUnits(2), -0.001]}>
           <planeGeometry args={[size[0], ptToUnits(2)]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.9} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.6} />
         </mesh>
       )}
 
@@ -859,7 +1119,7 @@ export default function Panel3D({ panel, localPosition }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[fillShape]} />
@@ -876,7 +1136,7 @@ export default function Panel3D({ panel, localPosition }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'text' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'text' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <planeGeometry args={[size[0], size[1]]} />
@@ -898,7 +1158,12 @@ export default function Panel3D({ panel, localPosition }) {
         </>
       )}
       {(panelType === 'image' || panelType === 'asyncimage') && panel.imageUrl && (
-        <ImageTextureMesh url={panel.imageUrl} size={size} cornerRadius={cornerRadius} />
+        <ImageTextureMesh
+          url={panel.imageUrl}
+          size={size}
+          cornerRadius={cornerRadius}
+          imageFit={panel.imageFit || 'fill'}
+        />
       )}
 
       {showDefaultLabel && (() => {
@@ -910,12 +1175,12 @@ export default function Panel3D({ panel, localPosition }) {
           <Text
             position={[textX + ptToUnits(mod.shadowX || 0), textY - ptToUnits(mod.shadowY || 0), 0.004]}
             font={fontUrl}
-            fontStyle={textFontStyle}
             fontSize={finalFontSize}
             color={mod.shadowColor}
+            fillOpacity={0.35 * modOpacity}
             anchorX={anchorX}
             anchorY="middle"
-            maxWidth={size[0] * 0.95}
+            maxWidth={size[0]}
             textAlign={panel.textAlign || 'center'}
             letterSpacing={letterSpacing}
             lineHeight={lineHeight}
@@ -931,12 +1196,12 @@ export default function Panel3D({ panel, localPosition }) {
             <Text
               position={[textX, textY, 0.005]}
               font={fontUrl}
-              fontStyle={textFontStyle}
               fontSize={finalFontSize}
               color={resolvedTextColor}
+              fillOpacity={modOpacity}
               anchorX={anchorX}
               anchorY="middle"
-              maxWidth={size[0] * 0.95}
+              maxWidth={size[0]}
               textAlign={panel.textAlign || 'center'}
               letterSpacing={letterSpacing}
               lineHeight={lineHeight}
@@ -946,20 +1211,39 @@ export default function Panel3D({ panel, localPosition }) {
               {rendered}
             </Text>
             {/* .underline / .strikethrough: thin mesh lines under/through the
-                text. Width is clamped to the measured text width (approx) so a
-                short string doesn't get a line running the panel's full width. */}
-            {panel.underline && (
-              <mesh position={[textX, textY - finalFontSize * 0.55, 0.004]}>
-                <planeGeometry args={[Math.min(size[0] * 0.95, (rendered.length || 1) * finalFontSize * 0.55), ptToUnits(1)]} />
-                <meshBasicMaterial color={resolvedTextColor} />
-              </mesh>
-            )}
-            {panel.strikethrough && (
-              <mesh position={[textX, textY + finalFontSize * 0.05, 0.004]}>
-                <planeGeometry args={[Math.min(size[0] * 0.95, (rendered.length || 1) * finalFontSize * 0.55), ptToUnits(1)]} />
-                <meshBasicMaterial color={resolvedTextColor} />
-              </mesh>
-            )}
+                text. Width tracks the glyph run (not the whole frame) so a
+                left-aligned Text in a wide `fill` frame gets an underline that
+                ends where the text ends. The mesh is offset so it stays flush
+                with the text's anchor edge. */}
+            {(panel.underline || panel.strikethrough) && (() => {
+              const glyphW = Math.min(
+                size[0],
+                (rendered.length || 1) * (finalFontSize * 0.55 + letterSpacing)
+              )
+              // planeGeometry is centre-anchored — shift by ±glyphW/2 so the
+              // line's edge matches the text's anchor (left/right/center).
+              const lineX = panel.textAlign === 'left'
+                ? textX + glyphW / 2
+                : panel.textAlign === 'right'
+                  ? textX - glyphW / 2
+                  : textX
+              return (
+                <>
+                  {panel.underline && (
+                    <mesh position={[lineX, textY - finalFontSize * 0.55, 0.004]}>
+                      <planeGeometry args={[glyphW, ptToUnits(1)]} />
+                      <meshBasicMaterial color={resolvedTextColor} transparent opacity={modOpacity} />
+                    </mesh>
+                  )}
+                  {panel.strikethrough && (
+                    <mesh position={[lineX, textY + finalFontSize * 0.05, 0.004]}>
+                      <planeGeometry args={[glyphW, ptToUnits(1)]} />
+                      <meshBasicMaterial color={resolvedTextColor} transparent opacity={modOpacity} />
+                    </mesh>
+                  )}
+                </>
+              )
+            })()}
           </>
         )
       })()}
@@ -1038,7 +1322,7 @@ export default function Panel3D({ panel, localPosition }) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = canDrag ? 'grab' : 'pointer' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[capsuleShape]} />

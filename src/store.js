@@ -4,7 +4,6 @@ import {
   WINDOW_PRESETS,
   VOLUME_PRESETS,
   WINDOW_CORNER_RADIUS,
-  ORNAMENT_DEFAULTS,
   ptToUnits
 } from './appleSystem'
 
@@ -115,6 +114,15 @@ const makeStack = (overrides = {}) => ({
   paddingEdges: null,         // { top, bottom, leading, trailing } in pt — overrides padding
   fixedWidth: null,
   fixedHeight: null,
+  // Frame sizing mode — mirrors SwiftUI's `.frame()` / Figma's constraints.
+  //   fit    — hug contents (intrinsic size from children)
+  //   fixed  — explicit size via `fixedWidth` / `fixedHeight`
+  //   fill   — fill the parent stack / window's inner axis
+  // Backwards-compat: if `widthMode`/`heightMode` are unset but `fixedWidth`/
+  // `fixedHeight` are present on legacy data, the layout engine falls back to
+  // treating that axis as 'fixed'. New stacks default to 'fit' on both axes.
+  widthMode:  'fit',
+  heightMode: 'fit',
   ornament: null,
   ornamentContentAlignment: 'center',
   ornamentVisibility: 'automatic',
@@ -157,6 +165,11 @@ const PANEL_DEFAULTS = {
   },
   text: {
     size: null,           // null = auto-size from content (SwiftUI default)
+    // Frame sizing mode — mirrors SwiftUI's `.frame()` / Figma's constraints.
+    //   fit   — intrinsic size from content (SwiftUI default, `Text` hugs)
+    //   fixed — explicit width (uses `size[0]` as the frame width)
+    //   fill  — fills the parent stack's inner width (`.frame(maxWidth: .infinity)`)
+    widthMode:     'fit',
     color: '#000000',
     colorToken: 'primary',
     cornerRadius: 0,
@@ -254,7 +267,10 @@ const PANEL_DEFAULTS = {
     textAlign: 'left'
   },
   list: {
-    size: [ptToUnits(360), ptToUnits(280)],
+    // Height is auto-derived from (row count × style row height) + style
+    // padding at render time; see computeListHeightPt in appleSystem.js.
+    // Only width is user-editable.
+    size: [ptToUnits(360), ptToUnits(0)],
     color: '#ffffff',
     colorToken: 'systemBackground',
     cornerRadius: ptToUnits(14),
@@ -264,8 +280,9 @@ const PANEL_DEFAULTS = {
       { title: 'Third Item',  subtitle: 'Subtitle text' },
       { title: 'Fourth Item', subtitle: 'Subtitle text' }
     ],
-    rowHeight: 60,
-    listStyle: 'plain'  // 'plain' | 'inset' | 'sidebar'
+    // 'default' | 'plain' | 'inset' | 'insetGrouped' | 'grouped' |
+    // 'sidebar' | 'bordered' | 'carousel' | 'elliptical'
+    listStyle: 'insetGrouped'
   },
   table: {
     size: [ptToUnits(440), ptToUnits(260)],
@@ -473,6 +490,7 @@ const PANEL_DEFAULTS = {
   },
   link: {
     size: [ptToUnits(200), ptToUnits(24)],
+    widthMode:     'fit',
     color: '#007aff',
     colorToken: 'systemBlue',
     cornerRadius: 0,
@@ -662,9 +680,15 @@ const DEFAULT_SCENE = {
   windowPreset: 'regular',
   volumePreset: 'medium',
   colorScheme: 'light',         // viewport background only
-  designScheme: 'light',        // resolves semantic tokens in the design
+  designScheme: 'dark',         // resolves semantic tokens in the design.
+                                // visionOS defaults to dark glass + white
+                                // primary text, so we match that out-of-box.
   tintColor: '#007aff',
-  hdri: null                    // null | drei Environment preset
+  hdri: null,                   // null | drei Environment preset
+  // Volume mode is still under development — the 3D preview is hidden behind
+  // a "See in 3D" affordance. When `preview3D` is true AND sceneMode==='volume'
+  // we render the Canvas; otherwise we show the placeholder.
+  preview3D: false
 }
 
 // ---- tree helpers ----
@@ -857,6 +881,11 @@ export const useStore = create((set, get) => ({
 
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }
+    // Switching sceneMode always resets the experimental 3D preview so the
+    // user lands on the placeholder next time they open Volume mode.
+    if (patch.sceneMode !== undefined && patch.sceneMode !== s.scene.sceneMode) {
+      next.preview3D = false
+    }
     // Apply preset size changes to the root window.
     const items = s.items.map((it) => {
       if (it.type !== 'window') return it
@@ -997,41 +1026,6 @@ export const useStore = create((set, get) => ({
     return { items: [...s.items, tabView, tab1, tab2], selectedId: tabView.id }
   }),
 
-  // Add a Navigation Bar ornament with N button items. Creates a top-bar
-  // ornament on the current window with the requested height and labels.
-  addNavBar: ({ height = 56, labels = ['Home', 'Search', 'Profile'] } = {}) => undoable(set, get, (s) => {
-    const win = findTargetWindow(s)
-    if (!win) return s
-    const bar = makeStack({
-      parentId: win.id,
-      stackType: 'hstack',
-      ornament: 'top',
-      name: 'Navigation Bar',
-      background: 'glassThick',
-      fixedHeight: height,
-      padding: 12,
-      spacing: 16,
-      alignment: 'center'
-    })
-    const buttonPt = Math.max(28, height - 24)
-    const btns = labels.map((label) => makePanel('button', {
-      parentId: bar.id,
-      name: label,
-      text: label,
-      textStyle: 'callout',
-      fontSize: textStyleToFontSize('callout'),
-      fontWeight: 'semibold',
-      size: [ptToUnits(Math.max(70, label.length * 11 + 24)), ptToUnits(buttonPt)],
-      cornerRadius: ptToUnits(buttonPt / 2),
-      buttonStyle: 'plain',
-      color: '#ffffff',
-      colorToken: null,
-      textColor: '#007aff',
-      textColorToken: 'systemBlue'
-    }))
-    return { items: [...s.items, bar, ...btns], selectedId: bar.id }
-  }),
-
   // Add a Tab Bar ornament with N page buttons.
   addTabBar: ({ pages = 4, labels = ['Home', 'Search', 'Library', 'Profile'] } = {}) => undoable(set, get, (s) => {
     const win = findTargetWindow(s)
@@ -1067,30 +1061,43 @@ export const useStore = create((set, get) => ({
     return { items: [...s.items, bar, ...tabs], selectedId: bar.id }
   }),
 
-  // Add a generic Toolbar ornament at any placement with a list of items.
-  addToolbar: ({ placement = 'top', items = ['Action 1', 'Action 2', 'Action 3'] } = {}) => undoable(set, get, (s) => {
+  // Add a SwiftUI-style `.toolbar` ornament. Placement is `top` or `bottom`
+  // (mirroring `.toolbar(placement: .topBar/.bottomBar)` / visionOS
+  // `.ornament(attachmentAnchor: .scene(.bottom))`). Items are grouped into
+  // three slots — `leading`, `principal`, `trailing` — matching
+  // `ToolbarItem(placement: .topBarLeading / .principal / .topBarTrailing)`.
+  // Layout uses spacers between the groups so leading sticks to the left,
+  // principal centers, and trailing sticks to the right.
+  addToolbar: ({
+    placement = 'top',
+    leading = ['Edit'],
+    principal = 'Title',
+    trailing = ['Done']
+  } = {}) => undoable(set, get, (s) => {
     const win = findTargetWindow(s)
     if (!win) return s
-    const stackType = (placement === 'leading' || placement === 'trailing') ? 'vstack' : 'hstack'
+
     const bar = makeStack({
       parentId: win.id,
-      stackType,
-      ornament: placement,
-      name: 'Toolbar',
+      stackType: 'hstack',
+      ornament: placement === 'bottom' ? 'bottom' : 'top',
+      name: placement === 'bottom' ? 'Bottom Toolbar' : 'Top Toolbar',
       background: 'glassThick',
       material: 'thick',
-      fixedHeight: stackType === 'hstack' ? 52 : null,
-      fixedWidth:  stackType === 'vstack' ? 52 : null,
-      padding: 10,
-      spacing: 14,
+      widthMode: 'fill',        // toolbar spans the full window width
+      heightMode: 'fixed',
+      fixedHeight: 52,
+      padding: 12,
+      spacing: 10,
       alignment: 'center'
     })
-    const buttons = items.map((label) => makePanel('button', {
+
+    const mkButton = (label) => makePanel('button', {
       parentId: bar.id,
       name: label,
       text: label,
-      textStyle: 'footnote',
-      fontSize: textStyleToFontSize('footnote'),
+      textStyle: 'callout',
+      fontSize: textStyleToFontSize('callout'),
       fontWeight: 'semibold',
       size: [ptToUnits(Math.max(56, label.length * 10 + 20)), ptToUnits(32)],
       cornerRadius: ptToUnits(16),
@@ -1099,148 +1106,153 @@ export const useStore = create((set, get) => ({
       colorToken: null,
       textColor: '#007aff',
       textColorToken: 'systemBlue'
-    }))
-    return { items: [...s.items, bar, ...buttons], selectedId: bar.id }
-  }),
-
-  // Attach a floating ornament (capsule bar) to the current Window. Vertical
-  // ornaments (leading / trailing) are seeded with two default tabs so they
-  // read as a tab bar out of the box; the cross-axis size is fixed (the pill
-  // width) but the long axis is left auto so the bar grows with tab count —
-  // matching Apple's HIG.
-  addOrnament: (placement) => undoable(set, get, (s) => {
-    const sel = s.items.find((it) => it.id === s.selectedId)
-    let cur = sel
-    while (cur && cur.type !== 'window' && cur.parentId) {
-      cur = s.items.find((it) => it.id === cur.parentId)
-    }
-    const targetWindow =
-      cur?.type === 'window'
-        ? cur
-        : s.items.find(
-            (it) => it.type === 'window' && it.parentId === s.activeTabId
-          ) ?? s.items.find((it) => it.type === 'window')
-    if (!targetWindow) return s
-    const d = ORNAMENT_DEFAULTS[placement]
-    if (!d) return s
-
-    const isVertical = placement === 'leading' || placement === 'trailing'
-    const barW = isVertical ? 60 : null                         // fixed short axis
-    const barH = isVertical ? null : d.height                   // long axis auto for vertical
-
-    const stk = makeStack({
-      parentId: targetWindow.id,
-      stackType: d.stackType,
-      name: d.name,
-      ornament: placement,
-      fixedWidth: isVertical ? barW : d.width,
-      fixedHeight: barH,
-      padding: isVertical ? 8 : d.padding,
-      spacing: isVertical ? 6 : d.spacing,
-      alignment: 'center',
-      background: 'glassThick'
     })
 
-    // Seed vertical bars with two default tab buttons so they look/feel like
-    // tab bars from the moment they're created. Horizontal ornaments stay
-    // empty — users typically populate those with toolbar actions.
-    const children = []
-    if (isVertical) {
-      for (const label of ['Home', 'Library']) {
-        children.push(makePanel('button', {
-          parentId: stk.id,
-          name: label,
-          text: label,
-          textStyle: 'caption',
-          fontSize: textStyleToFontSize('caption'),
-          fontWeight: 'medium',
-          size: [ptToUnits(44), ptToUnits(44)],
-          cornerRadius: ptToUnits(22),
-          buttonStyle: 'plain',
-          color: '#ffffff',
-          colorToken: null,
-          textColor: '#000000',
-          textColorToken: 'primary'
-        }))
-      }
+    const leadingBtns  = (leading  || []).map(mkButton)
+    const trailingBtns = (trailing || []).map(mkButton)
+    const principalItems = []
+    const titleText = (principal || '').trim()
+    if (titleText) {
+      principalItems.push(makePanel('text', {
+        parentId: bar.id,
+        name: 'Title',
+        text: titleText,
+        textStyle: 'headline',
+        fontSize: textStyleToFontSize('headline'),
+        fontWeight: 'semibold',
+        textAlign: 'center',
+        colorToken: 'primary',
+        color: '#000000',
+        widthMode: 'fit'
+      }))
     }
+    // Spacers push each group to its slot: leading | spacer | principal | spacer | trailing
+    const sp1 = makePanel('spacer', { parentId: bar.id, name: 'Spacer' })
+    const sp2 = makePanel('spacer', { parentId: bar.id, name: 'Spacer' })
 
-    return { items: [...s.items, stk, ...children], selectedId: stk.id }
+    // Child order (parentId + insertion order) drives HStack layout.
+    const newItems = [
+      bar,
+      ...leadingBtns,
+      sp1,
+      ...principalItems,
+      sp2,
+      ...trailingBtns
+    ]
+    return { items: [...s.items, ...newItems], selectedId: bar.id }
   }),
 
-  // Create a Navigation Split View — a Window containing an HStack that
-  // holds two VStacks (Sidebar + Content) sized to fill the window.
+  // SwiftUI NavigationSplitView — two-column sidebar + detail living *inside*
+  // the current window (not a new window). The root HStack fills the window;
+  // the sidebar has a fixed ideal width (Apple's default ≈ 320pt on visionOS)
+  // and the detail column fills the remaining space. The sidebar is styled
+  // as a list of navigation rows (matching `.listStyle(.sidebar)`), and the
+  // detail column shows an inspector-like title + body placeholder.
   addSplitView: () => undoable(set, get, (s) => {
-    const sideW = 340
-    const contentW = 1160
-    const fullW = sideW + contentW     // 1500pt
-    const fullH = 900
-    const w = makeWindow({
-      name: 'Split View',
-      size: [ptToUnits(fullW), ptToUnits(fullH)],
-      position: [Math.random() * 1.5 - 0.75, 2.5, -4.5]
-    })
+    const win = findTargetWindow(s)
+    if (!win) return s
+
+    const sideW = 320           // SwiftUI sidebar ideal width on visionOS
     const root = makeStack({
-      parentId: w.id,
+      parentId: win.id,
       stackType: 'hstack',
-      name: 'Split Root',
+      name: 'NavigationSplitView',
       spacing: 0,
       padding: 0,
-      fixedWidth: fullW,
-      fixedHeight: fullH,
+      widthMode: 'fill',
+      heightMode: 'fill',
       alignment: 'center'
     })
     const sidebar = makeStack({
       parentId: root.id,
       stackType: 'vstack',
       name: 'Sidebar',
-      spacing: 8,
-      padding: 24,
+      spacing: 4,
+      padding: 16,
+      widthMode: 'fixed',
+      heightMode: 'fill',
       fixedWidth: sideW,
-      fixedHeight: fullH,
       alignment: 'leading',
-      background: 'secondarySystemBackground'
+      background: 'secondarySystemBackground',
+      material: 'thin'
     })
-    const content = makeStack({
+    const detail = makeStack({
       parentId: root.id,
       stackType: 'vstack',
       name: 'Detail',
       spacing: 16,
       padding: 48,
-      fixedWidth: contentW,
-      fixedHeight: fullH,
+      widthMode: 'fill',
+      heightMode: 'fill',
       alignment: 'center'
     })
-    const sidebarItem = makePanel('text', {
+
+    // Sidebar: header + a few navigation rows (the visual analogue of
+    // `List { NavigationLink("Inbox") ... }` with `.listStyle(.sidebar)`).
+    const sidebarHeader = makePanel('text', {
       parentId: sidebar.id,
-      name: 'Sidebar Title',
+      name: 'Sidebar Header',
       text: 'Sidebar',
-      textStyle: 'headline',
-      fontSize: textStyleToFontSize('headline'),
-      size: [ptToUnits(sideW - 48), ptToUnits(28)],
-      textAlign: 'left'
+      textStyle: 'title3',
+      fontSize: textStyleToFontSize('title3'),
+      fontWeight: 'bold',
+      textAlign: 'left',
+      widthMode: 'fill',
+      colorToken: 'primary',
+      color: '#000000'
     })
-    const contentTitle = makePanel('text', {
-      parentId: content.id,
+    const navLabels = ['Inbox', 'Starred', 'Drafts', 'Archive']
+    const navIcons  = ['tray',  'star',    'doc',    'archivebox']
+    const navRows = navLabels.map((label, i) => makePanel('button', {
+      parentId: sidebar.id,
+      name: label,
+      text: label,
+      textStyle: 'body',
+      fontSize: textStyleToFontSize('body'),
+      fontWeight: 'regular',
+      size: [ptToUnits(sideW - 32), ptToUnits(40)],
+      cornerRadius: ptToUnits(10),
+      buttonStyle: 'plain',
+      color: '#ffffff',
+      colorToken: null,
+      textColor: '#000000',
+      textColorToken: 'primary',
+      textAlign: 'left',
+      symbolName: navIcons[i] || null,
+      symbolRenderingMode: 'monochrome'
+    }))
+
+    // Detail column: large title + body placeholder.
+    const detailTitle = makePanel('text', {
+      parentId: detail.id,
       name: 'Title',
-      text: 'Detail View',
+      text: 'Select an Item',
       textStyle: 'largeTitle',
       fontSize: textStyleToFontSize('largeTitle'),
-      size: [ptToUnits(contentW - 96), ptToUnits(50)]
+      fontWeight: 'bold',
+      textAlign: 'center',
+      widthMode: 'fill'
     })
-    const contentBody = makePanel('text', {
-      parentId: content.id,
+    const detailBody = makePanel('text', {
+      parentId: detail.id,
       name: 'Body',
-      text: 'Select an item from the sidebar',
+      text: 'Choose an item from the sidebar to see its details here.',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       colorToken: 'secondary',
       color: '#8e8e93',
-      size: [ptToUnits(contentW - 96), ptToUnits(28)]
+      textAlign: 'center',
+      widthMode: 'fill'
     })
+
     return {
-      items: [...s.items, w, root, sidebar, content, sidebarItem, contentTitle, contentBody],
-      selectedId: w.id
+      items: [
+        ...s.items,
+        root, sidebar, detail,
+        sidebarHeader, ...navRows,
+        detailTitle, detailBody
+      ],
+      selectedId: root.id
     }
   }),
 

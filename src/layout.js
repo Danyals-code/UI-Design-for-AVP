@@ -2,7 +2,7 @@
 // DisclosureGroup/NavigationStack semantics. Given a stack item and its children,
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
-import { ptToUnits } from './appleSystem'
+import { ptToUnits, computeListHeightPt } from './appleSystem'
 
 // ---- padding helpers ----
 
@@ -25,6 +25,18 @@ function padH(pad) { return pad.top + pad.bottom }
 
 // ---- size computation ----
 
+// Intrinsic (content-hug) size for a text-like panel. Width grows with the
+// character count (plus tracking), height grows with the font size (plus any
+// extra .lineSpacing the user dialled in).
+function textIntrinsicSize(item) {
+  const text = item.text || ''
+  const fontSize = item.fontSize || ptToUnits(17)
+  const glyphAdv = fontSize * 0.55 + ptToUnits(item.tracking || 0)
+  const w = Math.max(ptToUnits(40), text.length * glyphAdv)
+  const h = fontSize * 1.5 + ptToUnits(item.lineSpacing || 0)
+  return [w, h]
+}
+
 export function computeSize(item, items) {
   if (!item) return [0, 0]
 
@@ -32,13 +44,32 @@ export function computeSize(item, items) {
   if (item.type === 'panel' && item.isSpacer) return [0, 0]
 
   if (item.type !== 'stack' && item.type !== 'window') {
-    // Text auto-sizing: if size is null, estimate from content.
-    if (item.size === null || item.size === undefined) {
-      const text = item.text || ''
-      const fontSize = item.fontSize || ptToUnits(17)
-      const w = Math.max(ptToUnits(40), text.length * fontSize * 0.55)
-      const h = fontSize * 1.5
+    // Text / Link: honour `widthMode` (fit / fixed / fill).
+    // For `fill`, layoutStack overrides the width with the parent's innerW —
+    // here we return the intrinsic height but fall back to intrinsic width
+    // so a `fill` child in a free-sizing parent still has a sensible default.
+    const isTextLike = item.type === 'panel' && (item.panelType === 'text' || item.panelType === 'link')
+    if (isTextLike) {
+      const mode = item.widthMode || 'fit'
+      const [iw, ih] = textIntrinsicSize(item)
+      if (mode === 'fixed' && Array.isArray(item.size)) {
+        return [item.size[0], item.size[1] || ih]
+      }
+      // fit and fill both start from intrinsic at this stage. fill gets
+      // resized later inside layoutStack once innerW is known.
+      return [iw, ih]
+    }
+    // List: height is driven by (row count × style row height) + style pad.
+    // Width uses the stored frame or a sensible default — Apple lets Lists
+    // fill their parent, so width stays user-editable.
+    if (item.type === 'panel' && item.panelType === 'list') {
+      const w = Array.isArray(item.size) && item.size[0] ? item.size[0] : ptToUnits(360)
+      const h = ptToUnits(computeListHeightPt(item))
       return [w, h]
+    }
+    // Legacy text auto-sizing: if size is null, estimate from content.
+    if (item.size === null || item.size === undefined) {
+      return textIntrinsicSize(item)
     }
     return item.size || [0, 0]
   }
@@ -46,8 +77,16 @@ export function computeSize(item, items) {
   if (item.type === 'window') return item.size || [2, 1]
 
   // Stack
-  const fixedW = item.fixedWidth != null ? ptToUnits(item.fixedWidth) : null
-  const fixedH = item.fixedHeight != null ? ptToUnits(item.fixedHeight) : null
+  // Resolve `widthMode` / `heightMode` (fit / fixed / fill). For backwards-
+  // compatibility, if the mode is undefined but `fixedWidth` / `fixedHeight`
+  // is set, we treat the axis as 'fixed'. `fill` is handled by the parent
+  // (via resolvedChildSizes / layoutStack) — at intrinsic time we return the
+  // 'fit' size so a fill-mode stack still has sensible defaults if
+  // orphaned.
+  const wMode = item.widthMode  || (item.fixedWidth  != null ? 'fixed' : 'fit')
+  const hMode = item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')
+  const fixedW = wMode === 'fixed' && item.fixedWidth  != null ? ptToUnits(item.fixedWidth)  : null
+  const fixedH = hMode === 'fixed' && item.fixedHeight != null ? ptToUnits(item.fixedHeight) : null
   const pad = resolvePadding(item)
 
   const children = items.filter((c) => c.parentId === item.id && c.visible !== false)
@@ -118,14 +157,77 @@ export function computeSize(item, items) {
   return [fixedW ?? w, fixedH ?? h]
 }
 
+// Returns a Map<childId, [width, height]> of the *resolved* child sizes this
+// stack hands out — i.e. after `widthMode: 'fill'` is expanded to the parent's
+// inner width. Used by Panel3D so it can render the text at the width the
+// layout engine reserved for it (important for left/right alignment: the text
+// anchor point depends on the frame width, not just the intrinsic glyph run).
+export function resolvedChildSizes(stack, items, outerSize = null) {
+  const out = new Map()
+  const children = items.filter((c) => c.parentId === stack.id && c.visible !== false)
+  if (children.length === 0) return out
+  const pad = resolvePadding(stack)
+  const [sw, sh] = outerSize || computeSize(stack, items)
+  const innerW = Math.max(0, sw - padW(pad))
+  const innerH = Math.max(0, sh - padH(pad))
+  const gap = ptToUnits(stack.spacing ?? 0)
+  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack'
+  const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
+                   stack.stackType === 'section' || stack.stackType === 'disclosure'
+
+  // Compute per-axis flex share so main-axis fill stack children get the
+  // correct width/height here (matches what layoutStack hands them).
+  const intrinsicSizes = children.map((c) => computeSize(c, items))
+  let flexShareW = 0, flexShareH = 0
+  if (isHStack) {
+    const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.widthMode === 'fill')
+    const flexCount = children.filter(isFlex).length
+    const fixedW = intrinsicSizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
+    const totalGap = gap * Math.max(0, children.length - 1)
+    const remaining = Math.max(0, innerW - fixedW - totalGap)
+    flexShareW = flexCount > 0 ? remaining / flexCount : 0
+  }
+  if (isVStack) {
+    const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
+    const flexCount = children.filter(isFlex).length
+    const fixedH = intrinsicSizes.reduce((s, [, ch], i) => s + (isFlex(children[i]) ? 0 : ch), 0)
+    const totalGap = gap * Math.max(0, children.length - 1)
+    const remaining = Math.max(0, innerH - fixedH - totalGap)
+    flexShareH = flexCount > 0 ? remaining / flexCount : 0
+  }
+
+  for (let i = 0; i < children.length; i++) {
+    const c = children[i]
+    const [cw, ch] = intrinsicSizes[i]
+    let rw = cw
+    let rh = ch
+    const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
+    const isStack    = c.type === 'stack'
+    if (isTextLike && c.widthMode === 'fill') {
+      rw = innerW
+    }
+    if (isStack) {
+      // Main-axis fill gets the flex share; cross-axis fill stretches fully.
+      if (c.widthMode === 'fill') {
+        rw = isHStack ? flexShareW : innerW
+      }
+      if (c.heightMode === 'fill') {
+        rh = isVStack ? flexShareH : innerH
+      }
+    }
+    out.set(c.id, [rw, rh])
+  }
+  return out
+}
+
 // ---- child positioning ----
 
-export function layoutStack(stack, items) {
+export function layoutStack(stack, items, outerSize = null) {
   const children = items.filter((c) => c.parentId === stack.id && c.visible !== false)
   if (children.length === 0) return new Map()
 
   const pad = resolvePadding(stack)
-  const [sw, sh] = computeSize(stack, items)
+  const [sw, sh] = outerSize || computeSize(stack, items)
   const innerW = sw - padW(pad)
   const innerH = sh - padH(pad)
   const gap = ptToUnits(stack.spacing ?? 0)
@@ -156,7 +258,36 @@ export function layoutStack(stack, items) {
     return out
   }
 
-  const sizes = children.map((c) => computeSize(c, items))
+  // Resolve `fill` for text/link and stack children. In SwiftUI, a
+  // `.frame(maxWidth: .infinity)` child pushes its cross-axis to the parent
+  // stack's inner size; on the *main* axis it behaves like a Spacer (shares
+  // remaining space with siblings). We mark main-axis-fill children here
+  // and expand them later, the same way spacers are expanded.
+  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack'
+  const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
+                   stack.stackType === 'section' || stack.stackType === 'disclosure'
+  const mainAxisFill = (c) => {
+    if (c.type !== 'stack') return false
+    if (isHStack) return c.widthMode === 'fill'
+    if (isVStack) return c.heightMode === 'fill'
+    return false
+  }
+  const resolveChildSize = (c) => {
+    const [cw, ch] = computeSize(c, items)
+    const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
+    const isStack    = c.type === 'stack'
+    let rw = cw
+    let rh = ch
+    if (isTextLike && c.widthMode === 'fill') rw = Math.max(0, innerW)
+    if (isStack) {
+      // Cross-axis fill: stretch the dimension perpendicular to the stack's
+      // main axis. Main-axis fill is handled below via the spacer pipeline.
+      if (c.widthMode  === 'fill' && !isHStack) rw = Math.max(0, innerW)
+      if (c.heightMode === 'fill' && !isVStack) rh = Math.max(0, innerH)
+    }
+    return [rw, rh]
+  }
+  const sizes = children.map((c) => resolveChildSize(c))
   const out = new Map()
 
   // Section header/footer heights
@@ -187,15 +318,16 @@ export function layoutStack(stack, items) {
 
   // ---- HStack / LazyHStack ----
   if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack') {
-    // Spacer expansion
-    const spacerCount = children.filter((c) => c.isSpacer).length
-    const fixedW = sizes.reduce((s, [cw], i) => s + (children[i].isSpacer ? 0 : cw), 0)
+    // Spacer expansion — treat fill-width stack children as flexible like spacers.
+    const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.widthMode === 'fill')
+    const flexCount = children.filter(isFlex).length
+    const fixedW = sizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
-    const spacerW = spacerCount > 0 ? remaining / spacerCount : 0
+    const flexW = flexCount > 0 ? remaining / flexCount : 0
 
     const effectiveSizes = sizes.map(([cw, ch], i) =>
-      children[i].isSpacer ? [spacerW, ch] : [cw, ch]
+      isFlex(children[i]) ? [flexW, ch] : [cw, ch]
     )
     const totalW = effectiveSizes.reduce((s, [cw]) => s + cw, 0) + totalGap
     let x = -totalW / 2
@@ -228,16 +360,17 @@ export function layoutStack(stack, items) {
 
   // ---- VStack / LazyVStack / Section / Disclosure ----
 
-  // Spacer expansion
-  const spacerCount = children.filter((c) => c.isSpacer).length
-  const fixedH = sizes.reduce((s, [, ch], i) => s + (children[i].isSpacer ? 0 : ch), 0)
+  // Spacer expansion — fill-height stack children expand like spacers.
+  const isFlexV = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
+  const flexCount = children.filter(isFlexV).length
+  const fixedH = sizes.reduce((s, [, ch], i) => s + (isFlexV(children[i]) ? 0 : ch), 0)
   const totalGap = gap * Math.max(0, children.length - 1)
   const available = innerH - headerH - footerH
   const remaining = Math.max(0, available - fixedH - totalGap)
-  const spacerH = spacerCount > 0 ? remaining / spacerCount : 0
+  const flexH = flexCount > 0 ? remaining / flexCount : 0
 
   const effectiveSizes = sizes.map(([cw, ch], i) =>
-    children[i].isSpacer ? [cw, spacerH] : [cw, ch]
+    isFlexV(children[i]) ? [cw, flexH] : [cw, ch]
   )
   const totalH = effectiveSizes.reduce((s, [, ch]) => s + ch, 0) + totalGap
   let y = totalH / 2 + headerH / 2 - footerH / 2

@@ -9,7 +9,7 @@ import {
   VStackIcon, HStackIcon, ZStackIcon,
   WindowIcon, SplitViewIcon,
   OrnamentLeading, OrnamentTrailing, OrnamentTop, OrnamentBottom,
-  NavBarIcon, TabBarIcon, ToolbarIcon,
+  TabBarIcon, ToolbarIcon,
   SpacerIcon, DividerIcon,
   RectangleIcon, CircleIcon, CapsuleIcon,
   GridLayoutIcon, SectionIcon, DisclosureIcon, NavStackIcon,
@@ -46,9 +46,7 @@ export default function CommandPalette() {
   const addPanel    = useStore((s) => s.addPanel)
   const addStack    = useStore((s) => s.addStack)
   const addWindow   = useStore((s) => s.addWindow)
-  const addOrnament = useStore((s) => s.addOrnament)
   const addSplitView = useStore((s) => s.addSplitView)
-  const addNavBar   = useStore((s) => s.addNavBar)
   const addTabBar   = useStore((s) => s.addTabBar)
   const addToolbar  = useStore((s) => s.addToolbar)
   const addPresentation = useStore((s) => s.addPresentation)
@@ -87,12 +85,11 @@ export default function CommandPalette() {
     { id: 'popover',   label: 'Popover',   group: 'Presentations',    Icon: PopoverIcon,   run: () => addPresentation('popover') },
     // Scene
     { id: 'window',    label: 'Window',    group: 'Windows',      Icon: WindowIcon,    run: () => addWindow() },
-    { id: 'split',     label: 'Split View', group: 'Windows',     Icon: SplitViewIcon, run: () => addSplitView() },
-    // Chrome (still searchable but grouped under Scene)
-    { id: 'navbar',    label: 'Navigation Bar', group: 'Ornaments', Icon: NavBarIcon,   run: () => addNavBar() },
+    { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
+    // Chrome — ornaments + scene-level tab bar
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => addTabBar() },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => addToolbar() }
-  ], [addPanel, addStack, addWindow, addOrnament, addSplitView, addNavBar, addTabBar, addToolbar, addPresentation])
+  ], [addPanel, addStack, addWindow, addSplitView, addTabBar, addToolbar, addPresentation])
 
   const filtered = useMemo(
     () => commands.filter((c) => fuzzyMatch(query, c.label) || fuzzyMatch(query, c.group)),
