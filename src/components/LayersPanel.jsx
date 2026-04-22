@@ -65,9 +65,9 @@ function rowIcon(item) {
     if (item.splitStyle)               return <SplitViewIcon />
     if (item.stackType === 'hstack')   return <HStackIcon />
     if (item.stackType === 'zstack')   return <ZStackIcon />
-    if (item.stackType === 'tabview')  return <TabViewIcon />
+    if (item.stackType === 'tabView')  return <TabViewIcon />
     if (item.stackType === 'tab')      return <TabIcon />
-    if (item.stackType === 'navstack') return <NavStackIcon />
+    if (item.stackType === 'navigationStack') return <NavStackIcon />
     return <VStackIcon />
   }
   const PanelIcon = PANEL_ICONS[item.panelType]
@@ -294,9 +294,10 @@ function LayerRow({ item, depth }) {
 // ---- root panel ----
 
 export default function LayersPanel({ width = 240 }) {
-  const items   = useStore((s) => s.items)
+  const items    = useStore((s) => s.items)
   const addStack = useStore((s) => s.addStack)
   const addTab   = useStore((s) => s.addTab)
+  const addWindow = useStore((s) => s.addWindow)
 
   // Tabs are top-level; their windows/stacks nest beneath them. The active
   // tab is highlighted — click any tab row to switch pages.
@@ -320,11 +321,18 @@ export default function LayersPanel({ width = 240 }) {
             <PageTabIcon />
           </button>
           <button
+            onClick={() => addWindow()}
+            className="btn btn-icon btn-ghost"
+            title="New window"
+          >
+            <WindowIcon />
+          </button>
+          <button
             onClick={() => addStack('vstack')}
             className="btn btn-icon btn-ghost"
             title="New stack"
           >
-            <FolderPlus />
+            <VStackIcon />
           </button>
           <AddDropdown variant="compact" />
         </div>

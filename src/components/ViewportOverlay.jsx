@@ -49,13 +49,16 @@ function ZoomSlider() {
   const zoomDistance = useStore((s) => s.zoomDistance)
   const setZoomDistance = useStore((s) => s.setZoomDistance)
   const DEFAULT_DIST = 7.0
+  // 85% zoom is the out-of-box framing. Double-click returns here.
+  const DEFAULT_PCT = 0.85
+  const RESET_DIST = DEFAULT_DIST / DEFAULT_PCT
   const pct = Math.round((DEFAULT_DIST / Math.max(0.5, zoomDistance)) * 100)
 
   // Height/border intentionally matches vp-btn (28px, border, dark tint)
   // so the toolbar row reads as a single aligned group.
   return (
     <div
-      className="flex items-center gap-1 rounded px-2"
+      className="flex items-center gap-1.5 rounded px-2"
       style={{
         height: 28,
         border: '1px solid #2e2e2e',
@@ -63,16 +66,17 @@ function ZoomSlider() {
         backdropFilter: 'blur(8px)'
       }}
     >
-      <span className="text-[9px] text-textMute w-7 text-right">{pct}%</span>
+      <span className="text-[11px] font-medium text-white w-9 text-right tabular-nums">{pct}%</span>
       <input
         type="range"
-        min={1}
-        max={18}
-        step={0.1}
+        min={2}
+        max={14}
+        step={0.05}
         value={zoomDistance}
         onChange={(e) => setZoomDistance(parseFloat(e.target.value))}
-        className="w-20 accent-accent"
-        title="Zoom"
+        onDoubleClick={() => setZoomDistance(RESET_DIST)}
+        className="w-24 accent-accent cursor-pointer"
+        title="Zoom — double-click to reset to 85%"
       />
     </div>
   )
@@ -105,7 +109,10 @@ export default function ViewportOverlay() {
           >
             <GridIcon />
           </button>
-          <HdriButton />
+          {/* The HDRI environment picker only has an effect once the camera
+              is orbiting (3D preview or Volume). In flat Window mode it just
+              crowds the toolbar, so we hide it there. */}
+          {(preview3D || isVolume) && <HdriButton />}
           {preview3D && (
             <button
               onClick={togglePanMode}

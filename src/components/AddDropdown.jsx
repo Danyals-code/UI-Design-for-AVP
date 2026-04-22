@@ -90,7 +90,7 @@ export default function AddDropdown({ variant = 'compact' }) {
       items: [
         { label: 'Stack',            Icon: VStackIcon,  onSel: () => addStack('vstack') },
         { label: 'Tab View',         Icon: TabViewIcon, onSel: () => addTabView() },
-        { label: 'Navigation Stack', Icon: NavStackIcon, onSel: () => addStack('navstack') },
+        { label: 'Navigation Stack', Icon: NavStackIcon, onSel: () => addStack('navigationStack') },
         { label: 'Nav Split View · Joined',    Icon: SplitViewIcon, onSel: () => addSplitView({ style: 'joined' }) },
         { label: 'Nav Split View · Separated', Icon: SplitViewIcon, onSel: () => addSplitView({ style: 'separated' }) },
         { label: 'Toolbar',          Icon: ToolbarIcon, onSel: () => addToolbar({ placement: 'top', items: ['Action 1', 'Action 2', 'Action 3'] }) },

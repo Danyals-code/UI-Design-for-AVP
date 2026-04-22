@@ -18,6 +18,7 @@ import {
   unitsToPt, ptToUnits
 } from '../appleSystem'
 import SymbolPicker from './SymbolPicker'
+import SwiftExportDialog from './SwiftExportDialog'
 
 // ---- Drag-to-scrub hook (Blender-style) ----
 // Click-and-drag on the label or input to scrub the value. If the pointer
@@ -207,7 +208,7 @@ function Select({ value, options, onChange }) {
   )
 }
 
-function Section({ title, children, defaultOpen = true, action }) {
+function Section({ title, children, defaultOpen = false, action }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="border-b border-border">
@@ -273,7 +274,7 @@ function TextModifiers({ item, updateItem }) {
   const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
   const setField = (patch) => updateItem(item.id, patch)
   return (
-    <Section title="Modifiers" defaultOpen={true}>
+    <Section title="Modifiers" defaultOpen={false}>
       <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.italic() · .underline() · .strikethrough()</div>
       <Row label="Italic">
         <div className="segmented flex-1">
@@ -339,7 +340,7 @@ function UniversalModifiers({ item, updateItem }) {
   const m = item.modifiers || {}
   const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
   return (
-    <Section title="Modifiers" defaultOpen={true}>
+    <Section title="Modifiers" defaultOpen={false}>
       <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.opacity() · .disabled() · .clipShape()</div>
       <Row label="Opacity">
         <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
@@ -594,6 +595,8 @@ function StackProps({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const renameItem = useStore((s) => s.renameItem)
   const setSplitStyle = useStore((s) => s.setSplitStyle)
+  const setSplitColumnVisibility = useStore((s) => s.setSplitColumnVisibility)
+  const setSplitSearchable = useStore((s) => s.setSplitSearchable)
   const isSplit = !!item.splitStyle
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
@@ -620,6 +623,44 @@ function StackProps({ item }) {
                 ? 'Flush two-column layout — sidebar attached, 320pt wide.'
                 : 'Sidebar as a 370pt floating dialogue (r=30) inside the window.'}
             </div>
+            {/* SwiftUI NavigationSplitView(columnVisibility:) — toggle the
+                sidebar on / off. `.detailOnly` hides the sidebar; the detail
+                column takes over the full window width. */}
+            <Row label="Columns">
+              <div className="segmented flex-1">
+                <button
+                  className={(item.columnVisibility || 'all') === 'all' ? 'active' : ''}
+                  onClick={() => setSplitColumnVisibility(item.id, 'all')}
+                >All</button>
+                <button
+                  className={item.columnVisibility === 'doubleColumn' ? 'active' : ''}
+                  onClick={() => setSplitColumnVisibility(item.id, 'doubleColumn')}
+                >Double</button>
+                <button
+                  className={item.columnVisibility === 'detailOnly' ? 'active' : ''}
+                  onClick={() => setSplitColumnVisibility(item.id, 'detailOnly')}
+                >Detail</button>
+              </div>
+            </Row>
+            {/* SwiftUI `.searchable(text:placement:)` — placement chooses
+                where the search field lives. Sidebar-placement is rendered
+                visually; toolbar-placement is recorded for code export. */}
+            <Row label="Search">
+              <div className="segmented flex-1">
+                <button
+                  className={(item.searchable || 'none') === 'none' ? 'active' : ''}
+                  onClick={() => setSplitSearchable(item.id, 'none')}
+                >Off</button>
+                <button
+                  className={item.searchable === 'sidebar' ? 'active' : ''}
+                  onClick={() => setSplitSearchable(item.id, 'sidebar')}
+                >Sidebar</button>
+                <button
+                  className={item.searchable === 'toolbar' ? 'active' : ''}
+                  onClick={() => setSplitSearchable(item.id, 'toolbar')}
+                >Toolbar</button>
+              </div>
+            </Row>
           </>
         ) : (
           <Row label="Kind">
@@ -680,9 +721,30 @@ function StackProps({ item }) {
           </div>
         )}
         {item.stackType === 'grid' && (
-          <Row label="Columns">
-            <IntField value={item.columns || 2} min={1} max={12} onChange={(v) => updateItem(item.id, { columns: v })} />
-          </Row>
+          <>
+            <Row label="Sizing">
+              <div className="segmented flex-1">
+                <button
+                  className={(item.gridMode || 'fixed') === 'fixed' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { gridMode: 'fixed' })}
+                >Fixed</button>
+                <button
+                  className={item.gridMode === 'adaptive' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { gridMode: 'adaptive' })}
+                >Adaptive</button>
+              </div>
+            </Row>
+            {(item.gridMode || 'fixed') === 'fixed' ? (
+              <Row label="Columns">
+                <IntField value={item.columns || 2} min={1} max={12} onChange={(v) => updateItem(item.id, { columns: v })} />
+              </Row>
+            ) : (
+              <Row label="Min W">
+                <IntField value={item.minColumnWidth ?? 140} min={40} max={600} onChange={(v) => updateItem(item.id, { minColumnWidth: v })} />
+                <span className="text-[9px] text-textMute">pt</span>
+              </Row>
+            )}
+          </>
         )}
         <div className="text-[10px] text-textMute leading-relaxed mt-1">
           {STACK_TYPES[item.stackType]?.description}
@@ -714,7 +776,7 @@ function StackProps({ item }) {
         </Section>
       )}
 
-      {item.stackType === 'navstack' && (
+      {item.stackType === 'navigationStack' && (
         <Section title="Navigation">
           <Row label="Title">
             <input value={item.navTitle || ''} onChange={(e) => updateItem(item.id, { navTitle: e.target.value })} className="field flex-1" placeholder="Navigation Title" />
@@ -725,7 +787,7 @@ function StackProps({ item }) {
         </Section>
       )}
 
-      {item.stackType === 'tabview' && (
+      {item.stackType === 'tabView' && (
         <Section title="Navigation Stack (TabView)">
           <div className="text-[10px] text-textMute mb-2">
             Only the active Tab is visible at a time. Add Tab children in the layers panel.
@@ -1940,8 +2002,10 @@ function ToolbarWizard() {
 }
 
 function SceneProps({ scene, updateScene }) {
+  const [exportOpen, setExportOpen] = useState(false)
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
+      {exportOpen && <SwiftExportDialog onClose={() => setExportOpen(false)} />}
       <Section title="Scene">
         <Row label="Mode">
           <div className="segmented flex-1">
@@ -1982,8 +2046,68 @@ function SceneProps({ scene, updateScene }) {
           <div className="segmented flex-1">
             <button className={scene.colorScheme === 'light' ? 'active' : ''} onClick={() => updateScene({ colorScheme: 'light' })}>Light</button>
             <button className={scene.colorScheme === 'dark' ? 'active' : ''} onClick={() => updateScene({ colorScheme: 'dark' })}>Dark</button>
+            <button
+              className={scene.colorScheme === 'image' ? 'active' : ''}
+              onClick={() => {
+                // If they haven't picked an image yet, trigger the picker for them.
+                if (!scene.backgroundImage) {
+                  document.getElementById('viewport-bg-image-input')?.click()
+                } else {
+                  updateScene({ colorScheme: 'image' })
+                }
+              }}
+            >Image</button>
           </div>
         </Row>
+        {scene.colorScheme === 'image' && (
+          <Row label="Image">
+            <label className="btn flex-1 justify-center cursor-pointer">
+              {scene.backgroundImage ? 'Change…' : 'Choose…'}
+              <input
+                id="viewport-bg-image-input"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = (ev) => {
+                    updateScene({ backgroundImage: ev.target.result, colorScheme: 'image' })
+                  }
+                  reader.readAsDataURL(file)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+            {scene.backgroundImage && (
+              <button
+                className="btn btn-ghost"
+                onClick={() => updateScene({ backgroundImage: null, colorScheme: 'dark' })}
+                title="Remove image"
+              >×</button>
+            )}
+          </Row>
+        )}
+        {/* Hidden file input used by the Image button when no image is set yet */}
+        {scene.colorScheme !== 'image' && (
+          <input
+            id="viewport-bg-image-input"
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              const reader = new FileReader()
+              reader.onload = (ev) => {
+                updateScene({ backgroundImage: ev.target.result, colorScheme: 'image' })
+              }
+              reader.readAsDataURL(file)
+              e.target.value = ''
+            }}
+          />
+        )}
         <div className="text-[10px] text-textMute">Only the viewport background. Your design stays on its own scheme.</div>
       </Section>
 
@@ -1997,6 +2121,21 @@ function SceneProps({ scene, updateScene }) {
         <Row label="Tint">
           <ColorRow value={scene.tintColor} onChange={(v) => updateScene({ tintColor: v })} />
         </Row>
+      </Section>
+
+      {/* Export — generates SwiftUI source for each Tab plus an App.swift
+          entry point. Intended for pasting into Xcode. */}
+      <Section title="Export">
+        <button
+          className="btn w-full justify-center"
+          onClick={() => setExportOpen(true)}
+        >
+          Export SwiftUI Code
+        </button>
+        <div className="text-[10px] text-textMute mt-1 leading-relaxed">
+          Produces one view file per Tab plus an App.swift with `@main` and
+          the top-level <code>TabView</code> / <code>WindowGroup</code>.
+        </div>
       </Section>
 
     </div>

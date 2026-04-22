@@ -133,8 +133,13 @@ const makeStack = (overrides = {}) => ({
   background: null,
   material: 'regular',
   scrollable: false,
-  // Grid-specific
-  columns: 2,                 // for stackType 'grid'
+  // Grid-specific — mirrors SwiftUI's `GridItem` sizing modes.
+  //   gridMode 'fixed'    → uses `columns` directly (N equal columns)
+  //   gridMode 'adaptive' → derives columns from inner width and
+  //                         `minColumnWidth` (≈ `GridItem(.adaptive(minimum:))`)
+  columns: 2,
+  gridMode: 'fixed',
+  minColumnWidth: 140,        // pt — only consulted when gridMode==='adaptive'
   // Section-specific
   sectionHeader: '',          // for stackType 'section'
   sectionFooter: '',
@@ -142,11 +147,11 @@ const makeStack = (overrides = {}) => ({
   expanded: true,             // for stackType 'disclosure'
   disclosureLabel: 'Section',
   // NavStack-specific
-  activeChild: 0,             // for stackType 'navstack'
+  activeChild: 0,             // for stackType 'navigationStack'
   navTitle: '',
   // TabView-specific
-  activeTab: 0,               // for stackType 'tabview' — which Tab is visible
-  // Tab-specific (child of tabview)
+  activeTab: 0,               // for stackType 'tabView' — which Tab is visible
+  // Tab-specific (child of tabView)
   tabLabel: '',               // display label for the tab
   tabIcon: null,              // SF Symbol name for the tab icon
   //
@@ -422,7 +427,12 @@ const PANEL_DEFAULTS = {
     fontWeight: 'regular',
     textAlign: 'left',
     iconName: 'A',
-    iconColor: '#007aff'
+    iconColor: '#007aff',
+    // Apple sidebar Label — a tinted rounded-rect tile behind the glyph
+    // (Settings.app pattern). null tile ⇒ fall back to the classic circle.
+    iconTileColor: null,   // semantic token or '#rrggbb'
+    iconTileSize: 28,      // pt
+    iconTileRadius: 6      // pt
   },
   textfield: {
     size: [ptToUnits(280), ptToUnits(40)],
@@ -652,14 +662,19 @@ function seedScene() {
     alignment: 'center',
     spacing: 16,
     padding: 14,          // matches visionOS default window inset
-    name: 'Content'
+    name: 'Content',
+    // Fill the window so the content can be centred both axes.
+    widthMode: 'fill',
+    heightMode: 'fill'
   })
   const title = makePanel('text', {
     parentId: stack.id,
     name: 'Title',
     text: 'Welcome to Vision',
     textStyle: 'largeTitle',
-    fontSize: textStyleToFontSize('largeTitle')
+    fontSize: textStyleToFontSize('largeTitle'),
+    widthMode: 'fill',
+    textAlign: 'center'
   })
   const subtitle = makePanel('text', {
     parentId: stack.id,
@@ -667,8 +682,13 @@ function seedScene() {
     text: 'Design spatial interfaces for Apple Vision Pro',
     textStyle: 'body',
     fontSize: textStyleToFontSize('body'),
-    colorToken: 'secondary',
-    color: '#8e8e93'
+    widthMode: 'fill',
+    textAlign: 'center',
+    // The design-scheme window uses a #9ea1a2 fill, so semantic 'secondary'
+    // (#8e8e93 in dark) vanishes into the glass. A darker #3a3a3c reads
+    // clearly on both the dark-scheme and light-scheme window colours.
+    colorToken: null,
+    color: '#3a3a3c'
   })
   const button = makePanel('button', {
     parentId: stack.id,
@@ -684,7 +704,8 @@ const DEFAULT_SCENE = {
   sceneMode: 'window',          // 'window' | 'volume'
   windowPreset: 'regular',
   volumePreset: 'medium',
-  colorScheme: 'light',         // viewport background only
+  colorScheme: 'dark',          // 'light' | 'dark' | 'image' — viewport bg
+  backgroundImage: null,        // data URL (used when colorScheme==='image')
   designScheme: 'dark',         // resolves semantic tokens in the design.
                                 // visionOS defaults to dark glass + white
                                 // primary text, so we match that out-of-box.
@@ -770,7 +791,10 @@ export const useStore = create((set, get) => ({
   showGrid: true,
   panMode: false,
   scene: { ...DEFAULT_SCENE },
-  zoomDistance: 7.0,      // synced from OrbitControls for the zoom slider
+  // DEFAULT_DIST (7) is treated as the 100%-zoom reference. Initial 85%
+  // pct → zoomDistance = 7 / 0.85 ≈ 8.235, giving a comfortable framing
+  // where the window takes most of the viewport without crowding the edges.
+  zoomDistance: 7.0 / 0.85,
 
   // Undo / redo stacks (internal, not rendered directly)
   _past: [],
@@ -1001,7 +1025,7 @@ export const useStore = create((set, get) => ({
     if (!parentId) return s
     const tabView = makeStack({
       parentId,
-      stackType: 'tabview',
+      stackType: 'tabView',
       name: 'Tab View',
       activeTab: 0,
       spacing: 0,
@@ -1183,7 +1207,20 @@ export const useStore = create((set, get) => ({
       widthMode: 'fill',
       heightMode: 'fill',
       alignment: 'center',
-      splitStyle: style
+      splitStyle: style,
+      // Mirrors SwiftUI's `NavigationSplitView(columnVisibility:)` binding.
+      //   'all'          — sidebar + detail visible (default)
+      //   'detailOnly'   — sidebar collapsed, detail fills window
+      //   'doubleColumn' — both visible (alias for 'all' in two-column
+      //                    layouts; kept so future triple-column layouts
+      //                    can distinguish it from .all)
+      columnVisibility: 'all',
+      // Mirrors SwiftUI's `.searchable(text:, placement:)` modifier.
+      //   'none'    — no search
+      //   'sidebar' — search field pinned to top of the sidebar
+      //   'toolbar' — search field rendered in the window toolbar
+      searchable: 'none',
+      searchPrompt: 'Search'
     })
     const sidebar = makeStack({
       parentId: root.id,
@@ -1335,6 +1372,72 @@ export const useStore = create((set, get) => ({
     }
   }),
 
+  // NavigationSplitView → columnVisibility toggle. 'detailOnly' hides the
+  // sidebar (via `visible: false`) and lets the detail column's fill sizing
+  // take over the whole window; 'all'/'doubleColumn' restore the sidebar.
+  setSplitColumnVisibility: (rootId, visibility) => undoable(set, get, (s) => {
+    const root = s.items.find((it) => it.id === rootId)
+    if (!root || !root.splitStyle) return s
+    const sidebar = s.items.find(
+      (it) => it.parentId === root.id && it.type === 'stack' && it.name === 'Sidebar'
+    )
+    const sidebarVisible = visibility !== 'detailOnly'
+    return {
+      items: s.items.map((it) => {
+        if (it.id === root.id) return { ...it, columnVisibility: visibility }
+        if (sidebar && it.id === sidebar.id) return { ...it, visible: sidebarVisible }
+        return it
+      })
+    }
+  }),
+
+  // NavigationSplitView → toggle `.searchable(...)`. Inserts or removes a
+  // search panel at the top of the sidebar. 'toolbar' placement only marks
+  // intent (for future code export) — visually the field is still drawn in
+  // the sidebar to keep the on-screen layout simple.
+  setSplitSearchable: (rootId, placement) => undoable(set, get, (s) => {
+    const root = s.items.find((it) => it.id === rootId)
+    if (!root || !root.splitStyle) return s
+    const sidebar = s.items.find(
+      (it) => it.parentId === root.id && it.type === 'stack' && it.name === 'Sidebar'
+    )
+    if (!sidebar) return s
+    const existing = s.items.find(
+      (it) => it.parentId === sidebar.id && it.type === 'panel' && it.panelType === 'search'
+    )
+    // Toggle off → drop the search panel, update the root flag.
+    if (placement === 'none') {
+      return {
+        items: s.items
+          .filter((it) => !(existing && it.id === existing.id))
+          .map((it) => (it.id === root.id ? { ...it, searchable: 'none' } : it))
+      }
+    }
+    // Toggle on → ensure a search panel exists as the first sidebar child.
+    const nextItems = existing
+      ? s.items
+      : (() => {
+          const search = makePanel('search', {
+            parentId: sidebar.id,
+            name: 'Search',
+            text: root.searchPrompt || 'Search',
+            widthMode: 'fill',
+            size: [ptToUnits(sidebar.fixedWidth ? sidebar.fixedWidth - 32 : 288), ptToUnits(36)]
+          })
+          // Put the search panel immediately after the sidebar so it renders
+          // as the first child visually (layout is insertion-order driven).
+          const sidebarIdx = s.items.findIndex((it) => it.id === sidebar.id)
+          const before = s.items.slice(0, sidebarIdx + 1)
+          const after  = s.items.slice(sidebarIdx + 1)
+          return [...before, search, ...after]
+        })()
+    return {
+      items: nextItems.map((it) =>
+        it.id === root.id ? { ...it, searchable: placement } : it
+      )
+    }
+  }),
+
   // Presentation: add a sheet/alert/popover as a child of the current Window.
   addPresentation: (panelType) => undoable(set, get, (s) => {
     const win = findTargetWindow(s)
@@ -1387,7 +1490,7 @@ export const useStore = create((set, get) => ({
       .filter((it) => !toRemove.has(it.id))
       .map((it) => {
         if (it.type !== 'stack') return it
-        if (it.stackType === 'tabview') {
+        if (it.stackType === 'tabView') {
           const tabs = s.items.filter(
             (c) => c.parentId === it.id && !toRemove.has(c.id)
           )
@@ -1395,7 +1498,7 @@ export const useStore = create((set, get) => ({
             return { ...it, activeTab: Math.max(0, tabs.length - 1) }
           }
         }
-        if (it.stackType === 'navstack') {
+        if (it.stackType === 'navigationStack') {
           const kids = s.items.filter(
             (c) => c.parentId === it.id && !toRemove.has(c.id)
           )

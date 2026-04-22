@@ -23,6 +23,27 @@ function resolvePadding(item) {
 function padW(pad) { return pad.leading + pad.trailing }
 function padH(pad) { return pad.top + pad.bottom }
 
+// Column count for a `grid` stack. Mirrors SwiftUI's two `GridItem` flavours:
+//   gridMode === 'fixed'    → `GridItem(.fixed(size), count: N)` — uses
+//                              `stack.columns` directly.
+//   gridMode === 'adaptive' → `GridItem(.adaptive(minimum: x))` — derives
+//                              the count from the available inner width,
+//                              packing as many min-width columns as fit.
+// When innerW is unknown (intrinsic sizing pass), adaptive mode falls back
+// to a conservative 2-column count so auto-sizing still produces a useful
+// bounding box.
+export function gridColumnCount(stack, innerW, gap) {
+  const mode = stack.gridMode || 'fixed'
+  if (mode === 'adaptive') {
+    if (innerW == null) return Math.max(1, stack.columns || 2)
+    const minW = ptToUnits(stack.minColumnWidth ?? 140)
+    const safeGap = gap || 0
+    const n = Math.floor((innerW + safeGap) / (minW + safeGap))
+    return Math.max(1, n)
+  }
+  return Math.max(1, stack.columns || 2)
+}
+
 // ---- size computation ----
 
 // Intrinsic (content-hug) size for a text-like panel. Width grows with the
@@ -98,7 +119,7 @@ export function computeSize(item, items) {
   }
 
   // Navstack: size of the active child only
-  if (item.stackType === 'navstack') {
+  if (item.stackType === 'navigationStack') {
     const active = children[Math.min(item.activeChild ?? 0, children.length - 1)]
     if (!active) return [fixedW ?? padW(pad), fixedH ?? padH(pad)]
     const [cw, ch] = computeSize(active, items)
@@ -108,7 +129,7 @@ export function computeSize(item, items) {
 
   // TabView: size of active tab + auto tab bar (at bottom, 64pt tall).
   // Tab bar width scales with number of tabs: 80pt per tab + 24pt padding.
-  if (item.stackType === 'tabview') {
+  if (item.stackType === 'tabView') {
     const active = children[Math.min(item.activeTab ?? 0, children.length - 1)]
     const tabBarH = ptToUnits(64)
     if (!active) return [fixedW ?? ptToUnits(children.length * 80 + 24), fixedH ?? tabBarH]
@@ -142,7 +163,12 @@ export function computeSize(item, items) {
     w = (sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : 0) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
   } else if (item.stackType === 'grid') {
-    const cols = item.columns || 2
+    // Adaptive grid mirrors `LazyVGrid(columns: [GridItem(.adaptive(minimum: x))])`:
+    // columns are derived from the parent's inner width once we know it.
+    // Without that knowledge here (intrinsic path), use declared columns as
+    // a starting estimate — the resolvedChildSizes pass recomputes once the
+    // real inner width is known.
+    const cols = gridColumnCount(item, null, gap)
     const colW = sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : ptToUnits(80)
     const rowH = sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : ptToUnits(80)
     const rowCount = Math.ceil(fixedChildren.length / cols)
@@ -236,7 +262,7 @@ export function layoutStack(stack, items, outerSize = null) {
   if (stack.stackType === 'disclosure' && !stack.expanded) return new Map()
 
   // Navstack: only the active child
-  if (stack.stackType === 'navstack') {
+  if (stack.stackType === 'navigationStack') {
     const idx = Math.min(stack.activeChild ?? 0, children.length - 1)
     const active = children[idx]
     if (!active) return new Map()
@@ -247,7 +273,7 @@ export function layoutStack(stack, items, outerSize = null) {
   }
 
   // TabView: only the active Tab, shifted up to leave room for the bottom tab bar.
-  if (stack.stackType === 'tabview') {
+  if (stack.stackType === 'tabView') {
     const idx = Math.min(stack.activeTab ?? 0, children.length - 1)
     const active = children[idx]
     const out = new Map()
@@ -296,7 +322,7 @@ export function layoutStack(stack, items, outerSize = null) {
 
   // ---- Grid ----
   if (stack.stackType === 'grid') {
-    const cols = stack.columns || 2
+    const cols = gridColumnCount(stack, innerW, gap)
     const colW = innerW / cols
     const rowHs = []
     for (let i = 0; i < children.length; i += cols) {
