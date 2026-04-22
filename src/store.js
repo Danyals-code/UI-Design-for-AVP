@@ -4,6 +4,8 @@ import {
   WINDOW_PRESETS,
   VOLUME_PRESETS,
   WINDOW_CORNER_RADIUS,
+  SPLIT_SEPARATED_WIDTH,
+  SPLIT_SEPARATED_RADIUS,
   ptToUnits
 } from './appleSystem'
 
@@ -91,8 +93,9 @@ const makeWindow = (overrides = {}) => ({
   cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
   position: [0, 2.5, -4.5],
   material: 'regular',
-  colorToken: 'glassRegular',
-  color: '#f2f2f7',
+  colorToken: 'designWindow',
+  color: '#9ea1a2',
+  padding: 14,             // pt — default inner padding for the window content
   spatial: {
     immersionStyle: 'mixed',
     hoverEffect: 'automatic',
@@ -191,17 +194,19 @@ const PANEL_DEFAULTS = {
     textCase:      'none'   // .textCase(.uppercase / .lowercase)
   },
   button: {
-    size: [ptToUnits(180), ptToUnits(44)],
-    color: '#e5e5ea',
-    colorToken: 'secondarySystemFill',
-    cornerRadius: ptToUnits(22),       // capsule
+    // 164×60 pill — the Vision Pro "Capsule" button shape Apple uses in
+    // their reference UI. cornerRadius=30 makes both ends fully rounded.
+    size: [ptToUnits(164), ptToUnits(60)],
+    color: '#b7b6b1',
+    colorToken: 'designButton',
+    cornerRadius: ptToUnits(30),       // capsule
     text: 'Button',
     textStyle: 'body',
     fontSize: textStyleToFontSize('body'),
     fontWeight: 'semibold',
     textAlign: 'center',
-    textColor: '#007aff',
-    textColorToken: 'systemBlue',
+    textColor: '#ffffff',
+    textColorToken: 'designButtonText',
     buttonStyle: 'bordered'
   },
   image: {
@@ -646,7 +651,7 @@ function seedScene() {
     stackType: 'vstack',
     alignment: 'center',
     spacing: 16,
-    padding: 48,
+    padding: 14,          // matches visionOS default window inset
     name: 'Content'
   })
   const title = makePanel('text', {
@@ -1148,20 +1153,37 @@ export const useStore = create((set, get) => ({
   // and the detail column fills the remaining space. The sidebar is styled
   // as a list of navigation rows (matching `.listStyle(.sidebar)`), and the
   // detail column shows an inspector-like title + body placeholder.
-  addSplitView: () => undoable(set, get, (s) => {
+  // style: 'joined' | 'separated'
+  //   joined    — Apple's default two-column split (320pt sidebar, flush).
+  //   separated — Sidebar floats as a standalone 623×fill dialogue box with
+  //               a 30pt radius inside the window; detail fills the rest.
+  addSplitView: ({ style = 'joined' } = {}) => undoable(set, get, (s) => {
     const win = findTargetWindow(s)
     if (!win) return s
 
-    const sideW = 320           // SwiftUI sidebar ideal width on visionOS
+    // Preserve anything the user has already placed in the window — the
+    // existing items move into the new Detail column so the split view
+    // doesn't overlap with them. We only adopt *direct* content children
+    // (not ornaments/toolbars or presentation overlays).
+    const presentationTypes = ['sheet', 'popover', 'alert']
+    const existingContent = s.items.filter((it) =>
+      it.parentId === win.id &&
+      !(it.type === 'stack' && it.ornament) &&
+      !(it.type === 'panel' && presentationTypes.includes(it.panelType))
+    )
+
+    const separated = style === 'separated'
+    const sideW = separated ? SPLIT_SEPARATED_WIDTH : 320
     const root = makeStack({
       parentId: win.id,
       stackType: 'hstack',
-      name: 'NavigationSplitView',
-      spacing: 0,
+      name: separated ? 'NavigationSplitView (Separated)' : 'NavigationSplitView',
+      spacing: separated ? 16 : 0,
       padding: 0,
       widthMode: 'fill',
       heightMode: 'fill',
-      alignment: 'center'
+      alignment: 'center',
+      splitStyle: style
     })
     const sidebar = makeStack({
       parentId: root.id,
@@ -1173,8 +1195,13 @@ export const useStore = create((set, get) => ({
       heightMode: 'fill',
       fixedWidth: sideW,
       alignment: 'leading',
-      background: 'secondarySystemBackground',
-      material: 'thin'
+      // Readable mid-grey that sits between the window fill (#9ea1a2) and
+      // black — avoids the near-black the previous secondarySystemBackground
+      // token resolved to in dark mode.
+      background: '#6b6e70',
+      material: 'thin',
+      // Separated sidebars render as a floating dialogue with a 30pt radius.
+      ...(separated ? { cornerRadius: ptToUnits(SPLIT_SEPARATED_RADIUS) } : {})
     })
     const detail = makeStack({
       parentId: root.id,
@@ -1222,37 +1249,89 @@ export const useStore = create((set, get) => ({
       symbolRenderingMode: 'monochrome'
     }))
 
-    // Detail column: large title + body placeholder.
-    const detailTitle = makePanel('text', {
-      parentId: detail.id,
-      name: 'Title',
-      text: 'Select an Item',
-      textStyle: 'largeTitle',
-      fontSize: textStyleToFontSize('largeTitle'),
-      fontWeight: 'bold',
-      textAlign: 'center',
-      widthMode: 'fill'
-    })
-    const detailBody = makePanel('text', {
-      parentId: detail.id,
-      name: 'Body',
-      text: 'Choose an item from the sidebar to see its details here.',
-      textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
-      colorToken: 'secondary',
-      color: '#8e8e93',
-      textAlign: 'center',
-      widthMode: 'fill'
-    })
+    // Detail column: if the window already had content we reparent it into
+    // the detail column (that's what the user expects — the split view
+    // "wraps" their existing layout). Otherwise show a large title + body
+    // placeholder so the column isn't empty.
+    let detailChildren = []
+    let reparentedIds = new Set()
+    let remainingItems = s.items
+    if (existingContent.length > 0) {
+      reparentedIds = new Set(existingContent.map((it) => it.id))
+      // Remove them from the outer items array — they'll be re-added with
+      // updated parentId below so child order stays deterministic.
+      remainingItems = s.items.filter((it) => !reparentedIds.has(it.id))
+      detailChildren = existingContent.map((it) => ({ ...it, parentId: detail.id }))
+    } else {
+      const detailTitle = makePanel('text', {
+        parentId: detail.id,
+        name: 'Title',
+        text: 'Select an Item',
+        textStyle: 'largeTitle',
+        fontSize: textStyleToFontSize('largeTitle'),
+        fontWeight: 'bold',
+        textAlign: 'center',
+        widthMode: 'fill'
+      })
+      const detailBody = makePanel('text', {
+        parentId: detail.id,
+        name: 'Body',
+        text: 'Choose an item from the sidebar to see its details here.',
+        textStyle: 'body',
+        fontSize: textStyleToFontSize('body'),
+        colorToken: 'secondary',
+        color: '#8e8e93',
+        textAlign: 'center',
+        widthMode: 'fill'
+      })
+      detailChildren = [detailTitle, detailBody]
+    }
 
     return {
       items: [
-        ...s.items,
+        ...remainingItems,
         root, sidebar, detail,
         sidebarHeader, ...navRows,
-        detailTitle, detailBody
+        ...detailChildren
       ],
       selectedId: root.id
+    }
+  }),
+
+  // Swap a NavigationSplitView between joined/separated at runtime. Updates
+  // the root's splitStyle and re-tunes the sidebar's width + corner radius.
+  setSplitStyle: (rootId, style) => undoable(set, get, (s) => {
+    const root = s.items.find((it) => it.id === rootId)
+    if (!root || !root.splitStyle) return s
+    const separated = style === 'separated'
+    const sideW = separated ? SPLIT_SEPARATED_WIDTH : 320
+    const sidebar = s.items.find(
+      (it) => it.parentId === root.id && it.type === 'stack' && it.name === 'Sidebar'
+    )
+    return {
+      items: s.items.map((it) => {
+        if (it.id === root.id) {
+          return {
+            ...it,
+            splitStyle: style,
+            spacing: separated ? 16 : 0,
+            name: separated ? 'NavigationSplitView (Separated)' : 'NavigationSplitView'
+          }
+        }
+        if (sidebar && it.id === sidebar.id) {
+          return {
+            ...it,
+            fixedWidth: sideW,
+            cornerRadius: separated ? ptToUnits(SPLIT_SEPARATED_RADIUS) : undefined
+          }
+        }
+        // Resize nav-row buttons so their 16pt-inset width matches the
+        // new sidebar width.
+        if (sidebar && it.parentId === sidebar.id && it.type === 'panel' && it.panelType === 'button') {
+          return { ...it, size: [ptToUnits(sideW - 32), it.size[1]] }
+        }
+        return it
+      })
     }
   }),
 

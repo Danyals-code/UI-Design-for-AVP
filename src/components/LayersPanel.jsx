@@ -6,12 +6,48 @@ import {
   EyeOpen, EyeClosed,
   FolderPlus,
   ChevronRight, ChevronDown,
-  CanvasIcon, TextIcon, ButtonIcon,
+  CanvasIcon, TextIcon, ButtonIcon, LabelIcon, LinkIcon,
+  ImageIcon, AsyncImageIcon,
+  ToggleIcon, SliderIcon, StepperIcon, PickerIcon, ProgressIcon, GaugeIcon,
+  DatePickerIcon, ColorPickerIcon, TextFieldIcon, SecureFieldIcon, TextEditorIcon,
   VStackIcon, HStackIcon, ZStackIcon,
+  SpacerIcon, DividerIcon, RectangleIcon, CircleIcon, CapsuleIcon,
+  EllipseIcon, UnevenRectIcon, PathIcon,
+  LinearGradientIcon, RadialGradientIcon, AngularGradientIcon,
+  ListIcon, TableIcon, MenuIcon, FormIcon, GroupBoxIcon, OutlineGroupIcon,
+  SlideshowIcon, TickerIcon, SearchIcon, SegmentedIcon,
+  SheetIcon, PopoverIcon, AlertIcon, ContentUnavailableIcon,
   WindowIcon, CloseIcon, PlusIcon,
   TabViewIcon, TabIcon, NavStackIcon,
-  PageTabIcon
+  PageTabIcon, SplitViewIcon
 } from './icons'
+
+// Keep this map in sync with AddDropdown.jsx so the glyph in the layers
+// panel matches the glyph shown when the element was added.
+const PANEL_ICONS = {
+  // Views
+  text: TextIcon, image: ImageIcon, label: LabelIcon, button: ButtonIcon, link: LinkIcon,
+  asyncimage: AsyncImageIcon,
+  // Controls
+  toggle: ToggleIcon, slider: SliderIcon, stepper: StepperIcon, picker: PickerIcon,
+  progress: ProgressIcon, gauge: GaugeIcon,
+  datepicker: DatePickerIcon, colorpicker: ColorPickerIcon,
+  textfield: TextFieldIcon, securefield: SecureFieldIcon, texteditor: TextEditorIcon,
+  segmented: SegmentedIcon, search: SearchIcon,
+  // Layout primitives
+  spacer: SpacerIcon, divider: DividerIcon,
+  rectangle: RectangleIcon, circle: CircleIcon, capsule: CapsuleIcon,
+  ellipse: EllipseIcon, unevenRoundedRect: UnevenRectIcon, path: PathIcon,
+  linearGradient: LinearGradientIcon, radialGradient: RadialGradientIcon, angularGradient: AngularGradientIcon,
+  // Collections
+  list: ListIcon, table: TableIcon, menu: MenuIcon,
+  form: FormIcon, groupbox: GroupBoxIcon, outlinegroup: OutlineGroupIcon,
+  // Display
+  slideshow: SlideshowIcon, ticker: TickerIcon,
+  // Presentations
+  sheet: SheetIcon, popover: PopoverIcon, alert: AlertIcon,
+  contentUnavailable: ContentUnavailableIcon
+}
 
 // ---- tree-row icon picker ----
 
@@ -24,6 +60,9 @@ function rowIcon(item) {
   }
   if (item.type === 'window') return <WindowIcon />
   if (item.type === 'stack') {
+    // NavigationSplitView is a special compound layout — not a plain stack —
+    // so it gets its own icon regardless of the underlying stackType.
+    if (item.splitStyle)               return <SplitViewIcon />
     if (item.stackType === 'hstack')   return <HStackIcon />
     if (item.stackType === 'zstack')   return <ZStackIcon />
     if (item.stackType === 'tabview')  return <TabViewIcon />
@@ -31,8 +70,8 @@ function rowIcon(item) {
     if (item.stackType === 'navstack') return <NavStackIcon />
     return <VStackIcon />
   }
-  if (item.panelType === 'text')   return <TextIcon />
-  if (item.panelType === 'button') return <ButtonIcon />
+  const PanelIcon = PANEL_ICONS[item.panelType]
+  if (PanelIcon) return <PanelIcon />
   return <CanvasIcon />
 }
 

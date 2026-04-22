@@ -473,22 +473,40 @@ function WindowProps({ item }) {
   const renameItem = useStore((s) => s.renameItem)
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title="Window">
+      <Section title="Window" defaultOpen={false}>
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
       </Section>
-      <Section title="Size">
-        <Row label="Width"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [v, item.size[1]] })} /></Row>
-        <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], v] })} /></Row>
-        <Row label="Radius"><PtField value={item.cornerRadius} onChange={(v) => updateItem(item.id, { cornerRadius: v })} /></Row>
+
+      {/* Frame — size, position and inner padding live together so the
+          window's geometry is a single glanceable section. */}
+      <Section title="Frame" defaultOpen={false}>
+        <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">Size</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Row label="W"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [v, item.size[1]] })} /></Row>
+          <Row label="H"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], v] })} /></Row>
+          <Row label="Radius"><PtField value={item.cornerRadius} onChange={(v) => updateItem(item.id, { cornerRadius: v })} /></Row>
+          <Row label="Pad">
+            <input
+              type="number"
+              step={1}
+              value={item.padding ?? 14}
+              onChange={(e) => updateItem(item.id, { padding: parseFloat(e.target.value) || 0 })}
+              className="field"
+            />
+            <span className="text-[9px] text-textMute">pt</span>
+          </Row>
+        </div>
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Position</div>
+        <div className="grid grid-cols-3 gap-1.5">
+          <Row label="X"><NumField value={item.position[0]} onChange={(v) => updateItem(item.id, { position: [v, item.position[1], item.position[2]] })} /></Row>
+          <Row label="Y"><NumField value={item.position[1]} onChange={(v) => updateItem(item.id, { position: [item.position[0], v, item.position[2]] })} /></Row>
+          <Row label="Z"><NumField value={item.position[2]} onChange={(v) => updateItem(item.id, { position: [item.position[0], item.position[1], v] })} /></Row>
+        </div>
       </Section>
-      <Section title="Position">
-        <Row label="X"><NumField value={item.position[0]} onChange={(v) => updateItem(item.id, { position: [v, item.position[1], item.position[2]] })} /></Row>
-        <Row label="Y"><NumField value={item.position[1]} onChange={(v) => updateItem(item.id, { position: [item.position[0], v, item.position[2]] })} /></Row>
-        <Row label="Z"><NumField value={item.position[2]} onChange={(v) => updateItem(item.id, { position: [item.position[0], item.position[1], v] })} /></Row>
-      </Section>
-      <Section title="Material">
+
+      <Section title="Material" defaultOpen={false}>
         <Row label="Glass">
           <Select
             value={item.material || 'regular'}
@@ -544,22 +562,13 @@ function WindowProps({ item }) {
              embedded *inside* the current window.
           Sidebars for page navigation live on the scene's Tabs (pages),
           not as ornaments. */}
-      <Section title="Ornaments">
+      <Section title="Ornaments" defaultOpen={false}>
         <div className="text-[10px] text-textMute mb-1 leading-relaxed">
           Attach a SwiftUI <code>.toolbar</code> (top or bottom) with
           leading / principal / trailing items. For side navigation, use
           the scene's Tabs (pages) — they render as a sidebar automatically.
         </div>
         <ToolbarWizard />
-      </Section>
-
-      <Section title="Navigation Split View">
-        <div className="text-[10px] text-textMute mb-1 leading-relaxed">
-          Adds a <code>NavigationSplitView</code> (sidebar + detail) inside
-          this window. The sidebar gets a list of navigation rows; the
-          detail column fills the remaining space.
-        </div>
-        <SplitViewWizard />
       </Section>
 
       <Section title="Environment" defaultOpen={false}>
@@ -584,28 +593,52 @@ function WindowProps({ item }) {
 function StackProps({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const renameItem = useStore((s) => s.renameItem)
+  const setSplitStyle = useStore((s) => s.setSplitStyle)
+  const isSplit = !!item.splitStyle
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title="Stack">
+      <Section title={isSplit ? 'Navigation Split View' : 'Stack'}>
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
-        <Row label="Kind">
-          <div className="segmented flex-1">
-            <button
-              className={item.stackType === 'vstack' ? 'active' : ''}
-              onClick={() => updateItem(item.id, { stackType: 'vstack', alignment: 'center' })}
-            ><VStackIcon /> VStack</button>
-            <button
-              className={item.stackType === 'hstack' ? 'active' : ''}
-              onClick={() => updateItem(item.id, { stackType: 'hstack', alignment: 'center' })}
-            ><HStackIcon /> HStack</button>
-            <button
-              className={item.stackType === 'zstack' ? 'active' : ''}
-              onClick={() => updateItem(item.id, { stackType: 'zstack', alignment: 'center' })}
-            ><ZStackIcon /> ZStack</button>
-          </div>
-        </Row>
+        {isSplit ? (
+          <>
+            <Row label="Style">
+              <div className="segmented flex-1">
+                <button
+                  className={item.splitStyle === 'joined' ? 'active' : ''}
+                  onClick={() => setSplitStyle(item.id, 'joined')}
+                >Joined</button>
+                <button
+                  className={item.splitStyle === 'separated' ? 'active' : ''}
+                  onClick={() => setSplitStyle(item.id, 'separated')}
+                >Separated</button>
+              </div>
+            </Row>
+            <div className="text-[10px] text-textMute leading-relaxed mt-1">
+              {item.splitStyle === 'joined'
+                ? 'Flush two-column layout — sidebar attached, 320pt wide.'
+                : 'Sidebar as a 370pt floating dialogue (r=30) inside the window.'}
+            </div>
+          </>
+        ) : (
+          <Row label="Kind">
+            <div className="segmented flex-1">
+              <button
+                className={item.stackType === 'vstack' ? 'active' : ''}
+                onClick={() => updateItem(item.id, { stackType: 'vstack', alignment: 'center' })}
+              ><VStackIcon /> VStack</button>
+              <button
+                className={item.stackType === 'hstack' ? 'active' : ''}
+                onClick={() => updateItem(item.id, { stackType: 'hstack', alignment: 'center' })}
+              ><HStackIcon /> HStack</button>
+              <button
+                className={item.stackType === 'zstack' ? 'active' : ''}
+                onClick={() => updateItem(item.id, { stackType: 'zstack', alignment: 'center' })}
+              ><ZStackIcon /> ZStack</button>
+            </div>
+          </Row>
+        )}
       </Section>
 
       <Section title="Layout">
@@ -1782,10 +1815,34 @@ function TabBarWizard() {
 
 function SplitViewWizard() {
   const addSplitView = useStore((s) => s.addSplitView)
+  const [style, setStyle] = useState('joined')
   return (
-    <button className="btn w-full justify-center" onClick={() => addSplitView()}>
-      + Navigation Split View
-    </button>
+    <div className="flex flex-col gap-2">
+      <Row label="Style">
+        <div className="segmented flex-1">
+          <button
+            className={style === 'joined' ? 'active' : ''}
+            onClick={() => setStyle('joined')}
+          >
+            Joined
+          </button>
+          <button
+            className={style === 'separated' ? 'active' : ''}
+            onClick={() => setStyle('separated')}
+          >
+            Separated
+          </button>
+        </div>
+      </Row>
+      <div className="text-[10px] text-textMute">
+        {style === 'joined'
+          ? 'Flush two-column layout (SwiftUI default).'
+          : 'Sidebar as a 623pt floating dialogue (r=30) inside the window.'}
+      </div>
+      <button className="btn w-full justify-center" onClick={() => addSplitView({ style })}>
+        + Navigation Split View
+      </button>
+    </div>
   )
 }
 

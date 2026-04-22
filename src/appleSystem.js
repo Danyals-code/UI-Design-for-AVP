@@ -30,7 +30,7 @@ export const TEXT_STYLE_ORDER = [
 // visionOS window sizes. These match Apple's default "regular" window.
 // Users can resize the window freely; these are just starting presets.
 export const WINDOW_PRESETS = {
-  regular:  { label: 'Regular',  width: 1280, height: 720 },
+  regular:  { label: 'Regular',  width: 1636, height: 1142 },
   wide:     { label: 'Wide',     width: 1600, height: 900 },
   tall:     { label: 'Tall',     width: 900,  height: 1200 },
   compact:  { label: 'Compact',  width: 960,  height: 600 },
@@ -45,8 +45,18 @@ export const VOLUME_PRESETS = {
 
 // visionOS uses a glass material for window backgrounds. We approximate with
 // a translucent fill + subtle border in the scene.
-export const WINDOW_CORNER_RADIUS = 46   // pt — visionOS default
-export const WINDOW_BORDER_RADIUS = 46
+export const WINDOW_CORNER_RADIUS = 25   // pt — matches the 1636×1142 regular preset
+export const WINDOW_BORDER_RADIUS = 25
+
+// Default inner padding applied to a Window's content stack. Matches the
+// 14pt edge inset used by Apple's reference layouts for a regular visionOS
+// window at 1636×1142.
+export const WINDOW_PADDING = 14
+
+// Default NavigationSplitView sidebar sizing when in 'separated' style —
+// the sidebar becomes a standalone rounded dialogue on the leading edge.
+export const SPLIT_SEPARATED_WIDTH = 370   // pt
+export const SPLIT_SEPARATED_RADIUS = 30   // pt
 
 // visionOS ornament placements (attached chrome outside the window).
 // All sizes in iOS points. The designer treats each ornament as a Stack
@@ -173,7 +183,12 @@ export const SYSTEM_COLORS = {
     // visionOS glass materials (approximated)
     glassRegular:              '#f2f2f7',
     glassThin:                 '#ffffff',
-    glassThick:                '#e5e5ea'
+    glassThick:                '#e5e5ea',
+    // Design scheme — the colours a finished Vision Pro layout uses.
+    // Light scheme: white windows, black text, pill buttons stay neutral grey.
+    designWindow:              '#ffffff',
+    designButton:              '#b7b6b1',
+    designButtonText:          '#000000'
   },
   dark: {
     primary:                   '#ffffff',
@@ -200,7 +215,11 @@ export const SYSTEM_COLORS = {
     systemGray:                '#8e8e93',
     glassRegular:              '#39393c',
     glassThin:                 '#45454a',
-    glassThick:                '#2c2c2f'
+    glassThick:                '#2c2c2f',
+    // Design scheme — dark visionOS reference values from Apple's layout.
+    designWindow:              '#9ea1a2',
+    designButton:              '#b7b6b1',
+    designButtonText:          '#ffffff'
   }
 }
 
