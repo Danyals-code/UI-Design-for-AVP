@@ -75,11 +75,15 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const children = items.filter((c) => c.parentId === stack.id && isEffectivelyVisible(items, c.id))
 
   const hasBackground = stack.ornament != null || stack.background != null
-  const bgRadius = stack.ornament ? Math.min(w, h) / 2 : ptToUnits(12)
+  // Allow a stack to override its background corner radius (e.g. the
+  // separated NavigationSplitView sidebar uses a 30pt dialogue radius).
+  const bgRadius = stack.ornament
+    ? Math.min(w, h) / 2
+    : (stack.cornerRadius != null ? stack.cornerRadius : ptToUnits(12))
 
   const outlineShape = useMemo(
-    () => roundedRectShape(w + 0.025, h + 0.025, (stack.ornament ? bgRadius : ptToUnits(12)) + 0.012),
-    [w, h, bgRadius, stack.ornament]
+    () => roundedRectShape(w + 0.025, h + 0.025, bgRadius + 0.012),
+    [w, h, bgRadius]
   )
 
   const bgColor = (() => {
@@ -402,22 +406,38 @@ function Window3D({ window: win, items }) {
           float just in front, and chrome (ornaments, tab bars, nav bars) is
           furthest forward. In window mode we stay flat so the orthographic-
           feeling view doesn't shift. */}
-      {contentChildren.map((c) => {
-        const chromeStack = c.type === 'stack' && (c.stackType === 'tabview' || c.stackType === 'navstack')
-        const zStack = scene.preview3D ? (chromeStack ? 0.18 : 0.08) : 0.005
-        const zPanel = scene.preview3D ? 0.08 : 0.005
-        const pos = c.type === 'stack' ? [0, 0, zStack] : (c.position || [0, 0, zPanel])
-        if (c.type === 'stack') {
-          const intrinsic = computeSize(c, items)
-          const fillW = c.widthMode  === 'fill'
-          const fillH = c.heightMode === 'fill'
-          const resolved = (fillW || fillH)
-            ? [fillW ? w : intrinsic[0], fillH ? h : intrinsic[1]]
-            : undefined
-          return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
-        }
-        return <Panel3D key={c.id} panel={c} localPosition={pos} />
-      })}
+      {(() => {
+        // Window-level inner padding — fill children are clamped to the padded
+        // area so content doesn't bleed to the window edge. Matches SwiftUI's
+        // `.padding(window)`-style inset; default 14pt per Apple's 1636×1142
+        // reference layout.
+        const padU = ptToUnits(win.padding ?? 14)
+        const innerW = Math.max(0, w - padU * 2)
+        const innerH = Math.max(0, h - padU * 2)
+        return contentChildren.map((c) => {
+          const chromeStack = c.type === 'stack' && (c.stackType === 'tabview' || c.stackType === 'navstack')
+          const zStack = scene.preview3D ? (chromeStack ? 0.18 : 0.08) : 0.005
+          const zPanel = scene.preview3D ? 0.08 : 0.005
+          const pos = c.type === 'stack' ? [0, 0, zStack] : (c.position || [0, 0, zPanel])
+          if (c.type === 'stack') {
+            const intrinsic = computeSize(c, items)
+            const fillW = c.widthMode  === 'fill'
+            const fillH = c.heightMode === 'fill'
+            // A joined NavigationSplitView ignores the window's inner padding
+            // so the sidebar runs flush with the window's left/top/bottom
+            // edges — that's Apple's own default (the split view becomes the
+            // window's chrome, not inset content).
+            const bypassPadding = c.splitStyle === 'joined'
+            const fitW = bypassPadding ? w : innerW
+            const fitH = bypassPadding ? h : innerH
+            const resolved = (fillW || fillH)
+              ? [fillW ? fitW : intrinsic[0], fillH ? fitH : intrinsic[1]]
+              : undefined
+            return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
+          }
+          return <Panel3D key={c.id} panel={c} localPosition={pos} />
+        })
+      })()}
 
       {/* Ornaments — pinned to edges, top depth tier in 3D preview */}
       {ornamentChildren.map((o) => {

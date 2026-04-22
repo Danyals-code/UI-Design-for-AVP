@@ -8,7 +8,8 @@ import {
   SlideshowIcon, TickerIcon,
   SheetIcon, PopoverIcon, AlertIcon,
   WindowIcon, PlusIcon, ChevronRight,
-  ToolbarIcon, TabViewIcon, NavStackIcon, PageTabIcon
+  ToolbarIcon, TabViewIcon, NavStackIcon, PageTabIcon,
+  SplitViewIcon
 } from './icons'
 
 // Each group shows as a row with a right-arrow. Hovering the row reveals a
@@ -52,6 +53,7 @@ export default function AddDropdown({ variant = 'compact' }) {
   const addToolbar     = useStore((s) => s.addToolbar)
   const addTabView     = useStore((s) => s.addTabView)
   const addTab         = useStore((s) => s.addTab)
+  const addSplitView   = useStore((s) => s.addSplitView)
 
   useEffect(() => {
     const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
@@ -89,6 +91,8 @@ export default function AddDropdown({ variant = 'compact' }) {
         { label: 'Stack',            Icon: VStackIcon,  onSel: () => addStack('vstack') },
         { label: 'Tab View',         Icon: TabViewIcon, onSel: () => addTabView() },
         { label: 'Navigation Stack', Icon: NavStackIcon, onSel: () => addStack('navstack') },
+        { label: 'Nav Split View · Joined',    Icon: SplitViewIcon, onSel: () => addSplitView({ style: 'joined' }) },
+        { label: 'Nav Split View · Separated', Icon: SplitViewIcon, onSel: () => addSplitView({ style: 'separated' }) },
         { label: 'Toolbar',          Icon: ToolbarIcon, onSel: () => addToolbar({ placement: 'top', items: ['Action 1', 'Action 2', 'Action 3'] }) },
         { label: 'Spacer',         Icon: SpacerIcon,  onSel: () => addPanel('spacer') },
         { label: 'Divider',        Icon: DividerIcon, onSel: () => addPanel('divider') },
