@@ -180,7 +180,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       )}
 
       {/* NavStack title */}
-      {stack.stackType === 'navstack' && stack.navTitle && (
+      {stack.stackType === 'navigationStack' && stack.navTitle && (
         <Text
           position={[0, h / 2 - ptToUnits(24), 0.003]}
           font={getInterFont('bold')}
@@ -195,7 +195,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       )}
 
       {/* TabView: auto-render bottom tab bar with clickable tabs */}
-      {stack.stackType === 'tabview' && <TabBar3D stack={stack} children={children} w={w} h={h} scene={scene} />}
+      {stack.stackType === 'tabView' && <TabBar3D stack={stack} children={children} w={w} h={h} scene={scene} />}
 
       {children.map((c) => {
         // In a TabView, only the active Tab is positioned by layoutStack.
@@ -415,7 +415,7 @@ function Window3D({ window: win, items }) {
         const innerW = Math.max(0, w - padU * 2)
         const innerH = Math.max(0, h - padU * 2)
         return contentChildren.map((c) => {
-          const chromeStack = c.type === 'stack' && (c.stackType === 'tabview' || c.stackType === 'navstack')
+          const chromeStack = c.type === 'stack' && (c.stackType === 'tabView' || c.stackType === 'navigationStack')
           const zStack = scene.preview3D ? (chromeStack ? 0.18 : 0.08) : 0.005
           const zPanel = scene.preview3D ? 0.08 : 0.005
           const pos = c.type === 'stack' ? [0, 0, zStack] : (c.position || [0, 0, zPanel])
@@ -455,21 +455,42 @@ function Window3D({ window: win, items }) {
         )
       })}
 
-      {/* Presentation overlays (sheet / alert / popover) — render above everything */}
+      {/* Presentation overlays (sheet / alert / popover) — rendered above
+          the window content. In SwiftUI these modals are always *contained*
+          by their parent window, so we clamp both the dimming backdrop and
+          the panel itself to the window bounds (minus a small inset) rather
+          than letting them bleed past the edge. */}
       {presentationChildren.length > 0 && (
         <>
-          {/* Dimming backdrop */}
+          {/* Dimming backdrop — covers exactly the window interior. */}
           <mesh position={[0, 0, 0.04]}>
-            <planeGeometry args={[w * 1.2, h * 1.2]} />
+            <planeGeometry args={[w, h]} />
             <meshBasicMaterial color="#000000" transparent opacity={0.35} />
           </mesh>
           {/* Each presentation child */}
           {presentationChildren.map((p) => {
+            // SwiftUI sheets get a small margin on every side rather than
+            // pinning to the window edges. 8% inset reads as a comfortable
+            // modal frame; the content still lays out at its declared size
+            // until that exceeds the window minus insets, then we clamp.
+            const maxW = w * 0.92
+            const maxH = h * 0.92
+            const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
+            const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
             let py = 0
             if (p.panelType === 'sheet') {
-              py = p.sheetDetent === 'medium' ? -h * 0.15 : 0
+              // `.presentationDetents(.medium)` pushes the sheet toward the
+              // bottom; otherwise sheets center inside the window.
+              py = p.sheetDetent === 'medium' ? -(h - clamped[1]) / 2 * 0.9 : 0
             }
-            return <Panel3D key={p.id} panel={p} localPosition={[0, py, 0.05]} />
+            return (
+              <Panel3D
+                key={p.id}
+                panel={p}
+                localPosition={[0, py, 0.05]}
+                resolvedSize={clamped}
+              />
+            )
           })}
         </>
       )}

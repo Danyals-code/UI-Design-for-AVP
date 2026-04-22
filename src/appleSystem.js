@@ -281,12 +281,12 @@ export const STACK_TYPES = {
     description: 'Expandable/collapsible group',
     alignments: ['leading', 'center', 'trailing']
   },
-  navstack: {
+  navigationStack: {
     label: 'NavigationStack',
     description: 'Push/pop navigation — shows one child at a time',
     alignments: ['center']
   },
-  tabview: {
+  tabView: {
     label: 'TabView (Navigation Stack)',
     description: 'Shows one Tab at a time — select via the active tab index',
     alignments: ['center']
@@ -301,8 +301,8 @@ export const STACK_TYPES = {
 export const STACK_TYPE_ORDER = [
   'vstack', 'hstack', 'zstack', 'grid',
   'lazyvstack', 'lazyhstack',
-  'section', 'disclosure', 'navstack',
-  'tabview', 'tab'
+  'section', 'disclosure', 'navigationStack',
+  'tabView', 'tab'
 ]
 
 // ---- Phase 7: Style Modifiers ----
@@ -451,7 +451,47 @@ export const SF_SYMBOLS = {
   'globe':           { glyph: '\u2641', label: 'Globe' },
   'info.circle':     { glyph: '\u2139', label: 'Info' },
   'exclamationmark.triangle': { glyph: '\u26A0', label: 'Warning' },
-  'questionmark.circle': { glyph: '?', label: 'Help' }
+  'questionmark.circle': { glyph: '?', label: 'Help' },
+  // --- additions to cover the visionOS reference apps (Photos, News,
+  // Shortcuts, Settings). Keeping the SwiftUI SF Symbol names verbatim so a
+  // future code-export step can emit `Image(systemName: "...")` unchanged.
+  'folder.fill':                 { glyph: '\u2603', label: 'Folder Fill' },
+  'folder.badge.plus':           { glyph: '\u2603', label: 'Folder Add' },
+  'doc.viewfinder.fill':         { glyph: '\u25A3', label: 'Scan Document' },
+  'list.bullet':                 { glyph: '\u2630', label: 'List Bullet' },
+  'square.grid.2x2':             { glyph: '\u29C9', label: 'Grid 2×2' },
+  'square.grid.2x2.fill':        { glyph: '\u29C9', label: 'Grid 2×2 Fill' },
+  'square.stack.fill':           { glyph: '\u25A3', label: 'Stack Fill' },
+  'applewatch':                  { glyph: '\u23F1', label: 'Apple Watch' },
+  'photo.on.rectangle.angled':   { glyph: '\u25A3', label: 'Photo Library' },
+  'cube':                        { glyph: '\u25A2', label: 'Cube' },
+  'pano':                        { glyph: '\u25AD', label: 'Panorama' },
+  'ellipsis':                    { glyph: '\u2026', label: 'More' },
+  'person.crop.circle':          { glyph: '\u263A', label: 'Account' },
+  'person.crop.circle.fill':     { glyph: '\u263A', label: 'Account Fill' },
+  'person.2.fill':               { glyph: '\u263B', label: 'People' },
+  'newspaper.fill':              { glyph: '\u25A4', label: 'News' },
+  'n.square.fill':               { glyph: 'N',      label: 'News+' },
+  'fork.knife.circle.fill':      { glyph: '\u29B0', label: 'Recipes' },
+  'clock.fill':                  { glyph: '\u23F0', label: 'History' },
+  'bell.badge':                  { glyph: '\u266A', label: 'Notifications' },
+  'rectangle.on.rectangle':      { glyph: '\u25A2', label: 'Reader' },
+  'applelogo':                   { glyph: '\uF8FF', label: 'Apple' },
+  'gearshape.fill':              { glyph: '\u2699', label: 'General' },
+  'gearshape.2.fill':            { glyph: '\u2699', label: 'Settings' },
+  'mountain.2.fill':             { glyph: '\u26F0', label: 'Environments' },
+  'accessibility':               { glyph: '\u267F', label: 'Accessibility' },
+  'sun.max.fill':                { glyph: '\u2600', label: 'Appearance' },
+  'apple.logo':                  { glyph: '\uF8FF', label: 'Apple' },
+  'switch.2':                    { glyph: '\u29BE', label: 'Control Center' },
+  'key.fill':                    { glyph: '\u26BF', label: 'Passwords' },
+  'character.book.closed.fill':  { glyph: '\u2611', label: 'Dictionary' },
+  'textformat':                  { glyph: '\u212A', label: 'Fonts' },
+  'keyboard':                    { glyph: '\u2328', label: 'Keyboard' },
+  'visionpro':                   { glyph: '\u25D4', label: 'Vision Pro' },
+  'laptopcomputer':              { glyph: '\u2328', label: 'Laptop' },
+  'tray':                        { glyph: '\u25AD', label: 'Inbox' },
+  'archivebox':                  { glyph: '\u2601', label: 'Archive' }
 }
 
 export const SF_SYMBOL_ORDER = Object.keys(SF_SYMBOLS)

@@ -209,7 +209,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const reorderAxis =
     parentStackType === 'vstack' || parentStackType === 'lazyvstack' ||
     parentStackType === 'section' || parentStackType === 'disclosure' ||
-    parentStackType === 'navstack'
+    parentStackType === 'navigationStack'
       ? 'y'
       : (parentStackType === 'hstack' || parentStackType === 'lazyhstack')
         ? 'x'
@@ -612,6 +612,23 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                 ptToUnits(style.groupRadius)
               )
             : null
+          // Leading SF Symbol (`Label(title, systemImage:)` in SwiftUI).
+          // Each row may carry `systemImage` (SF Symbol name) and `tint`
+          // (SYSTEM_COLORS token or direct #hex) — matches Apple's sidebar
+          // conventions in Shortcuts / News / Settings.
+          const symbol = r.systemImage ? SF_SYMBOLS[r.systemImage] : null
+          const iconTint = r.tint
+            ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scheme))
+            : (scene.tintColor || '#007aff')
+          const hasIcon = !!symbol
+          const textStartX = -innerW / 2 + (hasIcon ? ptToUnits(42) : ptToUnits(12))
+          // Optional row highlight pill (`.listRowBackground(...)` in SwiftUI).
+          const hlColor = r.background
+            ? (r.background.startsWith('#') ? r.background : resolveSemantic(r.background, scheme))
+            : null
+          const highlightShape = hlColor
+            ? roundedRectShape(innerW - ptToUnits(8), rowH - ptToUnits(6), ptToUnits(10))
+            : null
           return (
             <group key={i} position={[0, cy, 0]}>
               {rowCard && (
@@ -627,9 +644,25 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                   />
                 </mesh>
               )}
+              {highlightShape && (
+                <mesh position={[0, 0, -0.0005]}>
+                  <shapeGeometry args={[highlightShape]} />
+                  <meshBasicMaterial color={hlColor} transparent opacity={0.18} />
+                </mesh>
+              )}
+              {hasIcon && (
+                <Text
+                  position={[-innerW / 2 + ptToUnits(22), 0, 0]}
+                  font={fontUrl}
+                  fontSize={ptToUnits(17)}
+                  color={iconTint}
+                  anchorX="center"
+                  anchorY="middle"
+                >{symbol.glyph}</Text>
+              )}
               {/* Title (and optional subtitle stacked) */}
               <Text
-                position={[-innerW / 2 + ptToUnits(12), hasSub ? ptToUnits(7) : 0, 0]}
+                position={[textStartX, hasSub ? ptToUnits(7) : 0, 0]}
                 font={getInterFont(panel.listStyle === 'sidebar' ? 'medium' : 'regular')}
                 fontSize={fontSizeTitle}
                 color={primary}
@@ -639,7 +672,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
               >{r.title || ''}</Text>
               {hasSub && (
                 <Text
-                  position={[-innerW / 2 + ptToUnits(12), -ptToUnits(8), 0]}
+                  position={[textStartX, -ptToUnits(8), 0]}
                   fontSize={fontSizeSub}
                   color={secondary}
                   anchorX="left"
@@ -895,19 +928,42 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // ---- Phase 3 overlays ----
 
   const labelOverlay = panelType === 'label' && (() => {
-    const iconR = ptToUnits(12)
     const sym = panel.symbolName ? SF_SYMBOLS[panel.symbolName] : null
     const iconGlyph = sym ? sym.glyph : (panel.iconName || 'A')
+    // Apple's sidebar Label pattern (Settings.app): a coloured rounded-rect
+    // tile behind the glyph instead of a circle. Driven by:
+    //   iconTileColor  — fill color; null ⇒ classic circle fallback
+    //   iconTileRadius — pt, corner radius of the tile (default 6)
+    //   iconTileSize   — pt, square side length (default 28)
+    const tileColor = panel.iconTileColor
+    const tileSize = ptToUnits(panel.iconTileSize ?? 28)
+    const tileRadius = ptToUnits(panel.iconTileRadius ?? 6)
+    const iconR = tileSize / 2
+    const iconX = -size[0] / 2 + iconR + ptToUnits(4)
+    const textX = -size[0] / 2 + tileSize + ptToUnits(12)
+    const resolvedTile = tileColor
+      ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scheme))
+      : null
+    const tileShape = resolvedTile
+      ? roundedRectShape(tileSize, tileSize, tileRadius)
+      : null
     return (
       <>
-        <mesh position={[-size[0] / 2 + iconR + ptToUnits(4), 0, 0.005]}>
-          <circleGeometry args={[iconR, 32]} />
-          <meshBasicMaterial color={panel.iconColor || '#007aff'} />
-        </mesh>
-        <Text position={[-size[0] / 2 + iconR + ptToUnits(4), 0, 0.006]} fontSize={ptToUnits(14)} color="#ffffff" anchorX="center" anchorY="middle">
+        {tileShape ? (
+          <mesh position={[iconX, 0, 0.005]}>
+            <shapeGeometry args={[tileShape]} />
+            <meshBasicMaterial color={resolvedTile} />
+          </mesh>
+        ) : (
+          <mesh position={[iconX, 0, 0.005]}>
+            <circleGeometry args={[iconR, 32]} />
+            <meshBasicMaterial color={panel.iconColor || '#007aff'} />
+          </mesh>
+        )}
+        <Text position={[iconX, 0, 0.006]} fontSize={ptToUnits(14)} color="#ffffff" anchorX="center" anchorY="middle">
           {iconGlyph}
         </Text>
-        <Text position={[-size[0] / 2 + iconR * 2 + ptToUnits(14), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
+        <Text position={[textX, 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
           {panel.text || 'Label'}
         </Text>
       </>
@@ -1245,6 +1301,30 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
               )
             })()}
           </>
+        )
+      })()}
+
+      {/* Button leading icon — renders an SF Symbol glyph on the left edge
+          of the button label, matching SwiftUI's
+          `Button { Label("Title", systemImage: "…") }` layout. */}
+      {panelType === 'button' && panel.symbolName && SF_SYMBOLS[panel.symbolName] && (() => {
+        const glyph = SF_SYMBOLS[panel.symbolName].glyph
+        const padX = ptToUnits(12)
+        // Icon pinned to leading edge; text stays centered in the button so
+        // the combination reads as "icon-leading, title-centered" (Apple's
+        // default for bordered buttons).
+        return (
+          <Text
+            position={[-size[0] / 2 + padX, 0, 0.005]}
+            font={fontUrl}
+            fontSize={finalFontSize * 1.1}
+            color={resolvedTextColor}
+            fillOpacity={modOpacity}
+            anchorX="left"
+            anchorY="middle"
+          >
+            {glyph}
+          </Text>
         )
       })()}
 

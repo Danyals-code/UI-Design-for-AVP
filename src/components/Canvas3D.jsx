@@ -1,9 +1,23 @@
 import { useEffect, useRef, Suspense, memo } from 'react'
 import * as THREE from 'three'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useThree, useLoader } from '@react-three/fiber'
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
 import { useStore } from '../store'
 import SceneTree from './SceneTree'
+
+// Attaches a user-supplied image as the scene's background so it reads as
+// a flat environment behind the design. Used when scene.colorScheme is
+// 'image' and scene.backgroundImage is a data/blob URL.
+function ImageBackground({ url }) {
+  const texture = useLoader(THREE.TextureLoader, url)
+  useEffect(() => {
+    if (texture) {
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.needsUpdate = true
+    }
+  }, [texture])
+  return <primitive attach="background" object={texture} />
+}
 
 // Camera routing:
 //   - preview3D=true  → angled orbit camera, regardless of sceneMode
@@ -89,9 +103,13 @@ function Canvas3D() {
 
   const enableRotate = preview3D && !isDragging
 
-  const viewportBg = scene.colorScheme === 'dark' ? '#1e1e20' : '#e4e4e7'
-  const gridMain = scene.colorScheme === 'dark' ? '#2a2a2c' : '#c9c9cc'
-  const gridSub = scene.colorScheme === 'dark' ? '#1a1a1c' : '#d8d8dc'
+  const imageBg = scene.colorScheme === 'image' && scene.backgroundImage
+  // When an image background is active, keep the grid on the dark palette so
+  // the grid lines don't disappear into most photographs.
+  const effectiveScheme = imageBg ? 'dark' : scene.colorScheme
+  const viewportBg = effectiveScheme === 'dark' ? '#1e1e20' : '#e4e4e7'
+  const gridMain   = effectiveScheme === 'dark' ? '#2a2a2c' : '#c9c9cc'
+  const gridSub    = effectiveScheme === 'dark' ? '#1a1a1c' : '#d8d8dc'
 
   // When not in 3D preview, dim the gizmo so it reads as an inactive hint
   // rather than a loud overlay. Full tint kicks in only in 3D preview.
@@ -113,8 +131,17 @@ function Canvas3D() {
       // laggy. 200ms means the buffer only updates once the drag pauses.
       resize={{ debounce: 200 }}
     >
-      <color attach="background" args={[viewportBg]} />
-      {!scene.hdri && <fog attach="fog" args={[viewportBg, 12, 40]} />}
+      {imageBg ? (
+        <Suspense fallback={<color attach="background" args={[viewportBg]} />}>
+          <ImageBackground url={scene.backgroundImage} />
+        </Suspense>
+      ) : (
+        <color attach="background" args={[viewportBg]} />
+      )}
+      {/* Fog in the 3D preview sells depth; in head-on (window 2D) we leave
+          it off so pulling the camera back doesn't dim the design. Colors
+          then stay consistent irrespective of the zoom level. */}
+      {!scene.hdri && !imageBg && preview3D && <fog attach="fog" args={[viewportBg, 12, 40]} />}
 
       {scene.hdri && (
         <Suspense fallback={null}>
@@ -154,16 +181,23 @@ function Canvas3D() {
         enableDamping
         dampingFactor={0.12}
         target={[0, 2.5, -4.5]}
-        minDistance={1.0}
-        maxDistance={20}
+        // Clamp scroll / pinch dolly to the zoom slider's range (50%–350%).
+        // zoomDistance range in the slider is 2–14, matching these caps so
+        // keep-scrolling past 50% or 350% no longer works.
+        minDistance={2}
+        maxDistance={14}
         mouseButtons={mouseButtons}
       />
 
-      {/* Gizmo lives further down so it doesn't sit under the viewport
-          toolbar; greyed out when we aren't actively in 3D preview. */}
-      <GizmoHelper alignment="top-right" margin={[80, 140]}>
-        <GizmoViewport axisColors={gizmoAxisColors} labelColor={gizmoLabelColor} />
-      </GizmoHelper>
+      {/* Axis gizmo is only useful while actually rotating / in 3D preview.
+          In head-on (window 2D) the design is flat and the tumbler just adds
+          visual noise, so we hide it unless the user has flipped to See-in-3D
+          or is authoring a Volume. */}
+      {preview3D && (
+        <GizmoHelper alignment="top-right" margin={[80, 140]}>
+          <GizmoViewport axisColors={gizmoAxisColors} labelColor={gizmoLabelColor} />
+        </GizmoHelper>
+      )}
     </Canvas>
   )
 }
