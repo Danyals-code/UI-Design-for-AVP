@@ -5,15 +5,17 @@
 //   - One `<AppName>App.swift` containing `@main` + the WindowGroup / TabView
 //     that routes between tabs.
 //
-// Coverage is pragmatic — the common stack types, panels and NavigationSplitView
-// round-trip faithfully. Unknown elements render as a placeholder comment so
-// the exported file still compiles and obviously calls out the gap.
+// Coverage is pragmatic — the common stack types, panels, NavigationSplitView,
+// in-window TabView with `Tab` children, and presentation modifiers
+// (sheet/alert/popover) round-trip faithfully. Unknown elements render as a
+// placeholder comment so the exported file still compiles.
 //
 // The strict convention is: every public name in here must match the exact
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
 import { unitsToPt } from '../appleSystem'
+import { emitPanel } from '../panels/registry'
 
 // ---------- helpers ----------
 
@@ -33,28 +35,41 @@ function escapeString(s) {
   return String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
 }
 
+// Stable, Swift-safe state-var name from any item id.
+function stateVarName(id) { return `showing_${String(id).replace(/[^A-Za-z0-9]/g, '_')}` }
+
 function swiftColor(token, hex) {
   // Map our semantic tokens to SwiftUI's `Color` convenience values.
+  // Tokens that have no first-party SwiftUI equivalent (designWindow,
+  // designButton…) intentionally fall through to the hex fallback so the
+  // designer's exact color survives the export.
   if (token) {
     const map = {
+      // Foreground tiers
       primary: '.primary', secondary: '.secondary',
+      tertiary: '.tertiary', quaternary: '.quaternary',
+      // System colors
       systemBlue: '.blue', systemRed: '.red', systemGreen: '.green',
       systemOrange: '.orange', systemYellow: '.yellow', systemPurple: '.purple',
       systemPink: '.pink', systemTeal: '.teal', systemIndigo: '.indigo',
       systemGray: '.gray', systemBrown: '.brown', systemMint: '.mint',
       systemCyan: '.cyan',
+      // Backgrounds (UIKit-bridged on visionOS)
       systemBackground: 'Color(.systemBackground)',
       secondarySystemBackground: 'Color(.secondarySystemBackground)',
       tertiarySystemBackground: 'Color(.tertiarySystemBackground)',
+      // Fills
       systemFill: 'Color(.systemFill)',
-      secondarySystemFill: 'Color(.secondarySystemFill)'
+      secondarySystemFill: 'Color(.secondarySystemFill)',
+      tertiarySystemFill: 'Color(.tertiarySystemFill)',
+      quaternarySystemFill: 'Color(.quaternarySystemFill)',
+      // designWindow/Button/ButtonText: no SwiftUI equivalent — fall through
+      // to the hex fallback so the designer's exact color is preserved.
+      designButtonText: '.primary'
     }
     if (map[token]) return map[token]
   }
   if (hex) {
-    // Basic hex → Color(red:, green:, blue:) conversion; keeps the exact
-    // value from the designer. visionOS supports the literal Color(...)
-    // initialiser so this round-trips faithfully.
     const m = /^#([0-9a-f]{6})$/i.exec(hex)
     if (m) {
       const r = parseInt(m[1].slice(0, 2), 16) / 255
@@ -66,8 +81,25 @@ function swiftColor(token, hex) {
   return '.primary'
 }
 
+// Glass / material tokens used on stack `background` field. Unlike colors,
+// these resolve to SwiftUI `Material` values that go inside `.background(...)`.
+function swiftMaterial(token) {
+  const map = {
+    glassUltraThin: '.ultraThinMaterial',
+    glassThin:      '.thinMaterial',
+    glassRegular:   '.regularMaterial',
+    glassThick:     '.thickMaterial',
+    glassUltraThick:'.ultraThickMaterial',
+    ultraThinMaterial: '.ultraThinMaterial',
+    thinMaterial:      '.thinMaterial',
+    regularMaterial:   '.regularMaterial',
+    thickMaterial:     '.thickMaterial',
+    ultraThickMaterial:'.ultraThickMaterial'
+  }
+  return map[token] || null
+}
+
 function stackOpener(stackType, alignment, spacing) {
-  // Map our stackType to the exact SwiftUI view name + alignment enum.
   const align = alignment && alignment !== 'center' ? `.${alignment}` : null
   const sp = typeof spacing === 'number' ? spacing : null
   const argList = []
@@ -83,29 +115,100 @@ function stackOpener(stackType, alignment, spacing) {
     case 'disclosure':      return `DisclosureGroup {`
     case 'navigationStack': return `NavigationStack {`
     case 'tabView':         return `TabView {`
-    case 'tab':             return `Group {`   // single Tab content
     default:                return `VStack${argStr} {`
   }
+}
+
+// SwiftUI animation curve → SwiftUI .animation(...) expression.
+function animationCurveExpr(an) {
+  const dur = an.duration ?? 0.35
+  switch (an.curve) {
+    case 'spring':    return `.spring(response: ${an.springResponse ?? 0.55}, dampingFraction: ${an.springDamping ?? 0.825})`
+    case 'linear':    return `.linear(duration: ${dur})`
+    case 'easeIn':    return `.easeIn(duration: ${dur})`
+    case 'easeOut':   return `.easeOut(duration: ${dur})`
+    case 'easeInOut': return `.easeInOut(duration: ${dur})`
+    case 'default':   return null
+    default:          return null
+  }
+}
+
+// SwiftUI transition keyword → `.transition(.x)` expression. Only emitted
+// when the user picked something other than the default opacity transition.
+function transitionExpr(name) {
+  if (!name || name === 'opacity') return null
+  if (name === 'slide')    return '.slide'
+  if (name === 'scale')    return '.scale'
+  if (name === 'identity') return '.identity'
+  if (name === 'move')     return '.move(edge: .bottom)'
+  return `.${name}`
 }
 
 // ---------- text / panel rendering ----------
 
 function renderModifiers(panel, lines, pad) {
-  // Layered modifiers — emit each one as a `.modifier(…)` chain on the
+  // Layered modifiers — each one becomes a `.modifier(…)` chain on the
   // preceding view. Kept additive so callers can pick up partial chains.
   const m = panel.modifiers || {}
-  if (m.opacity != null && m.opacity !== 1.0) lines.push(`${indent(pad)}    .opacity(${m.opacity})`)
-  if (m.offsetX || m.offsetY)   lines.push(`${indent(pad)}    .offset(x: ${m.offsetX || 0}, y: ${m.offsetY || 0})`)
-  if (m.rotation)               lines.push(`${indent(pad)}    .rotationEffect(.degrees(${m.rotation}))`)
-  if (m.scaleX !== 1 || m.scaleY !== 1) lines.push(`${indent(pad)}    .scaleEffect(x: ${m.scaleX ?? 1}, y: ${m.scaleY ?? 1})`)
-  if (m.disabled)               lines.push(`${indent(pad)}    .disabled(true)`)
+  const ind = `${indent(pad)}    `
+  if (m.opacity != null && m.opacity !== 1.0) lines.push(`${ind}.opacity(${m.opacity})`)
+  if (m.offsetX || m.offsetY)   lines.push(`${ind}.offset(x: ${m.offsetX || 0}, y: ${m.offsetY || 0})`)
+  if (m.rotation)               lines.push(`${ind}.rotationEffect(.degrees(${m.rotation}))`)
+  if (m.scaleX !== 1 || m.scaleY !== 1) lines.push(`${ind}.scaleEffect(x: ${m.scaleX ?? 1}, y: ${m.scaleY ?? 1})`)
+  if (m.disabled)               lines.push(`${ind}.disabled(true)`)
+  if (m.shadowRadius && m.shadowColor) {
+    const x = m.shadowX || 0, y = m.shadowY || 0
+    lines.push(`${ind}.shadow(color: ${swiftColor(null, m.shadowColor)}, radius: ${m.shadowRadius}, x: ${x}, y: ${y})`)
+  }
   if (m.borderWidth && m.borderColor) {
-    lines.push(`${indent(pad)}    .overlay(RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0)}).stroke(${swiftColor(null, m.borderColor)}, lineWidth: ${m.borderWidth}))`)
+    lines.push(`${ind}.overlay(RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0)}).stroke(${swiftColor(null, m.borderColor)}, lineWidth: ${m.borderWidth}))`)
+  }
+  // visionOS `.hoverEffect()` — only emitted when the panel explicitly opts
+  // out of inheritance. `inherit` and `none` produce nothing (the parent
+  // window's modifier covers the former; SwiftUI has no `.none` form).
+  if (panel.hoverEffect && panel.hoverEffect !== 'inherit' && panel.hoverEffect !== 'none') {
+    lines.push(`${ind}.hoverEffect(.${panel.hoverEffect})`)
+  }
+
+  if (m.clipShape && m.clipShape !== 'none') {
+    const shape = m.clipShape === 'capsule'  ? 'Capsule()'
+              : m.clipShape === 'circle'   ? 'Circle()'
+              : `RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0) || 12})`
+    lines.push(`${ind}.clipShape(${shape})`)
+  }
+
+  // Accessibility — `panel.accessibility` carries label/hint/value/traits.
+  // Empty strings are skipped so the chain doesn't pick up no-ops.
+  const a = panel.accessibility || {}
+  if (a.label) lines.push(`${ind}.accessibilityLabel("${escapeString(a.label)}")`)
+  if (a.hint)  lines.push(`${ind}.accessibilityHint("${escapeString(a.hint)}")`)
+  if (a.value) lines.push(`${ind}.accessibilityValue("${escapeString(a.value)}")`)
+  if (Array.isArray(a.traits) && a.traits.length) {
+    const traits = a.traits.map((t) => `.${t}`).join(', ')
+    lines.push(`${ind}.accessibilityAddTraits([${traits}])`)
+  }
+  if (a.isAccessibilityElement === false) {
+    lines.push(`${ind}.accessibilityHidden(true)`)
+  }
+
+  // Animation + transition. `.animation(_:value:)` requires a binding to
+  // re-evaluate against; we don't have one at design time, so we emit a
+  // self-binding `value: panel.id` placeholder + a TODO comment. This makes
+  // the intent explicit without hiding the requirement.
+  const an = panel.animation
+  if (an) {
+    const curve = animationCurveExpr(an)
+    if (curve) {
+      lines.push(`${ind}.animation(${curve}, value: false)  // TODO: bind value: to your driving state`)
+    }
+    const trans = transitionExpr(an.transition)
+    if (trans) {
+      lines.push(`${ind}.transition(${trans})`)
+    }
   }
 }
 
 function renderPanel(panel, items, pad, out) {
-  const t = panel.panelType
   const ind = indent(pad)
   const push = (l) => out.push(ind + l)
   const sym = panel.symbolName
@@ -126,156 +229,57 @@ function renderPanel(panel, items, pad, out) {
     return l + (mods.length ? mods.map((m) => `\n${ind}    ${m}`).join('') : '')
   }
 
-  switch (t) {
-    case 'text': {
-      const line = `Text("${escapeString(panel.text || '')}").font(.${style}${weight}).foregroundStyle(${textColor})`
-      push(applyTextModifiers(line))
-      break
-    }
-    case 'link': {
-      // We don't persist a URL — use the displayed text as the destination label.
-      push(`Link("${escapeString(panel.text || 'Open')}", destination: URL(string: "https://example.com")!).font(.${style}${weight})`)
-      break
-    }
-    case 'label': {
-      const icon = sym || panel.iconName || 'circle.fill'
-      push(`Label("${escapeString(panel.text || 'Label')}", systemImage: "${icon}").font(.${style}${weight})`)
-      break
-    }
-    case 'button': {
-      const label = sym
-        ? `Label("${escapeString(panel.text || 'Button')}", systemImage: "${sym}")`
-        : `Text("${escapeString(panel.text || 'Button')}")`
-      const bs = panel.buttonStyle && panel.buttonStyle !== 'plain' ? `.buttonStyle(.${panel.buttonStyle})` : ''
-      push(`Button { /* action */ } label: { ${label} }${bs}`)
-      break
-    }
-    case 'image': {
-      if (sym) push(`Image(systemName: "${sym}")`)
-      else push(`Image(systemName: "photo")   // placeholder asset`)
-      break
-    }
-    case 'asyncimage': {
-      push(`AsyncImage(url: URL(string: "https://example.com/image.jpg"))`)
-      break
-    }
-    case 'toggle': {
-      push(`Toggle("${escapeString(panel.text || 'Toggle')}", isOn: .constant(${panel.toggleOn ? 'true' : 'false'}))`)
-      break
-    }
-    case 'slider': {
-      push(`Slider(value: .constant(${panel.sliderValue ?? 0.5}))`)
-      break
-    }
-    case 'stepper': {
-      push(`Stepper("${escapeString(panel.text || 'Stepper')}", value: .constant(${panel.stepperValue ?? 0}), in: ${panel.stepperMin ?? 0}...${panel.stepperMax ?? 10})`)
-      break
-    }
-    case 'progress': {
-      push(`ProgressView(value: ${panel.value ?? 0.5})`)
-      break
-    }
-    case 'gauge': {
-      push(`Gauge(value: ${panel.value ?? 0.5}) { Text("${escapeString(panel.text || '')}") }`)
-      break
-    }
-    case 'textfield': {
-      push(`TextField("${escapeString(panel.text || '')}", text: .constant("${escapeString(panel.textfieldValue || '')}"))`)
-      break
-    }
-    case 'securefield': {
-      push(`SecureField("${escapeString(panel.text || '')}", text: .constant(""))`)
-      break
-    }
-    case 'texteditor': {
-      push(`TextEditor(text: .constant("${escapeString(panel.text || '')}"))`)
-      break
-    }
-    case 'picker': {
-      const opts = panel.pickerOptions || []
-      push(`Picker("${escapeString(panel.text || '')}", selection: .constant("${escapeString(panel.pickerValue || opts[0] || '')}")) {`)
-      opts.forEach((o) => out.push(`${ind}    Text("${escapeString(o)}").tag("${escapeString(o)}")`))
-      push(`}${panel.pickerStyle ? `.pickerStyle(.${panel.pickerStyle})` : ''}`)
-      break
-    }
-    case 'datepicker': {
-      push(`DatePicker("${escapeString(panel.text || 'Date')}", selection: .constant(Date()))`)
-      break
-    }
-    case 'colorpicker': {
-      push(`ColorPicker("${escapeString(panel.text || 'Color')}", selection: .constant(${swiftColor(null, panel.pickedColor || '#ff3b30')}))`)
-      break
-    }
-    case 'search': {
-      push(`// .searchable(text: $searchText, prompt: "${escapeString(panel.text || 'Search')}")   // attach on parent view`)
-      break
-    }
-    case 'list': {
-      push(`List {`)
-      ;(panel.rows || []).forEach((r) => {
-        const rowLabel = r.systemImage
-          ? `Label("${escapeString(r.title || '')}", systemImage: "${r.systemImage}")`
-          : `Text("${escapeString(r.title || '')}")`
-        out.push(`${ind}    ${rowLabel}`)
-      })
-      push(`}${panel.listStyle ? `.listStyle(.${panel.listStyle})` : ''}`)
-      break
-    }
-    case 'table': {
-      push(`Table(/* rows */[]) {`)
-      ;(panel.columns || []).forEach((c) => out.push(`${ind}    TableColumn("${escapeString(c)}") { _ in Text("") }`))
-      push(`}`)
-      break
-    }
-    case 'menu': {
-      push(`Menu("${escapeString(panel.text || 'Menu')}") {`)
-      ;(panel.menuItems || []).forEach((m) => out.push(`${ind}    Button("${escapeString(m)}") { }`))
-      push(`}`)
-      break
-    }
-    case 'form': {
-      push(`Form {`)
-      ;(panel.rows || []).forEach((r) => out.push(`${ind}    Text("${escapeString(r.title || '')}")`))
-      push(`}`)
-      break
-    }
-    case 'groupbox': {
-      push(`GroupBox("${escapeString(panel.text || '')}") { }`)
-      break
-    }
-    case 'contentUnavailable': {
-      push(`ContentUnavailableView("${escapeString(panel.text || 'No Content')}", systemImage: "${sym || 'questionmark'}", description: Text("${escapeString(panel.alertMessage || '')}"))`)
-      break
-    }
-    case 'sheet': {
-      push(`// .sheet(isPresented: $showing) { Text("${escapeString(panel.text || 'Sheet')}") }`)
-      break
-    }
-    case 'popover': {
-      push(`// .popover(isPresented: $showing) { Text("${escapeString(panel.text || 'Popover')}") }`)
-      break
-    }
-    case 'alert': {
-      push(`// .alert("${escapeString(panel.text || 'Alert')}", isPresented: $showing) { Button("OK") { } }`)
-      break
-    }
-    case 'divider':   push(`Divider()`); break
-    case 'spacer':    push(`Spacer()`); break
-    case 'rectangle': push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)}).cornerRadius(${unitsToPt(panel.cornerRadius || 0)})`); break
-    case 'circle':    push(`Circle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`); break
-    case 'capsule':   push(`Capsule().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`); break
-    case 'ellipse':   push(`Ellipse().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`); break
-    default: {
-      push(`// TODO: ${t} — panel type not yet covered by the exporter`)
-    }
-  }
+  emitPanel(panel, {
+    push, ind, out,
+    escapeString, swiftColor, unitsToPt, applyTextModifiers,
+    sym, fill, textColor, style, weight
+  })
 
   renderModifiers(panel, out, pad)
 }
 
+// ---------- presentation emission (sheet/popover/alert) -----------------
+//
+// Presentation panels are conceptually modifiers on the parent view, not
+// children. We collect them into a list returned to the parent renderer,
+// which appends `.sheet(...)`/`.alert(...)`/`.popover(...)` AFTER the body
+// is closed. A stateBag is also threaded through so `wrapTabView` can emit
+// matching `@State` declarations on the View struct.
+
+function emitPresentationModifier(p, pad, out, stateBag) {
+  const ind = `${indent(pad)}    `
+  const stateName = stateVarName(p.id)
+  stateBag.push(stateName)
+
+  if (p.panelType === 'sheet') {
+    const detent = p.sheetDetent === 'medium' ? '.medium' : '.large'
+    out.push(`${ind}.sheet(isPresented: $${stateName}) {`)
+    out.push(`${ind}    Text("${escapeString(p.text || 'Sheet')}")`)
+    out.push(`${ind}        .presentationDetents([${detent}])`)
+    out.push(`${ind}}`)
+  } else if (p.panelType === 'popover') {
+    out.push(`${ind}.popover(isPresented: $${stateName}) {`)
+    out.push(`${ind}    Text("${escapeString(p.text || 'Popover')}")`)
+    out.push(`${ind}        .padding()`)
+    out.push(`${ind}}`)
+  } else if (p.panelType === 'alert') {
+    const buttons = p.alertButtons && p.alertButtons.length ? p.alertButtons : ['OK']
+    out.push(`${ind}.alert("${escapeString(p.text || 'Alert')}", isPresented: $${stateName}) {`)
+    for (const btn of buttons) {
+      const role = /cancel/i.test(btn) ? ', role: .cancel' : ''
+      out.push(`${ind}    Button("${escapeString(btn)}"${role}) { }`)
+    }
+    if (p.alertMessage) {
+      out.push(`${ind}} message: {`)
+      out.push(`${ind}    Text("${escapeString(p.alertMessage)}")`)
+    }
+    out.push(`${ind}}`)
+  }
+}
+
 // ---------- stack rendering ----------
 
-function renderStack(stack, items, pad, out) {
+function renderStack(stack, items, pad, out, stateBag) {
   const ind = indent(pad)
 
   // NavigationSplitView — styled root HStack with splitStyle.
@@ -284,13 +288,43 @@ function renderStack(stack, items, pad, out) {
     const sidebar = children.find((c) => c.type === 'stack' && c.name === 'Sidebar')
     const detail = children.find((c) => c.type === 'stack' && c.name === 'Detail')
     out.push(`${ind}NavigationSplitView {`)
-    if (sidebar) renderStack(sidebar, items, pad + 1, out)
+    if (sidebar) renderStack(sidebar, items, pad + 1, out, stateBag)
     out.push(`${ind}} detail: {`)
-    if (detail) renderStack(detail, items, pad + 1, out)
+    if (detail) renderStack(detail, items, pad + 1, out, stateBag)
     out.push(`${ind}}`)
     if (stack.searchable && stack.searchable !== 'none') {
       out.push(`${ind}    .searchable(text: .constant(""), placement: .${stack.searchable === 'sidebar' ? 'sidebar' : 'toolbar'}, prompt: "${escapeString(stack.searchPrompt || 'Search')}")`)
     }
+    return
+  }
+
+  // SwiftUI in-window TabView nesting — child `tab` stacks emit
+  // `Tab("Label", systemImage: "icon") { ... }` (the modern visionOS API,
+  // distinct from the legacy `.tabItem { ... }` that sits on a generic view).
+  if (stack.stackType === 'tab') {
+    const label = escapeString(stack.tabLabel || stack.name || 'Tab')
+    if (stack.tabIcon) {
+      out.push(`${ind}Tab("${label}", systemImage: "${escapeString(stack.tabIcon)}") {`)
+    } else {
+      out.push(`${ind}Tab("${label}") {`)
+    }
+    const kids = items.filter((c) => c.parentId === stack.id)
+    // A Tab's body is a single VStack of its children — keeps padding/spacing
+    // consistent with how Apple wires Tab content.
+    if (kids.length === 1) {
+      const c = kids[0]
+      if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
+      else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
+    } else if (kids.length > 1) {
+      out.push(`${ind}    VStack(alignment: .${stack.alignment || 'center'}, spacing: ${stack.spacing ?? 0}) {`)
+      for (const c of kids) {
+        if (c.type === 'stack') renderStack(c, items, pad + 2, out, stateBag)
+        else if (c.type === 'panel') renderPanel(c, items, pad + 2, out)
+      }
+      out.push(`${ind}    }`)
+      if (stack.padding) out.push(`${ind}        .padding(${stack.padding})`)
+    }
+    out.push(`${ind}}`)
     return
   }
 
@@ -307,7 +341,7 @@ function renderStack(stack, items, pad, out) {
 
   const kids = items.filter((c) => c.parentId === stack.id)
   for (const c of kids) {
-    if (c.type === 'stack') renderStack(c, items, pad + 1, out)
+    if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
     else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
   }
   out.push(`${ind}}`)
@@ -315,12 +349,18 @@ function renderStack(stack, items, pad, out) {
   // Closing modifiers on the stack container.
   if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
   if (stack.background) {
-    const bg = stack.background.startsWith('#')
-      ? swiftColor(null, stack.background)
-      : swiftColor(stack.background, null)
-    out.push(`${ind}    .background(${bg})`)
+    const mat = swiftMaterial(stack.background)
+    if (mat) {
+      out.push(`${ind}    .background(${mat})`)
+    } else {
+      const bg = stack.background.startsWith('#')
+        ? swiftColor(null, stack.background)
+        : swiftColor(stack.background, null)
+      out.push(`${ind}    .background(${bg})`)
+    }
   }
   if (stack.cornerRadius) out.push(`${ind}    .cornerRadius(${unitsToPt(stack.cornerRadius)})`)
+  if (stack.scrollable) out.push(`${ind}    // wrap in ScrollView { … } for scrollable content`)
   if (stack.navTitle) out.push(`${ind}    .navigationTitle("${escapeString(stack.navTitle)}")`)
   if (stack.ornament) {
     out.push(`${ind}    .ornament(attachmentAnchor: .scene(.${stack.ornament})) {`)
@@ -329,32 +369,40 @@ function renderStack(stack, items, pad, out) {
   }
 }
 
-function renderWindow(win, items, pad, out) {
+function renderWindow(win, items, pad, out, stateBag) {
   const ind = indent(pad)
-  // A Window's direct content children (skip presentation overlays since
-  // those are modifiers on the parent view, not embedded views).
+  // A Window's direct content children — separate ornaments and presentation
+  // overlays so each can attach as a modifier rather than an inline child.
   const presentationTypes = new Set(['sheet', 'popover', 'alert'])
-  const contentKids = items.filter((c) =>
-    c.parentId === win.id &&
-    !(c.type === 'panel' && presentationTypes.has(c.panelType))
+  const ownChildren = items.filter((c) => c.parentId === win.id)
+  const presentationKids = ownChildren.filter((c) => c.type === 'panel' && presentationTypes.has(c.panelType))
+  const ornamentKids = ownChildren.filter((c) => c.type === 'stack' && c.ornament)
+  const inlineKids = ownChildren.filter((c) =>
+    !presentationKids.includes(c) && !ornamentKids.includes(c)
   )
-  const ornamentKids = contentKids.filter((c) => c.type === 'stack' && c.ornament)
-  const inlineKids = contentKids.filter((c) => !ornamentKids.includes(c))
 
   out.push(`${ind}ZStack {`)
   for (const c of inlineKids) {
-    if (c.type === 'stack') renderStack(c, items, pad + 1, out)
+    if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
     else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
   }
   out.push(`${ind}}`)
-  // Window-level material + frame.
   out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
   if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
-  // Ornaments attach to the window view, not to the inner stack.
+
+  // Ornaments first (visionOS draws them in the scene-relative coordinate
+  // space; presentations sit modally on top).
   for (const o of ornamentKids) {
     out.push(`${ind}    .ornament(attachmentAnchor: .scene(.${o.ornament})) {`)
-    renderStack(o, items, pad + 2, out)
+    renderStack(o, items, pad + 2, out, stateBag)
     out.push(`${ind}    }`)
+  }
+
+  // Presentation modifiers: emitted after ornaments. Each presentation
+  // appends a state-var name to `stateBag` so wrapTabView can emit matching
+  // `@State` declarations on the View struct.
+  for (const p of presentationKids) {
+    emitPresentationModifier(p, pad, out, stateBag)
   }
 }
 
@@ -362,15 +410,21 @@ function renderWindow(win, items, pad, out) {
 
 function wrapTabView(viewName, windows, items) {
   const body = []
+  const stateBag = []     // populated by renderWindow as presentations appear
   if (windows.length === 0) {
     body.push(`${indent(2)}Text("Empty Tab")`)
   } else if (windows.length === 1) {
-    renderWindow(windows[0], items, 2, body)
+    renderWindow(windows[0], items, 2, body, stateBag)
   } else {
     body.push(`${indent(2)}ZStack {`)
-    for (const w of windows) renderWindow(w, items, 3, body)
+    for (const w of windows) renderWindow(w, items, 3, body, stateBag)
     body.push(`${indent(2)}}`)
   }
+
+  // De-dup state names (stable per-id, but Swift won't accept duplicate decls).
+  const uniqueStates = Array.from(new Set(stateBag))
+  const stateDecls = uniqueStates.map((n) => `    @State private var ${n} = false`)
+
   return [
     `//`,
     `//  ${viewName}.swift`,
@@ -380,6 +434,8 @@ function wrapTabView(viewName, windows, items) {
     `import SwiftUI`,
     ``,
     `struct ${viewName}: View {`,
+    ...stateDecls,
+    stateDecls.length ? `` : null,
     `    var body: some View {`,
     ...body,
     `    }`,
@@ -389,7 +445,7 @@ function wrapTabView(viewName, windows, items) {
     `    ${viewName}()`,
     `}`,
     ``
-  ].join('\n')
+  ].filter((l) => l !== null).join('\n')
 }
 
 function renderAppFile(tabs, appName) {

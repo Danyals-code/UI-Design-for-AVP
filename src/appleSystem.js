@@ -545,7 +545,8 @@ export const IMMERSION_STYLES = [
 export const HOVER_EFFECTS = [
   { value: 'automatic', label: 'Automatic' },
   { value: 'highlight', label: 'Highlight' },
-  { value: 'lift',      label: 'Lift' }
+  { value: 'lift',      label: 'Lift' },
+  { value: 'none',      label: 'None' }
 ]
 
 export const GESTURE_TYPES = [
