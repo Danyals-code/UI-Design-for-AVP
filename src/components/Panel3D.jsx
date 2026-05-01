@@ -3,6 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber'
 import { Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore } from '../store'
+import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
 import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
 import { getInterFont } from '../fonts'
@@ -1129,6 +1130,20 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const hasShadow = mod.shadowColor && mod.shadowRadius > 0
   const hasBorder = mod.borderColor && mod.borderWidth > 0
 
+  // ---- Hover effect (visionOS .hoverEffect) ----
+  // Resolved per-panel (own > inherit-from-window > automatic). When the
+  // panel is being dragged we suppress hover so the lift doesn't fight the
+  // drag offset. The 'highlight' effect renders an additive tint overlay
+  // (rendered below); 'lift' and 'automatic' just nudge scale + Z.
+  const effectiveHover = resolveHoverEffect(panel, items)
+  const hoverActive = hovered && !dragData.current?.dragging && effectiveHover !== 'none'
+  let hoverScale = 1, hoverLift = 0
+  if (hoverActive) {
+    if (effectiveHover === 'lift')         { hoverScale = 1.05; hoverLift = 0.06 }
+    else if (effectiveHover === 'highlight'){ hoverScale = 1.00; hoverLift = 0.02 }
+    else                                    { hoverScale = 1.02; hoverLift = 0.02 } // automatic
+  }
+
   const borderRing = useMemo(
     () => hasBorder ? rimRingShape(size[0], size[1], cornerRadius, ptToUnits(mod.borderWidth)) : null,
     [hasBorder, size[0], size[1], cornerRadius, mod.borderWidth]
@@ -1140,11 +1155,29 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       position={[
         (localPosition?.[0] || 0) + modOffX,
         (localPosition?.[1] || 0) + modOffY,
-        localPosition?.[2] || 0
+        (localPosition?.[2] || 0) + hoverLift
       ]}
-      scale={[modScaleX, modScaleY, 1]}
+      scale={[modScaleX * hoverScale, modScaleY * hoverScale, 1]}
       rotation={[0, 0, modRot]}
     >
+      {/* Hover effect: highlight overlay — additive scene-tint wash on the
+          fill shape. Rendered just above the fill so the underlying color
+          shows through. Only meaningful for panels that actually have a
+          fill bounds; pure-text panels still get scale + lift. */}
+      {hoverActive && effectiveHover === 'highlight' && hasFill && (
+        <mesh position={[0, 0, 0.0015]}>
+          <shapeGeometry args={[fillShape]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} />
+        </mesh>
+      )}
+      {/* Lift effect: drop a soft shadow under the panel so the lift reads
+          as 3D, not just a scale. */}
+      {hoverActive && effectiveHover === 'lift' && hasFill && (
+        <mesh position={[0, -0.015, -0.012]}>
+          <shapeGeometry args={[fillShape]} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.22} />
+        </mesh>
+      )}
       {/* Modifier: shadow — rect shadow only for panels with a visible fill.
           Pure Text / Link get their shadow rendered as a duplicate Text copy
           below. */}

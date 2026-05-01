@@ -1,0 +1,141 @@
+// Generic item operations: selection, edit, update, remove, rename, visibility,
+// collapse, move. Type-specific behaviour (tab semantics, panel switching,
+// stack wizards) lives in their respective slices.
+
+import { undoable } from './undo'
+import { isDescendantOf } from './helpers'
+
+export const createItemsSlice = (set, get) => ({
+  select:        (id) => set({ selectedId: id, editingId: null }),
+  setEditing:    (id) => set({ editingId: id, selectedId: id }),
+  clearEditing:  ()   => set({ editingId: null }),
+
+  updateItem: (id, patch) => undoable(set, get, (s) => ({
+    items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it))
+  })),
+
+  renameItem: (id, name) => undoable(set, get, (s) => ({
+    items: s.items.map((it) => (it.id === id ? { ...it, name } : it))
+  })),
+
+  toggleVisibility: (id) => undoable(set, get, (s) => ({
+    items: s.items.map((it) => (it.id === id ? { ...it, visible: !it.visible } : it))
+  })),
+
+  // toggleCollapse is non-undoable on purpose — flipping a layers row open
+  // is UI state, not document state.
+  toggleCollapse: (id) => set((s) => ({
+    items: s.items.map((it) => (it.id === id ? { ...it, collapsed: !it.collapsed } : it))
+  })),
+
+  removeItem: (id) => undoable(set, get, (s) => {
+    const target = s.items.find((it) => it.id === id)
+    if (!target) return s
+    // Tab removal preserves the "keep at least one tab" invariant.
+    if (target.type === 'tab') {
+      const tabs = s.items.filter((it) => it.type === 'tab')
+      if (tabs.length <= 1) return s
+      const toRemove = new Set([id])
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const it of s.items) {
+          if (!toRemove.has(it.id) && it.parentId && toRemove.has(it.parentId)) {
+            toRemove.add(it.id); changed = true
+          }
+        }
+      }
+      const nextItems = s.items.filter((it) => !toRemove.has(it.id))
+      const nextTabs = nextItems.filter((it) => it.type === 'tab')
+      return {
+        items: nextItems,
+        activeTabId: s.activeTabId === id ? nextTabs[0]?.id ?? null : s.activeTabId,
+        selectedId: toRemove.has(s.selectedId) ? null : s.selectedId
+      }
+    }
+
+    const toRemove = new Set([id])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const it of s.items) {
+        if (!toRemove.has(it.id) && it.parentId && toRemove.has(it.parentId)) {
+          toRemove.add(it.id)
+          changed = true
+        }
+      }
+    }
+    // Repair `activeTab`/`activeChild` on any container whose indexed child
+    // is being removed, so nothing renders past the end of the visible set.
+    const items = s.items
+      .filter((it) => !toRemove.has(it.id))
+      .map((it) => {
+        if (it.type !== 'stack') return it
+        if (it.stackType === 'tabView') {
+          const tabs = s.items.filter(
+            (c) => c.parentId === it.id && !toRemove.has(c.id)
+          )
+          if (tabs.length > 0 && (it.activeTab ?? 0) >= tabs.length) {
+            return { ...it, activeTab: Math.max(0, tabs.length - 1) }
+          }
+        }
+        if (it.stackType === 'navigationStack') {
+          const kids = s.items.filter(
+            (c) => c.parentId === it.id && !toRemove.has(c.id)
+          )
+          if (kids.length > 0 && (it.activeChild ?? 0) >= kids.length) {
+            return { ...it, activeChild: Math.max(0, kids.length - 1) }
+          }
+        }
+        return it
+      })
+    return {
+      items,
+      selectedId: toRemove.has(s.selectedId) ? null : s.selectedId
+    }
+  }),
+
+  moveItem: (sourceId, targetId, mode) => undoable(set, get, (s) => {
+    if (!sourceId || !targetId || sourceId === targetId) return s
+    const src = s.items.find((it) => it.id === sourceId)
+    const tgt = s.items.find((it) => it.id === targetId)
+    if (!src || !tgt) return s
+    if (src.type === 'tab') return s  // tabs stay top-level
+    if (isDescendantOf(s.items, tgt.id, src.id)) return s
+
+    // A Window can only be re-parented to a Tab.
+    if (src.type === 'window') {
+      if (mode === 'inside' && tgt.type !== 'tab') return s
+      if (mode !== 'inside' && tgt.type !== 'window') return s
+    }
+
+    const items = s.items.filter((it) => it.id !== sourceId)
+    let newParentId
+    let insertIdx
+    // Allowed "inside" targets: stack, window, or tab (the latter only for windows).
+    const canDropInside =
+      (tgt.type === 'stack' || tgt.type === 'window' || tgt.type === 'tab')
+    if (mode === 'inside' && canDropInside) {
+      newParentId = tgt.id
+      let last = items.findIndex((it) => it.id === targetId)
+      for (let i = last + 1; i < items.length; i++) {
+        if (items[i].parentId === tgt.id) last = i
+      }
+      insertIdx = last + 1
+    } else {
+      newParentId = tgt.parentId
+      const tIdx = items.findIndex((it) => it.id === targetId)
+      insertIdx = mode === 'before' ? tIdx : tIdx + 1
+    }
+    if (!newParentId) return s  // can't orphan (windows must live under a tab)
+    const moved = { ...src, parentId: newParentId }
+    items.splice(insertIdx, 0, moved)
+
+    // Auto-expand the destination container so the moved row doesn't appear
+    // to vanish into a collapsed folder.
+    const items2 = items.map((it) =>
+      it.id === newParentId && it.collapsed ? { ...it, collapsed: false } : it
+    )
+    return { items: items2 }
+  })
+})
