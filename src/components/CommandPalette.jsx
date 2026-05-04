@@ -20,7 +20,8 @@ import {
   AsyncImageIcon, ContentUnavailableIcon,
   FormIcon, GroupBoxIcon, OutlineGroupIcon,
   EllipseIcon, UnevenRectIcon, PathIcon,
-  LinearGradientIcon, RadialGradientIcon, AngularGradientIcon
+  LinearGradientIcon, RadialGradientIcon, AngularGradientIcon,
+  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon
 } from './icons'
 
 // Blender / Raycast / VSCode-style command palette. Shift+A opens it.
@@ -83,6 +84,15 @@ export default function CommandPalette() {
     { id: 'sheet',     label: 'Sheet',     group: 'Presentations',    Icon: SheetIcon,     run: () => addPresentation('sheet') },
     { id: 'alert',     label: 'Alert',     group: 'Presentations',    Icon: AlertIcon,     run: () => addPresentation('alert') },
     { id: 'popover',   label: 'Popover',   group: 'Presentations',    Icon: PopoverIcon,   run: () => addPresentation('popover') },
+    // 3D — RealityKit / Model3D primitives. Embeddable in any window or
+    // volume — they live inside the parent stack just like 2D views.
+    { id: 'sphere',    label: 'Sphere',      group: '3D',          Icon: SphereIcon,    run: () => addPanel('sphere') },
+    { id: 'box',       label: 'Box',         group: '3D',          Icon: BoxIcon,       run: () => addPanel('box') },
+    { id: 'plane3d',   label: 'Plane',       group: '3D',          Icon: PlaneIcon,     run: () => addPanel('plane') },
+    { id: 'cone',      label: 'Cone',        group: '3D',          Icon: ConeIcon,      run: () => addPanel('cone') },
+    { id: 'cylinder',  label: 'Cylinder',    group: '3D',          Icon: CylinderIcon,  run: () => addPanel('cylinder') },
+    { id: 'text3d',    label: '3D Text',     group: '3D',          Icon: Text3DIcon,    run: () => addPanel('text3d') },
+    { id: 'mesh',      label: 'Custom Mesh', group: '3D',          Icon: MeshIcon,      run: () => addPanel('mesh') },
     // Scene
     { id: 'window',    label: 'Window',    group: 'Windows',      Icon: WindowIcon,    run: () => addWindow() },
     { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
@@ -98,7 +108,8 @@ export default function CommandPalette() {
 
   useEffect(() => { setSelected(0) }, [query])
 
-  // Global hotkey
+  // Global hotkey + custom event from the layers-panel "+" button. Both
+  // routes funnel into the same palette so users have one mental model.
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target?.tagName
@@ -109,8 +120,13 @@ export default function CommandPalette() {
         setQuery('')
       }
     }
+    const onOpenEvent = () => { setOpen(true); setQuery('') }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('open-add-palette', onOpenEvent)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('open-add-palette', onOpenEvent)
+    }
   }, [open])
 
   // Auto-scroll selected into view

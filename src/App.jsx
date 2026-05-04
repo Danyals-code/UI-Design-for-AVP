@@ -6,6 +6,7 @@ import Canvas3D from './components/Canvas3D'
 import ViewportOverlay from './components/ViewportOverlay'
 import CommandPalette from './components/CommandPalette'
 import VolumePlaceholder from './components/VolumePlaceholder'
+import Splash from './components/Splash'
 import { useStore } from './store'
 
 function useResizer(initial, side) {
@@ -36,6 +37,9 @@ function useResizer(initial, side) {
 }
 
 export default function App() {
+  // Splash opens on every launch (per user preference) and is reopenable
+  // by clicking the "visionOS Designer" title in the topbar.
+  const [splashOpen, setSplashOpen] = useState(true)
   const [leftWidth, startLeft] = useResizer(240, 'left')
   const [rightWidth, startRight] = useResizer(280, 'right')
   const selectedId = useStore((s) => s.selectedId)
@@ -68,11 +72,7 @@ export default function App() {
         removeItem(selectedId); e.preventDefault(); return
       }
 
-      // Shift+A — open the layers-panel Add menu (mirrors Blender's add shortcut).
-      if (e.shiftKey && key === 'a' && !mod) {
-        const btn = document.querySelector('button[title="Add element"]')
-        if (btn) { btn.click(); e.preventDefault(); return }
-      }
+      // Shift+A is now owned by CommandPalette (registers its own listener).
 
       // Arrow-key nudge — move the selected window's position (visionOS is
       // a 3D scene, so we nudge in world X/Y). Shift = larger step.
@@ -112,8 +112,9 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-bg text-text overflow-hidden">
+      <Splash open={splashOpen} onClose={() => setSplashOpen(false)} />
       <CommandPalette />
-      <Topbar />
+      <Topbar onTitleClick={() => setSplashOpen(true)} />
       <div className="flex-1 flex min-h-0">
         <LayersPanel width={leftWidth} />
         <div onMouseDown={startLeft} className="resize-gutter" title="Drag to resize" />

@@ -4,6 +4,8 @@
 // them as needed. Kept tiny on purpose: anything more complex belongs in the
 // slice that owns the mutation.
 
+import { isInteractivePanel } from '../panels/registry'
+
 export const isDescendantOf = (items, parentId, candidateId) => {
   if (!parentId) return false
   if (parentId === candidateId) return true
@@ -42,10 +44,16 @@ export const findOwningTab = (items, id) => {
 // default for visionOS interactive views) when no window is found.
 //
 // Returns one of: 'automatic' | 'highlight' | 'lift' | 'none'.
+//
+// Non-interactive panels (Text, Image, Divider, shapes, gradients,
+// presentations, indicators) always resolve to 'none' — visionOS doesn't
+// apply hover affordances to them, so neither do we. This keeps the design
+// preview honest with what SwiftUI actually does.
 export const resolveHoverEffect = (panel, items) => {
-  const own = panel?.hoverEffect
+  if (!panel || !isInteractivePanel(panel.panelType)) return 'none'
+  const own = panel.hoverEffect
   if (own && own !== 'inherit') return own
-  let cur = items.find((it) => it.id === panel?.parentId)
+  let cur = items.find((it) => it.id === panel.parentId)
   while (cur && cur.type !== 'window') {
     cur = items.find((it) => it.id === cur.parentId)
   }

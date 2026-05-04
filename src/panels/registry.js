@@ -860,8 +860,215 @@ export const PANELS = {
       const b = swiftColor(null, panel.gradientTo   || '#007aff')
       push(`AngularGradient(colors: [${a}, ${b}], center: .center).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`)
     }
+  },
+
+  // ---- Phase 6 — 3D primitives (RealityKit / Model3D) ----
+  //
+  // All 3D primitives carry a shared transform block — Z offset (visionOS
+  // `.offset(z:)`) plus per-axis rotation in degrees (SwiftUI's
+  // `.rotation3DEffect(.degrees(n), axis:(x,y,z))`). Stored on the panel
+  // root rather than under `modifiers` because 2D modifiers already cover
+  // the X/Y plane and conflating the two would muddy the UI.
+  //
+  // visionOS lets you embed 3D content inside a Window via RealityView
+  // (programmatic primitives) or Model3D (asset-loaded USDZ). These map
+  // 1:1 to RealityKit's MeshResource generators. SimpleMaterial with a
+  // SwiftUI Color keeps the export readable; users can swap to
+  // PhysicallyBasedMaterial in their own code if they want PBR.
+  //
+  // The designer renders these as actual 3D primitives in the canvas (see
+  // Panel3D.jsx) so users get a real preview rather than a flat icon.
+  // Units convention: dimensions are stored in pt and converted to meters
+  // on emit (1 m ≈ 1000 pt at the scale visionOS uses for embedded RealityViews).
+
+  sphere: {
+    defaults: {
+      size: [ptToUnits(160), ptToUnits(160)],
+      color: '#007aff',
+      colorToken: 'systemBlue',
+      cornerRadius: 0,
+      radius: 80,        // pt
+      depth:  160        // pt — `.frame(depth:)` on the wrapping view
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      const r = ((panel.radius || 80) / 1000).toFixed(3)   // pt → m
+      const color = panel.colorToken
+        ? `.${panel.colorToken.replace(/^system/, '').toLowerCase()}`
+        : '.blue'
+      push(`RealityView { content in`)
+      push(`    let mesh = MeshResource.generateSphere(radius: ${r})`)
+      push(`    let material = SimpleMaterial(color: UIColor(${color}), isMetallic: false)`)
+      push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
+      push(`}`)
+      push(`.frame(depth: ${panel.depth || 160})`)
+    }
+  },
+
+  box: {
+    defaults: {
+      size: [ptToUnits(160), ptToUnits(160)],
+      color: '#34c759',
+      colorToken: 'systemGreen',
+      cornerRadius: 0,
+      boxWidth:  120, boxHeight: 120, boxDepth: 120,    // pt
+      boxCornerRadius: 0,                                // pt
+      depth: 160
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      const w  = ((panel.boxWidth  || 120) / 1000).toFixed(3)
+      const h  = ((panel.boxHeight || 120) / 1000).toFixed(3)
+      const d  = ((panel.boxDepth  || 120) / 1000).toFixed(3)
+      const cr = ((panel.boxCornerRadius || 0) / 1000).toFixed(3)
+      push(`RealityView { content in`)
+      push(`    let mesh = MeshResource.generateBox(width: ${w}, height: ${h}, depth: ${d}, cornerRadius: ${cr})`)
+      push(`    let material = SimpleMaterial(color: .systemGreen, isMetallic: false)`)
+      push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
+      push(`}`)
+      push(`.frame(depth: ${panel.depth || 160})`)
+    }
+  },
+
+  plane: {
+    defaults: {
+      size: [ptToUnits(200), ptToUnits(140)],
+      color: '#8e8e93',
+      colorToken: 'systemGray',
+      cornerRadius: 0,
+      planeWidth: 200, planeDepth: 140,   // pt
+      depth: 40
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      const w = ((panel.planeWidth || 200) / 1000).toFixed(3)
+      const d = ((panel.planeDepth || 140) / 1000).toFixed(3)
+      push(`RealityView { content in`)
+      push(`    let mesh = MeshResource.generatePlane(width: ${w}, depth: ${d})`)
+      push(`    let material = SimpleMaterial(color: .systemGray, isMetallic: false)`)
+      push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
+      push(`}`)
+      push(`.frame(depth: ${panel.depth || 40})`)
+    }
+  },
+
+  cone: {
+    defaults: {
+      size: [ptToUnits(140), ptToUnits(180)],
+      color: '#ff9500',
+      colorToken: 'systemOrange',
+      cornerRadius: 0,
+      coneHeight: 180, coneRadius: 70,    // pt
+      depth: 180
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      const h = ((panel.coneHeight || 180) / 1000).toFixed(3)
+      const r = ((panel.coneRadius || 70)  / 1000).toFixed(3)
+      push(`RealityView { content in`)
+      push(`    let mesh = MeshResource.generateCone(height: ${h}, radius: ${r})`)
+      push(`    let material = SimpleMaterial(color: .systemOrange, isMetallic: false)`)
+      push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
+      push(`}`)
+      push(`.frame(depth: ${panel.depth || 180})`)
+    }
+  },
+
+  cylinder: {
+    defaults: {
+      size: [ptToUnits(140), ptToUnits(180)],
+      color: '#af52de',
+      colorToken: 'systemPurple',
+      cornerRadius: 0,
+      cylHeight: 180, cylRadius: 70,    // pt
+      depth: 180
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      const h = ((panel.cylHeight || 180) / 1000).toFixed(3)
+      const r = ((panel.cylRadius || 70)  / 1000).toFixed(3)
+      push(`RealityView { content in`)
+      push(`    let mesh = MeshResource.generateCylinder(height: ${h}, radius: ${r})`)
+      push(`    let material = SimpleMaterial(color: .systemPurple, isMetallic: false)`)
+      push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
+      push(`}`)
+      push(`.frame(depth: ${panel.depth || 180})`)
+    }
+  },
+
+  text3d: {
+    defaults: {
+      size: [ptToUnits(220), ptToUnits(80)],
+      color: '#ffffff',
+      colorToken: 'primary',
+      cornerRadius: 0,
+      text: 'Hello',
+      textStyle: 'largeTitle',
+      fontSize: textStyleToFontSize('largeTitle'),
+      fontWeight: 'bold',
+      extrusionDepth: 20,    // pt
+      depth: 60
+    },
+    emit(panel, ctx) {
+      const { push, escapeString } = ctx
+      const style = panel.textStyle || 'largeTitle'
+      const weight = (panel.fontWeight && panel.fontWeight !== 'regular')
+        ? `.fontWeight(.${panel.fontWeight})` : ''
+      // Text3D — visionOS 2.0+. extrusionDepth pt → m.
+      const ed = ((panel.extrusionDepth || 20) / 1000).toFixed(3)
+      push(`Text3D("${escapeString(panel.text || 'Hello')}")`)
+      push(`    .font(.${style})${weight}`)
+      push(`    .extrusionDepth(${ed})`)
+      push(`    .frame(depth: ${panel.depth || 60})`)
+    }
+  },
+
+  mesh: {
+    defaults: {
+      size: [ptToUnits(220), ptToUnits(220)],
+      color: '#1c1c1e',
+      colorToken: null,
+      cornerRadius: 0,
+      meshAsset: 'Earth',     // USDZ asset name in the bundle
+      depth: 200
+    },
+    emit(panel, ctx) {
+      const { push, escapeString } = ctx
+      const asset = escapeString(panel.meshAsset || 'Earth')
+      push(`Model3D(named: "${asset}")`)
+      push(`    .frame(depth: ${panel.depth || 200})`)
+    }
   }
 }
+
+// ---- interactivity ----------------------------------------------------
+//
+// Only panels that map to a SwiftUI control with built-in interaction get
+// `.hoverEffect()` rendering and inspector exposure. visionOS auto-applies
+// hover affordances to these views; for non-interactive views (Text, Image,
+// Divider, shapes, gradients, presentations, indicators) the modifier is a
+// no-op in SwiftUI, so we don't surface it here either.
+//
+// This list is the single source of truth — used by the helpers resolver,
+// the inspector (to hide the Interaction section), and the exporter.
+const INTERACTIVE_PANEL_TYPES = new Set([
+  'button',
+  'link',
+  'toggle',
+  'slider',
+  'stepper',
+  'picker',
+  'datepicker',
+  'colorpicker',
+  'segmented',
+  'menu',
+  'textfield',
+  'securefield',
+  'texteditor',
+  'search'
+])
+
+export const isInteractivePanel = (panelType) => INTERACTIVE_PANEL_TYPES.has(panelType)
 
 // ---- public helpers ----
 

@@ -1,9 +1,11 @@
-// Scene tab — global scene-level controls (mode, preset, viewport, design,
-// export trigger).
+// Scene tab — global scene-level controls (viewport, design, export trigger).
+//
+// Scene type (Window/Volume) and preset live on the splash screen — that's
+// where the user picks them at project start. Re-opening the splash via the
+// topbar title lets them swap modes without cluttering this panel.
 
 import { useState } from 'react'
-import { WINDOW_PRESETS, VOLUME_PRESETS } from '../../appleSystem'
-import { Row, Section, ColorRow, Select } from './primitives'
+import { Row, Section, ColorRow } from './primitives'
 import SwiftExportDialog from '../SwiftExportDialog'
 
 export function SceneProps({ scene, updateScene }) {
@@ -11,41 +13,6 @@ export function SceneProps({ scene, updateScene }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
       {exportOpen && <SwiftExportDialog onClose={() => setExportOpen(false)} />}
-      <Section title="Scene">
-        <Row label="Mode">
-          <div className="segmented flex-1">
-            <button className={scene.sceneMode === 'window' ? 'active' : ''} onClick={() => updateScene({ sceneMode: 'window' })}>Window</button>
-            <button className={scene.sceneMode === 'volume' ? 'active' : ''} onClick={() => updateScene({ sceneMode: 'volume' })}>Volume</button>
-          </div>
-        </Row>
-      </Section>
-
-      <Section title={scene.sceneMode === 'window' ? 'Window Preset' : 'Volume Preset'}>
-        {scene.sceneMode === 'window' ? (
-          <Row label="Preset">
-            <Select
-              value={scene.windowPreset}
-              options={Object.entries(WINDOW_PRESETS).map(([k, v]) => ({
-                value: k,
-                label: `${v.label} (${v.width}×${v.height})`
-              }))}
-              onChange={(v) => updateScene({ windowPreset: v })}
-            />
-          </Row>
-        ) : (
-          <Row label="Preset">
-            <Select
-              value={scene.volumePreset}
-              options={Object.entries(VOLUME_PRESETS).map(([k, v]) => ({
-                value: k,
-                label: `${v.label} (${v.width}×${v.height}×${v.depth})`
-              }))}
-              onChange={(v) => updateScene({ volumePreset: v })}
-            />
-          </Row>
-        )}
-      </Section>
-
       <Section title="Viewport">
         <Row label="Background">
           <div className="segmented flex-1">
