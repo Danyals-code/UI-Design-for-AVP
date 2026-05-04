@@ -1,49 +1,15 @@
+// Viewport top-right toolbar.
+//   [ Zoom slider ]  [ Overlays \u25be ]  [ 2D | 3D ]
+//
+// HDRI lives in Scene \u2192 Viewport (inspector). Pan-mode is gone \u2014 in 3D
+// preview, left-drag rotates by default (matches Blender / Maya / C4D),
+// so a separate hand-toggle is unnecessary.
+
 import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
-import { GridIcon, HandIcon, HdriIcon, VolumeIcon } from './icons'
-import { HDRI_PRESETS } from '../appleSystem'
+import { GridIcon, VolumeIcon, ChevronDown } from './icons'
 
-function HdriButton() {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  const hdri = useStore((s) => s.scene.hdri)
-  const updateScene = useStore((s) => s.updateScene)
-
-  useEffect(() => {
-    const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
-
-  const active = hdri != null
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        title="Environment"
-        className={`vp-btn ${active ? 'active' : ''}`}
-      >
-        <HdriIcon />
-      </button>
-      {open && (
-        <div className="popover absolute right-0 top-full mt-1 rounded z-50 py-1 w-36">
-          {Object.entries(HDRI_PRESETS).map(([key, v]) => (
-            <button
-              key={key}
-              onClick={() => { updateScene({ hdri: v.preset }); setOpen(false) }}
-              className={`block w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
-                hdri === v.preset ? 'bg-accentBg text-text' : 'text-text hover:bg-hover'
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+// ---- Zoom slider ------------------------------------------------------
 
 function ZoomSlider() {
   const zoomDistance = useStore((s) => s.zoomDistance)
@@ -54,8 +20,6 @@ function ZoomSlider() {
   const RESET_DIST = DEFAULT_DIST / DEFAULT_PCT
   const pct = Math.round((DEFAULT_DIST / Math.max(0.5, zoomDistance)) * 100)
 
-  // Height/border intentionally matches vp-btn (28px, border, dark tint)
-  // so the toolbar row reads as a single aligned group.
   return (
     <div
       className="flex items-center gap-1.5 rounded px-2"
@@ -76,25 +40,125 @@ function ZoomSlider() {
         onChange={(e) => setZoomDistance(parseFloat(e.target.value))}
         onDoubleClick={() => setZoomDistance(RESET_DIST)}
         className="w-24 accent-accent cursor-pointer"
-        title="Zoom — double-click to reset to 85%"
+        title="Zoom \u2014 double-click to reset to 85%"
       />
     </div>
   )
 }
 
-export default function ViewportOverlay() {
-  const showGrid = useStore((s) => s.showGrid)
-  const panMode = useStore((s) => s.panMode)
-  const toggleGrid = useStore((s) => s.toggleGrid)
-  const togglePanMode = useStore((s) => s.togglePanMode)
-  const sceneMode = useStore((s) => s.scene.sceneMode)
+// ---- Overlays dropdown ------------------------------------------------
+// Mirrors Blender's viewport-overlay popover. Toggles render-time guides
+// without cluttering the toolbar with one button per option.
+
+function OverlaysDropdown() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  const showGrid  = useStore((s) => s.showGrid)
+  const showAxes  = useStore((s) => s.showAxes)
+  const showStats = useStore((s) => s.showStats)
+  const toggleGrid  = useStore((s) => s.toggleGrid)
+  const toggleAxes  = useStore((s) => s.toggleAxes)
+  const toggleStats = useStore((s) => s.toggleStats)
+
+  useEffect(() => {
+    const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  // The button always reads as "active" (overlays are always doing
+  // something). Highlight on hover; expand to show the popover.
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Viewport overlays"
+        className="vp-btn"
+        style={{ width: 'auto', paddingLeft: 8, paddingRight: 6, gap: 4 }}
+      >
+        <GridIcon />
+        <ChevronDown size={9} />
+      </button>
+      {open && (
+        <div
+          className="popover absolute right-0 top-full mt-1 rounded z-50 py-2 px-2.5 w-44"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Guides</div>
+          <OverlayRow label="Grid"        on={showGrid}  toggle={toggleGrid} />
+          <OverlayRow label="Axes Gizmo"  on={showAxes}  toggle={toggleAxes} />
+          <OverlayRow label="Statistics"  on={showStats} toggle={toggleStats} />
+          <div className="text-[9px] text-textMute leading-relaxed mt-2 pt-2 border-t border-border px-1">
+            Left-drag the viewport to orbit freely. Click an axis arrow on the gizmo to snap.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OverlayRow({ label, on, toggle }) {
+  return (
+    <button
+      onClick={toggle}
+      className="flex items-center gap-2 w-full px-1 py-1 text-[11px] text-text hover:bg-hover rounded transition-colors"
+    >
+      <span
+        className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[8px] ${
+          on ? 'bg-accent border-accent text-white' : 'bg-surface3 border-border text-transparent'
+        }`}
+      >{'\u2713'}</span>
+      <span className="flex-1 text-left">{label}</span>
+    </button>
+  )
+}
+
+// ---- View mode toggle (2D / 3D) ---------------------------------------
+// Stable segmented button \u2014 same shape and size in both states, with the
+// active mode highlighted. Mirrors Blender's Wireframe / Solid / Material /
+// Rendered shading buttons: always visible, always the same metric.
+
+function ViewModeToggle() {
   const preview3D = useStore((s) => s.scene.preview3D)
   const updateScene = useStore((s) => s.updateScene)
+  // Inherits the shared `.segmented` styling (rounded, overflow:hidden) so
+  // the active highlight stays inside the parent rounded rect. Backdrop
+  // blur layered on top so it harmonises with the rest of the overlay.
+  return (
+    <div
+      className="segmented"
+      style={{
+        height: 28,
+        background: 'rgba(21, 21, 21, 0.88)',
+        backdropFilter: 'blur(8px)'
+      }}
+    >
+      <button
+        className={!preview3D ? 'active' : ''}
+        onClick={() => updateScene({ preview3D: false })}
+        title="Flat 2D head-on view"
+        style={{ minWidth: 38 }}
+      >2D</button>
+      <button
+        className={preview3D ? 'active' : ''}
+        onClick={() => updateScene({ preview3D: true })}
+        title="Orbit camera — see your design in 3D"
+        style={{ minWidth: 44 }}
+      ><VolumeIcon size={11} /> 3D</button>
+    </div>
+  )
+}
+
+// ---- Top-level overlay -------------------------------------------------
+
+export default function ViewportOverlay() {
+  const sceneMode = useStore((s) => s.scene.sceneMode)
+  const preview3D = useStore((s) => s.scene.preview3D)
 
   const isVolume = sceneMode === 'volume'
   const isWindow = sceneMode === 'window'
-  // The 3D-only controls only make sense when a canvas is visible —
-  // i.e. window mode (always has canvas) or volume + preview3D.
+  // Toolbar only makes sense when the canvas is on screen.
   const showSceneControls = isWindow || (isVolume && preview3D)
 
   return (
@@ -102,53 +166,12 @@ export default function ViewportOverlay() {
       {showSceneControls && (
         <>
           <ZoomSlider />
-          <button
-            onClick={toggleGrid}
-            title={showGrid ? 'Hide grid' : 'Show grid'}
-            className={`vp-btn ${showGrid ? 'active' : ''}`}
-          >
-            <GridIcon />
-          </button>
-          {/* The HDRI environment picker only has an effect once the camera
-              is orbiting (3D preview or Volume). In flat Window mode it just
-              crowds the toolbar, so we hide it there. */}
-          {(preview3D || isVolume) && <HdriButton />}
-          {preview3D && (
-            <button
-              onClick={togglePanMode}
-              title={panMode ? 'Orbit mode' : 'Pan mode'}
-              className={`vp-btn ${panMode ? 'active' : ''}`}
-            >
-              <HandIcon />
-            </button>
-          )}
+          <OverlaysDropdown />
         </>
       )}
-      {/* "See in 3D" is a window-level action — it rotates to the angled
-          preview camera. Hidden in volume mode because volume is still
-          placeholder-only. */}
-      {isWindow && (
-        <button
-          onClick={() => updateScene({ preview3D: !preview3D })}
-          title={preview3D ? 'Exit 3D preview' : 'See in 3D (experimental)'}
-          className={`vp-btn ${preview3D ? 'active' : ''}`}
-          style={
-            !preview3D
-              ? {
-                  width: 'auto',
-                  paddingLeft: 10,
-                  paddingRight: 10,
-                  gap: 6,
-                  fontSize: 11,
-                  color: '#e4e4e4'
-                }
-              : undefined
-          }
-        >
-          <VolumeIcon />
-          {!preview3D && <span>See in 3D</span>}
-        </button>
-      )}
+      {/* View mode \u2014 only meaningful for windows (Volume always renders
+          in 3D when its canvas is up). */}
+      {isWindow && <ViewModeToggle />}
     </div>
   )
 }

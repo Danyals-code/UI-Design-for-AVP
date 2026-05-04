@@ -1,7 +1,7 @@
 import { useEffect, useRef, Suspense, memo } from 'react'
 import * as THREE from 'three'
 import { Canvas, useThree, useLoader } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment, Stats } from '@react-three/drei'
 import { useStore } from '../store'
 import SceneTree from './SceneTree'
 
@@ -86,20 +86,21 @@ function Canvas3D() {
   const select = useStore((s) => s.select)
   const isDragging = useStore((s) => s.isDragging)
   const showGrid = useStore((s) => s.showGrid)
-  const panMode = useStore((s) => s.panMode)
+  const showAxes = useStore((s) => s.showAxes)
+  const showStats = useStore((s) => s.showStats)
   const scene = useStore((s) => s.scene)
   const preview3D = scene.preview3D
   const isWindow = scene.sceneMode === 'window'
 
-  // Rotate/orbit is only available while actually in 3D preview. Outside of
-  // it (window head-on), LEFT=PAN everywhere so panel clicks never race with
-  // an orbit gesture. panMode (hand icon) swaps LEFT→ROTATE for users who
-  // want to orbit with one button.
+  // Mouse-button policy:
+  //   2D (window head-on)   — LEFT pans (no rotation; design is flat).
+  //   3D (preview / volume) — LEFT rotates freely, RIGHT pans, MIDDLE dollies.
+  // Free LEFT-rotate matches Blender / Maya / Cinema4D conventions and lets
+  // the user orbit without fighting the gizmo. The axis gizmo (top-right)
+  // still snaps when you click X / Y / Z arrows — that's its purpose.
   const mouseButtons = !preview3D
     ? { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
-    : panMode
-      ? { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
-      : { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
+    : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
 
   const enableRotate = preview3D && !isDragging
 
@@ -123,7 +124,18 @@ function Canvas3D() {
       frameloop="always"
       camera={{ position: [0, 2.5, 2.5], fov: 45 }}
       onPointerMissed={() => select(null)}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+      // ACESFilmic tone mapping is what HDRIs are designed for \u2014 without
+      // it, HDR colors clip to white and the environment looks flat / blown
+      // out. SRGB output color space is the modern three.js default but
+      // we set it explicitly so the result is the same regardless of the
+      // installed three version. dpr cap stays at 1.75 to avoid GPU thrash
+      // on retina displays.
+      gl={{
+        antialias: true,
+        powerPreference: 'high-performance',
+        toneMapping: THREE.ACESFilmicToneMapping,
+        outputColorSpace: THREE.SRGBColorSpace
+      }}
       dpr={[1, 1.75]}
       // Debounce the resize observer — when the user drags a side-panel
       // gutter, flex resizes our container every frame. Without this the
@@ -145,7 +157,11 @@ function Canvas3D() {
 
       {scene.hdri && (
         <Suspense fallback={null}>
-          <Environment preset={scene.hdri} background blur={0.15} />
+          {/* `blur` (alias for backgroundBlurriness) defaulted to 0.15 which
+              samples from low mipmaps and makes a 2K HDR look pixelated. 0
+              keeps the source resolution. environmentIntensity stays at 1 so
+              IBL on 3D primitives reads accurately. */}
+          <Environment files={scene.hdri} background backgroundBlurriness={0} environmentIntensity={1} />
         </Suspense>
       )}
 
@@ -189,15 +205,21 @@ function Canvas3D() {
         mouseButtons={mouseButtons}
       />
 
-      {/* Axis gizmo is only useful while actually rotating / in 3D preview.
-          In head-on (window 2D) the design is flat and the tumbler just adds
-          visual noise, so we hide it unless the user has flipped to See-in-3D
-          or is authoring a Volume. */}
-      {preview3D && (
+      {/* Axis gizmo — overlay-controlled (Overlays \u2192 Axes). Only useful
+          while rotating, so we still gate on preview3D — the gizmo would be
+          visually inert in head-on 2D mode. Click X / Y / Z arrows to snap
+          the camera to that axis (drei behavior); body-drag to rotate the
+          gizmo itself by snap angles. Free orbit lives on left-drag in the
+          viewport, not on the gizmo. */}
+      {showAxes && preview3D && (
         <GizmoHelper alignment="top-right" margin={[80, 140]}>
           <GizmoViewport axisColors={gizmoAxisColors} labelColor={gizmoLabelColor} />
         </GizmoHelper>
       )}
+
+      {/* Statistics overlay — drei's <Stats /> wraps three.js Stats.js,
+          showing FPS / MS / MB in the top-left. Only mounted when toggled. */}
+      {showStats && <Stats />}
     </Canvas>
   )
 }

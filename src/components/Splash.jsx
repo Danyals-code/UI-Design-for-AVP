@@ -140,8 +140,8 @@ export default function Splash({ open, onClose }) {
           </div>
           <button
             onClick={onClose}
-            className="text-[10px] uppercase tracking-wider text-textDim hover:text-text px-2 py-1 rounded"
-            title="Close"
+            className="btn btn-ghost"
+            title="Close (Esc)"
           >Close</button>
         </div>
 
@@ -173,7 +173,7 @@ export default function Splash({ open, onClose }) {
             <div className="flex items-baseline justify-between mb-3">
               <div className="text-[10px] text-textMute uppercase tracking-wider">Templates</div>
               {sceneMode === 'volume' && (
-                <div className="text-[10px] text-textMute italic">Window-only for now \u2014 switch to Window to use a template.</div>
+                <div className="text-[10px] text-textMute italic">Window-only for now — switch to Window to use a template.</div>
               )}
             </div>
             <div className={`grid grid-cols-3 gap-3 ${sceneMode === 'volume' ? 'opacity-40 pointer-events-none' : ''}`}>

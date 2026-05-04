@@ -8,13 +8,13 @@ export default function Topbar({ onTitleClick }) {
       <button
         type="button"
         onClick={onTitleClick}
-        className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1 -ml-2 rounded-md text-text hover:bg-hover/50 transition-colors cursor-pointer"
         title="Open project picker"
       >
-        <div className="w-5 h-5 rounded bg-accent flex items-center justify-center text-white text-[9px] font-bold">
+        <div className="w-5 h-5 rounded bg-accent flex items-center justify-center text-white text-[9px] font-bold shadow-sm">
           V
         </div>
-        <span className="text-[12px] text-text font-semibold tracking-tight">
+        <span className="text-[12px] font-semibold tracking-tight">
           visionOS Designer
         </span>
       </button>
