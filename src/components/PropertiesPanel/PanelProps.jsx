@@ -16,6 +16,7 @@ import {
   AnimationSection, AccessibilitySection, InfoSection
 } from './shared'
 import { INSPECTORS, getPanelMeta } from '../../panels/inspectors'
+import { isInteractivePanel } from '../../panels/registry'
 
 // visionOS .hoverEffect — `inherit` defers to the owning window's
 // `spatial.hoverEffect`. The remaining values match SwiftUI's `HoverEffect`
@@ -64,20 +65,27 @@ export function PanelProps({ item, scene }) {
 
       <StylesSection item={item} updateItem={updateItem} />
 
-      <Section title="Interaction" defaultOpen={false}>
-        <Row label="Hover">
-          <Select
-            value={item.hoverEffect || 'inherit'}
-            options={HOVER_EFFECT_OPTIONS}
-            onChange={(v) => updateItem(item.id, { hoverEffect: v })}
-          />
-        </Row>
-        <div className="text-[10px] text-textMute leading-relaxed mt-1">
-          visionOS gaze-driven hover. <code>inherit</code> uses the
-          window\u2019s effect; <code>highlight</code> tints,
-          <code>lift</code> raises with a soft shadow.
-        </div>
-      </Section>
+      {/* Hover effect only applies to interactive controls — visionOS
+          auto-applies it to Button/Toggle/Picker/etc. and ignores it on
+          decorative views. We mirror that policy: the section is hidden
+          for non-interactive types so the inspector doesn't suggest a
+          knob that has no effect in SwiftUI. */}
+      {isInteractivePanel(item.panelType) && (
+        <Section title="Interaction" defaultOpen={false}>
+          <Row label="Hover">
+            <Select
+              value={item.hoverEffect || 'inherit'}
+              options={HOVER_EFFECT_OPTIONS}
+              onChange={(v) => updateItem(item.id, { hoverEffect: v })}
+            />
+          </Row>
+          <div className="text-[10px] text-textMute leading-relaxed mt-1">
+            visionOS gaze-driven hover. <code>inherit</code> uses the
+            window\u2019s effect; <code>highlight</code> tints,
+            <code>lift</code> raises with a soft shadow.
+          </div>
+        </Section>
+      )}
 
       <SymbolSection item={item} updateItem={updateItem} />
       <AnimationSection item={item} updateItem={updateItem} />

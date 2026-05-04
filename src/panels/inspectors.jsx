@@ -10,7 +10,7 @@
 // useTextModifiers, lockHeight, lockHeightHint.
 
 import {
-  Row, Section, IntField, PtField, Slider, ColorRow, Select
+  Row, Section, IntField, PtField, NumField, Slider, ColorRow, Select
 } from '../components/PropertiesPanel/primitives'
 import {
   TextSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
@@ -525,6 +525,116 @@ export const INSPECTORS = {
     <Section title="Empty State">
       <Row label="Title"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
       <Row label="Subtitle"><input value={item.alertMessage || ''} onChange={(e) => updateItem(item.id, { alertMessage: e.target.value })} className="field flex-1" /></Row>
+    </Section>
+  ),
+
+  // ---- 3D primitives (RealityKit / Model3D) ----
+  // Each exposes its native MeshResource parameters in pt; the SwiftUI
+  // exporter converts to meters (1 m \u2248 1000 pt).
+  //
+  // Transform — every 3D primitive shares this. In SwiftUI, Model3D /
+  // RealityView are normal SwiftUI views: the parent stack lays them out
+  // on X/Y. For Z and orientation:
+  //   - `.offset(z: pt)`          \u2014 visionOS-only Z translation
+  //   - `.rotation3DEffect(\u2026)`     \u2014 per-axis rotation in degrees
+  // These are emitted by the SwiftUI exporter for any 3D primitive that
+  // sets non-zero values.
+
+  sphere: (ctx) => (
+    <>
+      <Section title="Sphere">
+        <Row label="Radius"><PtField value={ctx.item.radius ?? 80} onChange={(v) => ctx.updateItem(ctx.item.id, { radius: Math.max(1, v) })} /></Row>
+        <Row label="Depth"><PtField value={ctx.item.depth ?? 160} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+        <div className="text-[10px] text-textMute">.frame(depth:) reserves Z-room around the sphere.</div>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  box: (ctx) => (
+    <>
+      <Section title="Box">
+        <Row label="W"><PtField value={ctx.item.boxWidth  ?? 120} onChange={(v) => ctx.updateItem(ctx.item.id, { boxWidth:  Math.max(1, v) })} /></Row>
+        <Row label="H"><PtField value={ctx.item.boxHeight ?? 120} onChange={(v) => ctx.updateItem(ctx.item.id, { boxHeight: Math.max(1, v) })} /></Row>
+        <Row label="D"><PtField value={ctx.item.boxDepth  ?? 120} onChange={(v) => ctx.updateItem(ctx.item.id, { boxDepth:  Math.max(1, v) })} /></Row>
+        <Row label="Radius"><PtField value={ctx.item.boxCornerRadius ?? 0} onChange={(v) => ctx.updateItem(ctx.item.id, { boxCornerRadius: Math.max(0, v) })} /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 160} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  plane: (ctx) => (
+    <>
+      <Section title="Plane">
+        <Row label="W"><PtField value={ctx.item.planeWidth ?? 200} onChange={(v) => ctx.updateItem(ctx.item.id, { planeWidth: Math.max(1, v) })} /></Row>
+        <Row label="D"><PtField value={ctx.item.planeDepth ?? 140} onChange={(v) => ctx.updateItem(ctx.item.id, { planeDepth: Math.max(1, v) })} /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 40} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  cone: (ctx) => (
+    <>
+      <Section title="Cone">
+        <Row label="Radius"><PtField value={ctx.item.coneRadius ?? 70}  onChange={(v) => ctx.updateItem(ctx.item.id, { coneRadius: Math.max(1, v) })} /></Row>
+        <Row label="Height"><PtField value={ctx.item.coneHeight ?? 180} onChange={(v) => ctx.updateItem(ctx.item.id, { coneHeight: Math.max(1, v) })} /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 180} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  cylinder: (ctx) => (
+    <>
+      <Section title="Cylinder">
+        <Row label="Radius"><PtField value={ctx.item.cylRadius ?? 70}  onChange={(v) => ctx.updateItem(ctx.item.id, { cylRadius: Math.max(1, v) })} /></Row>
+        <Row label="Height"><PtField value={ctx.item.cylHeight ?? 180} onChange={(v) => ctx.updateItem(ctx.item.id, { cylHeight: Math.max(1, v) })} /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 180} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  text3d: (ctx) => (
+    <>
+      <Section title="3D Text">
+        <Row label="Text"><input value={ctx.item.text || ''} onChange={(e) => ctx.updateItem(ctx.item.id, { text: e.target.value })} className="field flex-1" /></Row>
+        <Row label="Extrude"><PtField value={ctx.item.extrusionDepth ?? 20} onChange={(v) => ctx.updateItem(ctx.item.id, { extrusionDepth: Math.max(0, v) })} /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 60} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+        <div className="text-[10px] text-textMute">Text3D requires visionOS 2.0+.</div>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  ),
+  mesh: (ctx) => (
+    <>
+      <Section title="Custom Mesh">
+        <Row label="Asset"><input value={ctx.item.meshAsset || ''} onChange={(e) => ctx.updateItem(ctx.item.id, { meshAsset: e.target.value })} className="field flex-1" placeholder="Earth" /></Row>
+        <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 200} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
+        <div className="text-[10px] text-textMute">USDZ asset name in your Xcode project bundle. RealityView/Model3D sit inside the parent stack \u2014 the stack handles X/Y placement just like for 2D views.</div>
+      </Section>
+      <TransformSection {...ctx} />
+    </>
+  )
+}
+
+// Shared transform editor — Z offset (visionOS .offset(z:)) plus rotation
+// X/Y/Z (degrees, fed to .rotation3DEffect). Used by every 3D primitive
+// inspector. Kept here rather than in shared.jsx because it's only ever
+// rendered for 3D types.
+function TransformSection({ item, updateItem }) {
+  return (
+    <Section title="Transform" defaultOpen={false}>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.offset(z:) \u2014 visionOS depth</div>
+      <Row label="Z">
+        <PtField value={item.zOffset ?? 0} onChange={(v) => updateItem(item.id, { zOffset: v })} />
+      </Row>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotation3DEffect(\u2026) \u2014 degrees per axis</div>
+      <Row label="Rot X"><NumField value={item.rotX ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotX: v })} suffix="\u00b0" /></Row>
+      <Row label="Rot Y"><NumField value={item.rotY ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotY: v })} suffix="\u00b0" /></Row>
+      <Row label="Rot Z"><NumField value={item.rotZ ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotZ: v })} suffix="\u00b0" /></Row>
+      <div className="text-[10px] text-textMute leading-relaxed mt-1">
+        Stacks place 3D content the same way they place 2D views (X / Y).
+        Use this section for the Z axis and orientation \u2014 those map to
+        SwiftUI <code>.offset(z:)</code> and <code>.rotation3DEffect(\u2026)</code>.
+      </div>
     </Section>
   )
 }

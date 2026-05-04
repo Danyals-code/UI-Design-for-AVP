@@ -3,11 +3,28 @@
 
 import { WINDOW_PRESETS, VOLUME_PRESETS, ptToUnits } from '../appleSystem'
 import { undoable } from './undo'
+import { buildTemplate } from '../templates'
 
 export const createSceneSlice = (set, get) => ({
   setZoomDistance: (d) => set({ zoomDistance: d }),
   toggleGrid:    () => set((s) => ({ showGrid: !s.showGrid })),
   togglePanMode: () => set((s) => ({ panMode: !s.panMode })),
+
+  // Replace the entire scene with a template's items. Undoable so the user
+  // can recover their previous work by hitting ⌘Z. Always switches to
+  // window mode (templates are window-only for now). Selection + active
+  // tab are reset to point at the template's seed.
+  applyTemplate: (key) => undoable(set, get, (s) => {
+    const seed = buildTemplate(key)
+    if (!seed) return s
+    return {
+      items: seed.items,
+      activeTabId: seed.activeTabId,
+      selectedId: null,
+      editingId: null,
+      scene: { ...s.scene, sceneMode: 'window', preview3D: false }
+    }
+  }),
 
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }

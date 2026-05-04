@@ -1149,6 +1149,162 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     [hasBorder, size[0], size[1], cornerRadius, mod.borderWidth]
   )
 
+  // ---- 3D primitives (RealityKit / Model3D) -------------------------
+  // Render real three.js meshes so users get a 3D preview of what their
+  // SwiftUI export will produce. Uses meshStandardMaterial for shading;
+  // 2D panel types upstream stay on meshBasicMaterial and aren't affected.
+  const is3DPrimitive = ['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh'].includes(panelType)
+  if (is3DPrimitive) {
+    const handlers = {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerOver: (e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' },
+      onPointerOut: () => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }
+    }
+    // Z offset (`.offset(z:)`) + per-axis rotation (`.rotation3DEffect(...)`)
+    // — both surfaced in the inspector's Transform section. Applied here
+    // so the canvas preview matches what SwiftUI will render on device.
+    const zOff = ptToUnits(panel.zOffset || 0)
+    const rotX = (panel.rotX || 0) * DEG2RAD
+    const rotY = (panel.rotY || 0) * DEG2RAD
+    const rotZ = (panel.rotZ || 0) * DEG2RAD
+    const groupPos = [
+      (localPosition?.[0] || 0) + modOffX,
+      (localPosition?.[1] || 0) + modOffY,
+      (localPosition?.[2] || 0) + zOff
+    ]
+    const groupRot = [rotX, rotY, rotZ]
+    let geometryNode = null
+    let halo = null
+    if (panelType === 'sphere') {
+      const r = ptToUnits(panel.radius || 80)
+      geometryNode = <sphereGeometry args={[r, 32, 32]} />
+      halo = isSelected && (
+        <mesh>
+          <sphereGeometry args={[r * 1.04, 32, 32]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
+        </mesh>
+      )
+    } else if (panelType === 'box') {
+      const w = ptToUnits(panel.boxWidth  || 120)
+      const h = ptToUnits(panel.boxHeight || 120)
+      const d = ptToUnits(panel.boxDepth  || 120)
+      geometryNode = <boxGeometry args={[w, h, d]} />
+      halo = isSelected && (
+        <mesh>
+          <boxGeometry args={[w * 1.04, h * 1.04, d * 1.04]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
+        </mesh>
+      )
+    } else if (panelType === 'plane') {
+      const w = ptToUnits(panel.planeWidth || 200)
+      const d = ptToUnits(panel.planeDepth || 140)
+      geometryNode = <planeGeometry args={[w, d]} />
+      halo = isSelected && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[w * 1.04, d * 1.04]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.25} wireframe side={THREE.DoubleSide} />
+        </mesh>
+      )
+    } else if (panelType === 'cone') {
+      const r = ptToUnits(panel.coneRadius || 70)
+      const h = ptToUnits(panel.coneHeight || 180)
+      geometryNode = <coneGeometry args={[r, h, 32]} />
+      halo = isSelected && (
+        <mesh>
+          <coneGeometry args={[r * 1.04, h * 1.04, 32]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
+        </mesh>
+      )
+    } else if (panelType === 'cylinder') {
+      const r = ptToUnits(panel.cylRadius || 70)
+      const h = ptToUnits(panel.cylHeight || 180)
+      geometryNode = <cylinderGeometry args={[r, r, h, 32]} />
+      halo = isSelected && (
+        <mesh>
+          <cylinderGeometry args={[r * 1.04, r * 1.04, h * 1.04, 32]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
+        </mesh>
+      )
+    } else if (panelType === 'text3d') {
+      // Approximate Text3D with troika Text plus a back-shadow copy to
+      // suggest extrusion. SwiftUI's Text3D handles the real geometry on
+      // device — the export emits Text3D with the user's extrusionDepth.
+      const fontSize = ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 34)
+      const ed = ptToUnits(panel.extrusionDepth || 20) * 0.3
+      return (
+        <group ref={groupRef} position={groupPos} rotation={groupRot}>
+          {isSelected && (
+            <mesh position={[0, -ptToUnits(20), -0.001]}>
+              <planeGeometry args={[ptToUnits(120), ptToUnits(2)]} />
+              <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.6} />
+            </mesh>
+          )}
+          <Text
+            position={[ed * 0.4, -ed * 0.4, -ed]}
+            fontSize={fontSize}
+            color="#000000"
+            anchorX="center" anchorY="middle"
+            font={fontUrl}
+          >
+            {panel.text || 'Hello'}
+          </Text>
+          <Text
+            position={[0, 0, 0]}
+            fontSize={fontSize}
+            color={fillColor}
+            anchorX="center" anchorY="middle"
+            font={fontUrl}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerOver={handlers.onPointerOver}
+            onPointerOut={handlers.onPointerOut}
+          >
+            {panel.text || 'Hello'}
+          </Text>
+        </group>
+      )
+    } else if (panelType === 'mesh') {
+      // Custom-mesh placeholder: a wireframe box with the asset name above.
+      const w = ptToUnits(150), h = ptToUnits(150), d = ptToUnits(150)
+      return (
+        <group ref={groupRef} position={groupPos} rotation={groupRot}>
+          {isSelected && (
+            <mesh>
+              <boxGeometry args={[w * 1.04, h * 1.04, d * 1.04]} />
+              <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
+            </mesh>
+          )}
+          <mesh {...handlers}>
+            <boxGeometry args={[w, h, d]} />
+            <meshStandardMaterial color={fillColor} metalness={0.1} roughness={0.6} wireframe />
+          </mesh>
+          <Text
+            position={[0, h * 0.7, 0]}
+            fontSize={ptToUnits(14)}
+            color={resolveSemantic('secondary', scheme)}
+            anchorX="center" anchorY="middle"
+            font={fontUrl}
+          >
+            {panel.meshAsset || 'Asset'}
+          </Text>
+        </group>
+      )
+    }
+
+    return (
+      <group ref={groupRef} position={groupPos} rotation={groupRot}>
+        {halo}
+        <mesh {...handlers}>
+          {geometryNode}
+          <meshStandardMaterial color={fillColor} metalness={0.1} roughness={0.55} />
+        </mesh>
+      </group>
+    )
+  }
+
   return (
     <group
       ref={groupRef}

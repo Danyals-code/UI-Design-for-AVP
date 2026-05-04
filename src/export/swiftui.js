@@ -15,7 +15,7 @@
 // docs.
 
 import { unitsToPt } from '../appleSystem'
-import { emitPanel } from '../panels/registry'
+import { emitPanel, isInteractivePanel } from '../panels/registry'
 
 // ---------- helpers ----------
 
@@ -163,10 +163,26 @@ function renderModifiers(panel, lines, pad) {
   if (m.borderWidth && m.borderColor) {
     lines.push(`${ind}.overlay(RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0)}).stroke(${swiftColor(null, m.borderColor)}, lineWidth: ${m.borderWidth}))`)
   }
-  // visionOS `.hoverEffect()` — only emitted when the panel explicitly opts
-  // out of inheritance. `inherit` and `none` produce nothing (the parent
-  // window's modifier covers the former; SwiftUI has no `.none` form).
-  if (panel.hoverEffect && panel.hoverEffect !== 'inherit' && panel.hoverEffect !== 'none') {
+  // 3D-primitive transforms — Z offset (`.offset(z:)`) plus per-axis
+  // rotation (`.rotation3DEffect(...)`). Only emitted when non-zero so
+  // boilerplate stays out of the common case. Applied here so the modifier
+  // chain order matches the inspector layout.
+  const threeD = ['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh']
+  if (threeD.includes(panel.panelType)) {
+    if (panel.zOffset)        lines.push(`${ind}.offset(z: ${panel.zOffset})`)
+    if (panel.rotX)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotX}), axis: (x: 1, y: 0, z: 0))`)
+    if (panel.rotY)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotY}), axis: (x: 0, y: 1, z: 0))`)
+    if (panel.rotZ)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotZ}), axis: (x: 0, y: 0, z: 1))`)
+  }
+
+  // visionOS `.hoverEffect()` — only emitted on interactive controls
+  // (Button, Toggle, Picker, Slider, etc.) and only when the panel opts out
+  // of inheritance. SwiftUI ignores the modifier on decorative views, so
+  // emitting it on a Text or Rectangle would be misleading noise.
+  if (
+    isInteractivePanel(panel.panelType) &&
+    panel.hoverEffect && panel.hoverEffect !== 'inherit' && panel.hoverEffect !== 'none'
+  ) {
     lines.push(`${ind}.hoverEffect(.${panel.hoverEffect})`)
   }
 

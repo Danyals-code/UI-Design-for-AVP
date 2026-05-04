@@ -247,3 +247,51 @@ export const TabIcon = ({ size = 12 }) => (
     <path d="M3 5V4a1 1 0 011-1h4a1 1 0 011 1v1" fill="currentColor" strokeWidth="0" />
   </svg>
 )
+
+// ---- 3D primitives (Phase 6) ----
+// Wireframe-style outlines so they read as 3D rather than 2D shapes.
+export const SphereIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <circle cx="8" cy="8" r="6" />
+    <ellipse cx="8" cy="8" rx="6" ry="2.4" />
+    <ellipse cx="8" cy="8" rx="2.4" ry="6" />
+  </svg>
+)
+export const BoxIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M2.5 5L8 2.5l5.5 2.5v6L8 13.5 2.5 11V5z" />
+    <path d="M2.5 5L8 7.5l5.5-2.5" />
+    <path d="M8 7.5v6" />
+  </svg>
+)
+export const PlaneIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M2 11l4-4h8l-4 4H2z" />
+  </svg>
+)
+export const ConeIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M8 2L13 13H3L8 2z" />
+    <ellipse cx="8" cy="13" rx="5" ry="1.2" />
+  </svg>
+)
+export const CylinderIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <ellipse cx="8" cy="3.5" rx="5" ry="1.5" />
+    <path d="M3 3.5v9" />
+    <path d="M13 3.5v9" />
+    <ellipse cx="8" cy="12.5" rx="5" ry="1.5" />
+  </svg>
+)
+export const Text3DIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M2 5h7" /><path d="M5.5 5v7" />
+    <path d="M9 8h5" /><path d="M11.5 8v5" />
+  </svg>
+)
+export const MeshIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M2 5L8 2l6 3v6L8 14 2 11V5z" />
+    <path d="M2 5l6 3 6-3M8 8v6M2 8l6 3M14 8l-6 3" />
+  </svg>
+)
