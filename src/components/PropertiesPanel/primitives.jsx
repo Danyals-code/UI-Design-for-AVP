@@ -152,12 +152,33 @@ export function Select({ value, options, onChange }) {
   )
 }
 
+// SVG chevron — rotates 90\u00b0 when the section opens. Replacing the prior
+// \u25b8 / \u25be glyphs gives sub-pixel alignment and a single rotation
+// transform we can animate cleanly.
+function SectionChevron({ open }) {
+  return (
+    <svg
+      width="9" height="9" viewBox="0 0 10 10"
+      fill="none" stroke="currentColor" strokeWidth="1.5"
+      strokeLinecap="round" strokeLinejoin="round"
+      style={{
+        transform: open ? 'rotate(90deg)' : 'none',
+        transition: 'transform 140ms ease'
+      }}
+    >
+      <path d="M3.5 2L7 5L3.5 8" />
+    </svg>
+  )
+}
+
 export function Section({ title, children, defaultOpen = false, action }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="border-b border-border">
       <div className="section-header" onClick={() => setOpen(!open)}>
-        <span className="text-[8px] text-textMute">{open ? '▾' : '▸'}</span>
+        <span className="text-textMute flex items-center justify-center w-3">
+          <SectionChevron open={open} />
+        </span>
         <span className="flex-1">{title}</span>
         {action && <span onClick={(e) => e.stopPropagation()}>{action}</span>}
       </div>
@@ -194,11 +215,7 @@ export function TabButton({ active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 h-[34px] text-[10px] uppercase tracking-wider font-semibold transition-colors border-b ${
-        active
-          ? 'text-text border-accent bg-surface2'
-          : 'text-textMute border-transparent hover:text-text'
-      }`}
+      className={`tab-strip-btn ${active ? 'active' : ''}`}
     >
       {children}
     </button>

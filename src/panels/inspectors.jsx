@@ -530,13 +530,13 @@ export const INSPECTORS = {
 
   // ---- 3D primitives (RealityKit / Model3D) ----
   // Each exposes its native MeshResource parameters in pt; the SwiftUI
-  // exporter converts to meters (1 m \u2248 1000 pt).
+  // exporter converts to meters (1 m ≈ 1000 pt).
   //
   // Transform — every 3D primitive shares this. In SwiftUI, Model3D /
   // RealityView are normal SwiftUI views: the parent stack lays them out
   // on X/Y. For Z and orientation:
-  //   - `.offset(z: pt)`          \u2014 visionOS-only Z translation
-  //   - `.rotation3DEffect(\u2026)`     \u2014 per-axis rotation in degrees
+  //   - `.offset(z: pt)`          — visionOS-only Z translation
+  //   - `.rotation3DEffect(…)`     — per-axis rotation in degrees
   // These are emitted by the SwiftUI exporter for any 3D primitive that
   // sets non-zero values.
 
@@ -608,7 +608,7 @@ export const INSPECTORS = {
       <Section title="Custom Mesh">
         <Row label="Asset"><input value={ctx.item.meshAsset || ''} onChange={(e) => ctx.updateItem(ctx.item.id, { meshAsset: e.target.value })} className="field flex-1" placeholder="Earth" /></Row>
         <Row label="Frame Depth"><PtField value={ctx.item.depth ?? 200} onChange={(v) => ctx.updateItem(ctx.item.id, { depth: Math.max(0, v) })} /></Row>
-        <div className="text-[10px] text-textMute">USDZ asset name in your Xcode project bundle. RealityView/Model3D sit inside the parent stack \u2014 the stack handles X/Y placement just like for 2D views.</div>
+        <div className="text-[10px] text-textMute">USDZ asset name in your Xcode project bundle. RealityView/Model3D sit inside the parent stack — the stack handles X/Y placement just like for 2D views.</div>
       </Section>
       <TransformSection {...ctx} />
     </>
@@ -622,18 +622,18 @@ export const INSPECTORS = {
 function TransformSection({ item, updateItem }) {
   return (
     <Section title="Transform" defaultOpen={false}>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.offset(z:) \u2014 visionOS depth</div>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.offset(z:) — visionOS depth</div>
       <Row label="Z">
         <PtField value={item.zOffset ?? 0} onChange={(v) => updateItem(item.id, { zOffset: v })} />
       </Row>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotation3DEffect(\u2026) \u2014 degrees per axis</div>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotation3DEffect(…) — degrees per axis</div>
       <Row label="Rot X"><NumField value={item.rotX ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotX: v })} suffix="\u00b0" /></Row>
       <Row label="Rot Y"><NumField value={item.rotY ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotY: v })} suffix="\u00b0" /></Row>
       <Row label="Rot Z"><NumField value={item.rotZ ?? 0} step={1} onChange={(v) => updateItem(item.id, { rotZ: v })} suffix="\u00b0" /></Row>
       <div className="text-[10px] text-textMute leading-relaxed mt-1">
         Stacks place 3D content the same way they place 2D views (X / Y).
-        Use this section for the Z axis and orientation \u2014 those map to
-        SwiftUI <code>.offset(z:)</code> and <code>.rotation3DEffect(\u2026)</code>.
+        Use this section for the Z axis and orientation — those map to
+        SwiftUI <code>.offset(z:)</code> and <code>.rotation3DEffect(…)</code>.
       </div>
     </Section>
   )

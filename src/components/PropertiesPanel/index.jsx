@@ -31,7 +31,7 @@ export default function PropertiesPanel({ width = 280 }) {
       style={{ width }}
       className="bg-surface border-l border-border flex flex-col h-full flex-shrink-0"
     >
-      <div className="flex">
+      <div className="tab-strip">
         <TabButton active={tab === 'object'} onClick={() => setTab('object')}>Object</TabButton>
         <TabButton active={tab === 'scene'} onClick={() => setTab('scene')}>Scene</TabButton>
       </div>

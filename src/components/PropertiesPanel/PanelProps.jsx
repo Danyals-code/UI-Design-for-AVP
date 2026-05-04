@@ -81,7 +81,7 @@ export function PanelProps({ item, scene }) {
           </Row>
           <div className="text-[10px] text-textMute leading-relaxed mt-1">
             visionOS gaze-driven hover. <code>inherit</code> uses the
-            window\u2019s effect; <code>highlight</code> tints,
+            window’s effect; <code>highlight</code> tints,
             <code>lift</code> raises with a soft shadow.
           </div>
         </Section>

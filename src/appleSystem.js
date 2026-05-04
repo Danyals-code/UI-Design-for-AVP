@@ -139,20 +139,17 @@ export const MATERIALS = {
 
 export const MATERIAL_ORDER = ['ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque']
 
-// drei <Environment> presets used by the HDRI picker.
+// HDRIs bundled with the app (public/hdri/). Each `file` is loaded by drei's
+// <Environment files=...> via the RGBELoader. Keeping them local-first keeps
+// preview reliable offline and avoids any first-use latency.
 export const HDRI_PRESETS = {
-  none:      { label: 'None',      preset: null },
-  apartment: { label: 'Apartment', preset: 'apartment' },
-  city:      { label: 'City',      preset: 'city' },
-  dawn:      { label: 'Dawn',      preset: 'dawn' },
-  forest:    { label: 'Forest',    preset: 'forest' },
-  lobby:     { label: 'Lobby',     preset: 'lobby' },
-  night:     { label: 'Night',     preset: 'night' },
-  park:      { label: 'Park',      preset: 'park' },
-  studio:    { label: 'Studio',    preset: 'studio' },
-  sunset:    { label: 'Sunset',    preset: 'sunset' },
-  warehouse: { label: 'Warehouse', preset: 'warehouse' }
+  none:    { label: 'None',     file: null },
+  sample1: { label: 'Sample 1', file: '/hdri/Sample_01_2k.hdr' },
+  sample2: { label: 'Sample 2', file: '/hdri/Sample_02_2k.hdr' },
+  sample3: { label: 'Sample 3', file: '/hdri/Sample_03_2k.hdr' }
 }
+
+export const HDRI_ORDER = ['none', 'sample1', 'sample2', 'sample3']
 
 // SwiftUI-equivalent semantic color tokens.
 // Stored as pre-blended 6-digit hex for THREE.Color.

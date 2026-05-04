@@ -31,42 +31,56 @@ input[type="number"]::-webkit-outer-spin-button {
 .field {
   background: #262626;
   border: 1px solid #2e2e2e;
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: 5px;
+  padding: 5px 8px;
   color: #e4e4e4;
   font: inherit;
   font-size: 11px;
   width: 100%;
   outline: none;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 .field:hover { border-color: #3a3a3a; }
-.field:focus { border-color: #0a84ff; background: #2b2b2b; }
+.field:focus {
+  border-color: #0a84ff;
+  background: #2b2b2b;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.18);
+}
 
 .btn {
   background: #262626;
   border: 1px solid #2e2e2e;
-  border-radius: 4px;
+  border-radius: 5px;
   padding: 5px 10px;
   font: inherit;
   font-size: 11px;
+  font-weight: 500;
   color: #e4e4e4;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* subtle inner highlight gives buttons a sharper read against the panel bg */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-.btn:hover { background: #2f2f2f; border-color: #3a3a3a; }
+.btn:hover { background: #303030; border-color: #3f3f3f; }
+.btn:active { background: #262626; }
+.btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 0 0 2px rgba(10, 132, 255, 0.45);
+}
 .btn-primary {
   background: #0a84ff;
   border-color: #0a84ff;
   color: white;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .btn-primary:hover {
   background: #1a8fff;
   border-color: #1a8fff;
 }
+.btn-primary:active { background: #0875e0; }
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -123,8 +137,8 @@ input[type="number"]::-webkit-outer-spin-button {
 .section-header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 7px 10px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -132,45 +146,54 @@ input[type="number"]::-webkit-outer-spin-button {
   color: #9a9a9a;
   cursor: pointer;
   user-select: none;
+  transition: background 120ms ease, color 120ms ease;
 }
-.section-header:hover { color: #e4e4e4; }
+.section-header:hover { color: #e4e4e4; background: rgba(255, 255, 255, 0.025); }
 .section-body {
-  padding: 2px 10px 10px 10px;
+  padding: 4px 10px 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .segmented {
-  display: flex;
-  background: #1e1e1e;
+  display: inline-flex;
+  background: #1c1c1c;
   border: 1px solid #2e2e2e;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 2px;
   gap: 2px;
+  /* prevents children's box-shadow halo from painting outside the rounded rect */
+  overflow: hidden;
 }
 .segmented button {
   flex: 1;
   background: transparent;
   color: #9a9a9a;
   border: none;
-  padding: 4px 8px;
+  padding: 4px 9px;
   font: inherit;
   font-size: 11px;
-  border-radius: 3px;
+  font-weight: 500;
+  border-radius: 4px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  transition: background 150ms ease, color 150ms ease;
+  transition: background 120ms ease, color 120ms ease;
+  /* Active button uses an inset highlight \u2014 box-shadow can't escape the
+     parent's overflow:hidden, but a 1px solid border on the active state
+     would push the button by 1px and shift siblings. Inset shadow keeps
+     siblings stable. */
 }
-.segmented button:hover { color: #e4e4e4; }
+.segmented button:hover { color: #e4e4e4; background: rgba(255, 255, 255, 0.04); }
 .segmented button.active {
   background: #2f2f2f;
   color: #e4e4e4;
-  box-shadow: inset 0 0 0 1px #3a3a3a;
+  box-shadow: inset 0 0 0 1px #3f3f3f, inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
+.segmented button.active:hover { background: #353535; }
 
 /* ---- Selection + checkbox tweaks ---- */
 
@@ -194,19 +217,60 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 5px;
   border: 1px solid #2e2e2e;
   background: rgba(21, 21, 21, 0.88);
-  color: #9a9a9a;
+  color: #b8b8b8;
   cursor: pointer;
   backdrop-filter: blur(8px);
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.vp-btn:hover { color: #e4e4e4; background: #2f2f2f; }
+.vp-btn:hover { color: #ffffff; background: rgba(45, 45, 45, 0.95); border-color: #3f3f3f; }
 .vp-btn.active {
   background: #0a84ff;
   border-color: #0a84ff;
   color: white;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.vp-btn.active:hover { background: #1a8fff; border-color: #1a8fff; }
+
+/* ---- Inspector tabs (Object / Scene) ---- */
+/* A flat header strip with a clear active state: filled background + a 2px
+   accent underline. The previous border-b approach left active and inactive
+   tabs at different visual weights and sometimes overflowed the parent. */
+
+.tab-strip {
+  display: flex;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2e2e2e;
+}
+.tab-strip-btn {
+  flex: 1;
+  position: relative;
+  height: 36px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6a6a6a;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.tab-strip-btn:hover { color: #b8b8b8; background: rgba(255, 255, 255, 0.025); }
+.tab-strip-btn.active {
+  color: #e4e4e4;
+  background: #1e1e1e;
+}
+.tab-strip-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: #0a84ff;
+  border-radius: 1px 1px 0 0;
 }
 
 /* ---- Floating popovers ---- */

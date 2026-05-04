@@ -30,6 +30,8 @@ export const useStore = create((set, get) => ({
   clipboard:    null,
   showGrid:     true,
   panMode:      false,
+  showAxes:     true,    // Overlay → Axes (the 3D-preview gizmo)
+  showStats:    false,   // Overlay → Statistics (FPS/triangle counter)
   scene:        { ...DEFAULT_SCENE },
   // DEFAULT_DIST (7) is treated as the 100%-zoom reference. Initial 85%
   // pct → zoomDistance = 7 / 0.85 ≈ 8.235, giving a comfortable framing

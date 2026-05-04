@@ -5,7 +5,8 @@
 // topbar title lets them swap modes without cluttering this panel.
 
 import { useState } from 'react'
-import { Row, Section, ColorRow } from './primitives'
+import { Row, Section, ColorRow, Select } from './primitives'
+import { HDRI_PRESETS, HDRI_ORDER } from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
 
 export function SceneProps({ scene, updateScene }) {
@@ -79,6 +80,24 @@ export function SceneProps({ scene, updateScene }) {
           />
         )}
         <div className="text-[10px] text-textMute">Only the viewport background. Your design stays on its own scheme.</div>
+
+        {/* HDRI environment \u2014 wraps the scene with image-based lighting,
+            which also shades any 3D primitives in the canvas. Bundled with
+            the app so it works offline; flips the viewport background to a
+            blurred copy of the HDRI when active. */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">HDRI Environment</div>
+        <Row label="Preset">
+          <Select
+            value={
+              HDRI_ORDER.find((k) => HDRI_PRESETS[k].file === scene.hdri) || 'none'
+            }
+            options={HDRI_ORDER.map((k) => ({ value: k, label: HDRI_PRESETS[k].label }))}
+            onChange={(v) => updateScene({ hdri: HDRI_PRESETS[v].file })}
+          />
+        </Row>
+        <div className="text-[10px] text-textMute leading-relaxed">
+          Lights and reflects 3D primitives. Replaces the flat background while active.
+        </div>
       </Section>
 
       <Section title="Design">
