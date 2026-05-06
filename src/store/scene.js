@@ -7,10 +7,12 @@ import { buildTemplate } from '../templates'
 
 export const createSceneSlice = (set, get) => ({
   setZoomDistance: (d) => set({ zoomDistance: d }),
-  toggleGrid:    () => set((s) => ({ showGrid: !s.showGrid })),
+  toggleGridAxis: (axis) => set((s) => ({
+    gridAxes: { ...s.gridAxes, [axis]: !s.gridAxes[axis] }
+  })),
   togglePanMode: () => set((s) => ({ panMode: !s.panMode })),
   toggleAxes:    () => set((s) => ({ showAxes: !s.showAxes })),
-  toggleStats:   () => set((s) => ({ showStats: !s.showStats })),
+  toggleSceneInfo: () => set((s) => ({ showSceneInfo: !s.showSceneInfo })),
 
   // Replace the entire scene with a template's items. Undoable so the user
   // can recover their previous work by hitting ⌘Z. Always switches to

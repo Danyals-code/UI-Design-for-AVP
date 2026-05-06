@@ -3,18 +3,34 @@
 
 import { TEXT_STYLES, ptToUnits } from '../appleSystem'
 import { panelDefaults } from '../panels/registry'
+import { filterModifiers } from '../modifiers/registry'
 import { undoable } from './undo'
 import { makePanel } from './factories'
 import { findTargetWindow } from './helpers'
 
+// 3D primitives live in space (RealityView / Model3D content), not inside a
+// SwiftUI Stack — and visionOS treats them as free entities anchored to the
+// window's volume. Routing them at window-level lets the user drag them
+// freely; nesting inside a stack would force them into 1D stack layout and
+// any drag offset would be discarded on the next layout pass. Mirrors how
+// you'd write them in SwiftUI: `Model3D(...)` is a sibling of the content
+// stack inside the WindowGroup body, not a child of it.
+const PRIMITIVE_3D = new Set(['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh'])
+
 export const createPanelsSlice = (set, get) => ({
   addPanel: (panelType) => undoable(set, get, (s) => {
-    // New panels live inside the current selection's nearest stack, or the
-    // first stack in the active tab's first window if nothing relevant is
-    // selected. Tabs are not valid panel parents — they only hold windows.
+    const is3D = PRIMITIVE_3D.has(panelType)
     let parentId = null
     const sel = s.items.find((it) => it.id === s.selectedId)
-    if (sel) {
+    if (is3D) {
+      // 3D primitives always parent to the active tab's first Window. They
+      // ignore the current selection's stack — the primitive is a
+      // free-standing scene entity, not stack content.
+      const win = s.items.find(
+        (it) => it.type === 'window' && it.parentId === s.activeTabId
+      ) ?? s.items.find((it) => it.type === 'window')
+      parentId = win?.id || null
+    } else if (sel) {
       if (sel.type === 'stack') parentId = sel.id
       else if (sel.type === 'window') {
         const firstStack = s.items.find((it) => it.parentId === sel.id && it.type === 'stack')
@@ -29,7 +45,7 @@ export const createPanelsSlice = (set, get) => ({
       const firstWindow = s.items.find(
         (it) => it.type === 'window' && it.parentId === s.activeTabId
       ) ?? s.items.find((it) => it.type === 'window')
-      const firstStack = firstWindow && s.items.find(
+      const firstStack = !is3D && firstWindow && s.items.find(
         (it) => it.parentId === firstWindow.id && it.type === 'stack'
       )
       parentId = firstStack ? firstStack.id : firstWindow?.id
@@ -66,7 +82,9 @@ export const createPanelsSlice = (set, get) => ({
           parentId: it.parentId,
           visible: it.visible,
           position: it.position,
-          modifiers: it.modifiers,
+          // Drop modifiers the new panel type doesn't accept (strict allow
+          // list, e.g. `.disabled` only stays on interactive panels).
+          modifiers: filterModifiers(it.modifiers, newType),
           styles: it.styles,
           animation: it.animation,
           accessibility: it.accessibility

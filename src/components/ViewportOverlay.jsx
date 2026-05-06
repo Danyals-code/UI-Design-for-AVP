@@ -54,12 +54,13 @@ function OverlaysDropdown() {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
-  const showGrid  = useStore((s) => s.showGrid)
-  const showAxes  = useStore((s) => s.showAxes)
-  const showStats = useStore((s) => s.showStats)
-  const toggleGrid  = useStore((s) => s.toggleGrid)
-  const toggleAxes  = useStore((s) => s.toggleAxes)
-  const toggleStats = useStore((s) => s.toggleStats)
+  const gridAxes      = useStore((s) => s.gridAxes)
+  const showAxes      = useStore((s) => s.showAxes)
+  const showSceneInfo = useStore((s) => s.showSceneInfo)
+  const preview3D     = useStore((s) => s.scene.preview3D)
+  const toggleGridAxis  = useStore((s) => s.toggleGridAxis)
+  const toggleAxes      = useStore((s) => s.toggleAxes)
+  const toggleSceneInfo = useStore((s) => s.toggleSceneInfo)
 
   useEffect(() => {
     const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
@@ -67,8 +68,6 @@ function OverlaysDropdown() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  // The button always reads as "active" (overlays are always doing
-  // something). Highlight on hover; expand to show the popover.
   return (
     <div ref={ref} className="relative">
       <button
@@ -82,15 +81,29 @@ function OverlaysDropdown() {
       </button>
       {open && (
         <div
-          className="popover absolute right-0 top-full mt-1 rounded z-50 py-2 px-2.5 w-44"
+          className="popover absolute right-0 top-full mt-1 rounded z-50 py-2 px-2.5 w-52"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Guides</div>
-          <OverlayRow label="Grid"        on={showGrid}  toggle={toggleGrid} />
-          <OverlayRow label="Axes Gizmo"  on={showAxes}  toggle={toggleAxes} />
-          <OverlayRow label="Statistics"  on={showStats} toggle={toggleStats} />
+          {/* Per-axis grid toggles. Each row toggles one grid plane —
+              Blender's "Floor / X / Y" overlay options. The plane is named
+              by its perpendicular axis (Y = floor / horizontal). */}
+          {/* X (side) and Y (floor) grids only make sense in the 3D preview;
+              in 2D head-on view they project edge-on or face-camera and read
+              as noise. We disable them rather than hiding so the user sees
+              their saved-state and learns when they apply. */}
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Grid</div>
+          <OverlayRow label="X (side)"   on={gridAxes.x} toggle={() => toggleGridAxis('x')} disabled={!preview3D} disabledHint="3D only" />
+          <OverlayRow label="Y (floor)"  on={gridAxes.y} toggle={() => toggleGridAxis('y')} disabled={!preview3D} disabledHint="3D only" />
+          <OverlayRow label="Z (back)"   on={gridAxes.z} toggle={() => toggleGridAxis('z')} />
+
+          <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-2 px-1">Guides</div>
+          {/* Axes Gizmo only renders in 3D preview (it shows orbit
+              orientation). In 2D it would be visually inert. */}
+          <OverlayRow label="Axes Gizmo" on={showAxes}      toggle={toggleAxes} disabled={!preview3D} disabledHint="3D only" />
+          <OverlayRow label="Scene Info" on={showSceneInfo} toggle={toggleSceneInfo} />
+
           <div className="text-[9px] text-textMute leading-relaxed mt-2 pt-2 border-t border-border px-1">
-            Left-drag the viewport to orbit freely. Click an axis arrow on the gizmo to snap.
+            Scene Info shows item counts + selection — like Blender's stats panel.
           </div>
         </div>
       )}
@@ -98,11 +111,17 @@ function OverlaysDropdown() {
   )
 }
 
-function OverlayRow({ label, on, toggle }) {
+function OverlayRow({ label, on, toggle, disabled = false, disabledHint }) {
   return (
     <button
-      onClick={toggle}
-      className="flex items-center gap-2 w-full px-1 py-1 text-[11px] text-text hover:bg-hover rounded transition-colors"
+      onClick={disabled ? undefined : toggle}
+      disabled={disabled}
+      title={disabled ? disabledHint : undefined}
+      className={`flex items-center gap-2 w-full px-1 py-1 text-[11px] rounded transition-colors ${
+        disabled
+          ? 'text-textMute cursor-not-allowed opacity-50'
+          : 'text-text hover:bg-hover'
+      }`}
     >
       <span
         className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[8px] ${
@@ -110,6 +129,9 @@ function OverlayRow({ label, on, toggle }) {
         }`}
       >{'\u2713'}</span>
       <span className="flex-1 text-left">{label}</span>
+      {disabled && disabledHint && (
+        <span className="text-[8px] text-textMute uppercase tracking-wider">{disabledHint}</span>
+      )}
     </button>
   )
 }
@@ -145,7 +167,7 @@ function ViewModeToggle() {
         onClick={() => updateScene({ preview3D: true })}
         title="Orbit camera — see your design in 3D"
         style={{ minWidth: 44 }}
-      ><VolumeIcon size={11} /> 3D</button>
+      ><VolumeIcon size={14} /> 3D</button>
     </div>
   )
 }

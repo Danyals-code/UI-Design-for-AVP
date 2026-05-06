@@ -28,10 +28,15 @@ export const useStore = create((set, get) => ({
   editingId:    null,
   isDragging:   false,
   clipboard:    null,
-  showGrid:     true,
+  // Grid is per-axis — each entry toggles a grid plane perpendicular to that
+  // axis (e.g. `gridY` is the floor, `gridZ` is the back wall, `gridX` is a
+  // side wall). Mirrors Blender's "Floor / X / Y" axis toggles in the overlay
+  // popover. The legacy `showGrid` boolean is retained as a coarse off-switch
+  // (false = hide all grids).
+  gridAxes:     { x: false, y: true, z: false },
   panMode:      false,
   showAxes:     true,    // Overlay → Axes (the 3D-preview gizmo)
-  showStats:    false,   // Overlay → Statistics (FPS/triangle counter)
+  showSceneInfo: false,  // Overlay → Scene Info (Blender-style stats panel)
   scene:        { ...DEFAULT_SCENE },
   // DEFAULT_DIST (7) is treated as the 100%-zoom reference. Initial 85%
   // pct → zoomDistance = 7 / 0.85 ≈ 8.235, giving a comfortable framing

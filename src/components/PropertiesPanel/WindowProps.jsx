@@ -15,7 +15,7 @@ import {
   Row, Section, NumField, IntField, PtField,
   ColorRow, Select, SemanticColorPicker
 } from './primitives'
-import { UniversalModifiers } from './shared'
+import { ModifierStack } from './ModifierStack'
 import { ToolbarWizard } from './wizards'
 
 export function WindowProps({ item }) {
@@ -170,7 +170,7 @@ export function WindowProps({ item }) {
         <Row label="Locale"><input value={item.environment?.locale || ''} onChange={(e) => updateItem(item.id, { environment: { ...item.environment, locale: e.target.value } })} className="field flex-1" placeholder="en-US" /></Row>
       </Section>
 
-      <UniversalModifiers item={item} updateItem={updateItem} />
+      <ModifierStack item={item} updateItem={updateItem} />
     </div>
   )
 }

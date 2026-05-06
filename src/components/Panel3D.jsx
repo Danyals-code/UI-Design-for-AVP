@@ -7,6 +7,7 @@ import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
 import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
 import { getInterFont } from '../fonts'
+import { summarizeModifiers } from '../modifiers/registry'
 
 const DEG2RAD = Math.PI / 180
 
@@ -114,6 +115,11 @@ function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
 
 export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const { id, panelType } = panel
+  // SwiftUI modifiers live in `panel.modifiers` as an ordered array. Reduce
+  // it to a flat preview struct (last-write-wins per visual prop) so the
+  // canvas can approximate what SwiftUI will render. The exporter walks the
+  // array in order to preserve true chain semantics.
+  const modSummary = summarizeModifiers(panel.modifiers)
   // Size resolution precedence:
   //   1. `resolvedSize` — width/height the parent stack handed us (honours
   //      `widthMode: 'fill'` expansions).
@@ -129,9 +135,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       // fit / fill without a parent (top-level text): intrinsic.
       const text = panel.text || ''
       const fontSize = panel.fontSize || ptToUnits(17)
-      const glyphAdv = fontSize * 0.55 + ptToUnits(panel.tracking || 0)
+      const glyphAdv = fontSize * 0.55 + ptToUnits(modSummary.tracking || 0)
       const w = Math.max(ptToUnits(40), text.length * glyphAdv)
-      const h = fontSize * 1.5 + ptToUnits(panel.lineSpacing || 0)
+      const h = fontSize * 1.5 + ptToUnits(modSummary.lineSpacing || 0)
       return [w, h]
     }
     // List: height auto-derived from (row count × style row height) + style
@@ -365,7 +371,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // italic isn't exposed in the UI so we stay on the upright face.
   const fontUrl = getInterFont(
     panel.fontWeight,
-    (panelType === 'text' || panelType === 'link') && !!panel.italic
+    (panelType === 'text' || panelType === 'link') && !!modSummary.italic
   )
 
   const anchorX = panel.textAlign === 'left' ? 'left'
@@ -384,21 +390,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   : 0
 
   // Text-specific modifiers (.italic, .underline, .strikethrough, .lineLimit,
-  // .lineSpacing, .tracking, .textCase). Kept on the panel itself — cleaner
-  // than stuffing them inside the generic `modifiers` blob.
+  // .lineSpacing, .tracking, .textCase) come from the ordered modifier stack
+  // — sourced via `summarizeModifiers` above.
   const applyCase = (s) => {
     if (!s) return ''
-    if (panel.textCase === 'uppercase') return s.toUpperCase()
-    if (panel.textCase === 'lowercase') return s.toLowerCase()
+    if (modSummary.textCase === 'uppercase') return s.toUpperCase()
+    if (modSummary.textCase === 'lowercase') return s.toLowerCase()
     return s
   }
-  const lineLimit = panel.lineLimit && panel.lineLimit > 0 ? panel.lineLimit : undefined
-  const letterSpacing = panel.tracking ? ptToUnits(panel.tracking) : 0
-  // SwiftUI .lineSpacing(pt) — the gap between baselines in addition to the
-  // natural font line-height. We convert to a multiplier relative to the
-  // text style's point size (troika takes `lineHeight` as a scalar).
-  const lineHeight = panel.lineSpacing
-    ? 1 + (panel.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17)))
+  const lineLimit = modSummary.lineLimit && modSummary.lineLimit > 0 ? modSummary.lineLimit : undefined
+  const letterSpacing = modSummary.tracking ? ptToUnits(modSummary.tracking) : 0
+  const lineHeight = modSummary.lineSpacing
+    ? 1 + (modSummary.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17)))
     : undefined
 
   // ---- type-specific overlays ----
@@ -1119,16 +1122,20 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     [panelType, size[0], size[1], panel.topLeadingRadius, panel.topTrailingRadius, panel.bottomLeadingRadius, panel.bottomTrailingRadius]
   )
 
-  // ---- Modifier values ----
-  const mod = panel.modifiers || {}
-  const modOffX = ptToUnits(mod.offsetX || 0)
-  const modOffY = ptToUnits(mod.offsetY || 0)
-  const modRot = (mod.rotation || 0) * DEG2RAD
-  const modScaleX = mod.scaleX ?? 1
-  const modScaleY = mod.scaleY ?? 1
-  const modOpacity = mod.opacity ?? 1
-  const hasShadow = mod.shadowColor && mod.shadowRadius > 0
-  const hasBorder = mod.borderColor && mod.borderWidth > 0
+  // ---- Modifier preview values ----
+  // Derived from the ordered modifier stack via summarizeModifiers above.
+  // Order is preserved in the SwiftUI export; the canvas uses the reduced
+  // last-write-wins values for an approximate preview.
+  const modOffX = ptToUnits(modSummary.offsetX || 0)
+  const modOffY = ptToUnits(modSummary.offsetY || 0)
+  const modRot = (modSummary.rotation || 0) * DEG2RAD
+  const modScaleX = modSummary.scaleX ?? 1
+  const modScaleY = modSummary.scaleY ?? 1
+  const modOpacity = modSummary.opacity ?? 1
+  const shadowSummary = modSummary.shadow
+  const borderSummary = modSummary.border
+  const hasShadow = !!shadowSummary
+  const hasBorder = !!borderSummary
 
   // ---- Hover effect (visionOS .hoverEffect) ----
   // Resolved per-panel (own > inherit-from-window > automatic). When the
@@ -1145,8 +1152,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   }
 
   const borderRing = useMemo(
-    () => hasBorder ? rimRingShape(size[0], size[1], cornerRadius, ptToUnits(mod.borderWidth)) : null,
-    [hasBorder, size[0], size[1], cornerRadius, mod.borderWidth]
+    () => hasBorder ? rimRingShape(size[0], size[1], cornerRadius, ptToUnits(borderSummary.width)) : null,
+    [hasBorder, size[0], size[1], cornerRadius, borderSummary?.width]
   )
 
   // ---- 3D primitives (RealityKit / Model3D) -------------------------
@@ -1338,9 +1345,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           Pure Text / Link get their shadow rendered as a duplicate Text copy
           below. */}
       {hasShadow && panelType !== 'text' && panelType !== 'link' && (
-        <mesh position={[ptToUnits(mod.shadowX || 0), -ptToUnits(mod.shadowY || 0), -0.01]}>
+        <mesh position={[ptToUnits(shadowSummary.x || 0), -ptToUnits(shadowSummary.y || 0), -0.01]}>
           <shapeGeometry args={[fillShape]} />
-          <meshBasicMaterial color={mod.shadowColor} transparent opacity={0.35} />
+          <meshBasicMaterial color={shadowSummary.color} transparent opacity={0.35} />
         </mesh>
       )}
 
@@ -1418,10 +1425,10 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         // one — a flat rectangle shadow looks wrong behind transparent glyphs.
         const textShadow = hasShadow && (panelType === 'text' || panelType === 'link') && (
           <Text
-            position={[textX + ptToUnits(mod.shadowX || 0), textY - ptToUnits(mod.shadowY || 0), 0.004]}
+            position={[textX + ptToUnits(shadowSummary.x || 0), textY - ptToUnits(shadowSummary.y || 0), 0.004]}
             font={fontUrl}
             fontSize={finalFontSize}
-            color={mod.shadowColor}
+            color={shadowSummary.color}
             fillOpacity={0.35 * modOpacity}
             anchorX={anchorX}
             anchorY="middle"
@@ -1460,7 +1467,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                 left-aligned Text in a wide `fill` frame gets an underline that
                 ends where the text ends. The mesh is offset so it stays flush
                 with the text's anchor edge. */}
-            {(panel.underline || panel.strikethrough) && (() => {
+            {(modSummary.underline || modSummary.strikethrough) && (() => {
               const glyphW = Math.min(
                 size[0],
                 (rendered.length || 1) * (finalFontSize * 0.55 + letterSpacing)
@@ -1474,13 +1481,13 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                   : textX
               return (
                 <>
-                  {panel.underline && (
+                  {modSummary.underline && (
                     <mesh position={[lineX, textY - finalFontSize * 0.55, 0.004]}>
                       <planeGeometry args={[glyphW, ptToUnits(1)]} />
                       <meshBasicMaterial color={resolvedTextColor} transparent opacity={modOpacity} />
                     </mesh>
                   )}
-                  {panel.strikethrough && (
+                  {modSummary.strikethrough && (
                     <mesh position={[lineX, textY + finalFontSize * 0.05, 0.004]}>
                       <planeGeometry args={[glyphW, ptToUnits(1)]} />
                       <meshBasicMaterial color={resolvedTextColor} transparent opacity={modOpacity} />
@@ -1615,12 +1622,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {hasBorder && borderRing && (
         <mesh position={[0, 0, 0.008]}>
           <shapeGeometry args={[borderRing]} />
-          <meshBasicMaterial color={mod.borderColor} />
+          <meshBasicMaterial color={borderSummary.color} />
         </mesh>
       )}
 
       {/* Modifier: disabled overlay */}
-      {mod.disabled && (
+      {modSummary.disabled && (
         <mesh position={[0, 0, 0.009]}>
           <shapeGeometry args={[fillShape]} />
           <meshBasicMaterial color="#888888" transparent opacity={0.5} />

@@ -12,7 +12,7 @@ import {
 import {
   Row, Section, IntField, PtField, Select, SemanticColorPicker, StackAlignmentPicker
 } from './primitives'
-import { UniversalModifiers } from './shared'
+import { ModifierStack } from './ModifierStack'
 
 export function StackProps({ item }) {
   const updateItem = useStore((s) => s.updateItem)
@@ -534,7 +534,7 @@ export function StackProps({ item }) {
         <Row label="Locale"><input value={item.environment?.locale || ''} onChange={(e) => updateItem(item.id, { environment: { ...item.environment, locale: e.target.value } })} className="field flex-1" placeholder="en-US" /></Row>
       </Section>
 
-      <UniversalModifiers item={item} updateItem={updateItem} />
+      <ModifierStack item={item} updateItem={updateItem} />
 
       <Section title="Info" defaultOpen={false}>
         <div className="text-[10px] text-textMute font-mono">ID: {item.id}</div>
