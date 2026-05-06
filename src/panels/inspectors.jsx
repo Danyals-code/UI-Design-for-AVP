@@ -1195,20 +1195,34 @@ function TransformSection({ item, updateItem }) {
 // ---- per-type metadata ------------------------------------------------
 //
 // Used by PanelProps to decide which shared scaffolding to render:
-//   hasFill          - render shared Appearance section
-//   frameMode        - 'figma' (text/link), 'explicit' (default), 'none'
-//   useTextModifiers - render TextModifiers vs UniversalModifiers
+//   hasFill          - render Appearance rows (fill / radius)
+//   frameMode        - 'figma' (text/link, fit/fixed/fill picker),
+//                      'explicit' (width+height fields), 'none'
+//   useSymbol        - render the SF Symbol section
 //   lockHeight       - hide Height field in explicit Frame
 //   lockHeightHint   - replacement caption when lockHeight is set
 
-const figmaFrame = { frameMode: 'figma', hasFill: false, useTextModifiers: true }
+const figmaFrame = { frameMode: 'figma', hasFill: false }
 const explicitFrame = { frameMode: 'explicit', hasFill: true }
+
+// Panel types whose SwiftUI emit takes a `systemImage:` argument or otherwise
+// renders an SF Symbol glyph. Only these get the SF Symbol picker — the
+// section was previously rendered for every panel, which produced an empty
+// header on Text, Image, Slider, Progress, etc.
+const SYMBOL_USERS = new Set([
+  'button', 'label', 'link', 'navigationlink', 'contentUnavailable',
+  'toggle', 'picker', 'menu'
+])
 
 export const PANEL_META = {
   text: figmaFrame,
-  link: figmaFrame,
+  link: { ...figmaFrame, useSymbol: true },
   list: { ...explicitFrame, lockHeight: true, lockHeightHint: 'Height is auto — grows with the row count at the style\'s fixed row height.' },
-  // Default for everything else: explicit frame + has fill + universal modifiers
+  // Default for everything else: explicit frame + has fill
 }
 
-export const getPanelMeta = (panelType) => PANEL_META[panelType] || explicitFrame
+export const getPanelMeta = (panelType) => {
+  const base = PANEL_META[panelType] || explicitFrame
+  // Auto-derive `useSymbol` from the symbol-users set when not explicitly set.
+  return { useSymbol: SYMBOL_USERS.has(panelType), ...base }
+}

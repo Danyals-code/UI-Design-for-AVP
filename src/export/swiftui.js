@@ -16,6 +16,7 @@
 
 import { unitsToPt, textStyleDefaultWeight } from '../appleSystem'
 import { emitPanel, isInteractivePanel } from '../panels/registry'
+import { MODIFIERS } from '../modifiers/registry'
 
 // ---------- helpers ----------
 
@@ -171,84 +172,51 @@ function transitionExpr(name) {
 // ---------- text / panel rendering ----------
 
 function renderModifiers(panel, lines, pad) {
-  // Layered modifiers — each one becomes a `.modifier(…)` chain on the
-  // preceding view. Kept additive so callers can pick up partial chains.
-  const m = panel.modifiers || {}
+  // Walk the ordered modifier stack. Each entry's registry `emit()` returns
+  // the SwiftUI source line(s) — chain order matches inspector order which
+  // matches the array order. `.padding().background()` is not the same as
+  // the reverse, and the export preserves whichever the designer chose.
   const ind = `${indent(pad)}    `
-  if (m.opacity != null && m.opacity !== 1.0) lines.push(`${ind}.opacity(${m.opacity})`)
-  if (m.offsetX || m.offsetY)   lines.push(`${ind}.offset(x: ${m.offsetX || 0}, y: ${m.offsetY || 0})`)
-  if (m.rotation)               lines.push(`${ind}.rotationEffect(.degrees(${m.rotation}))`)
-  if (m.scaleX !== 1 || m.scaleY !== 1) lines.push(`${ind}.scaleEffect(x: ${m.scaleX ?? 1}, y: ${m.scaleY ?? 1})`)
-  if (m.disabled)               lines.push(`${ind}.disabled(true)`)
-  if (m.shadowRadius && m.shadowColor) {
-    const x = m.shadowX || 0, y = m.shadowY || 0
-    lines.push(`${ind}.shadow(color: ${swiftColor(null, m.shadowColor)}, radius: ${m.shadowRadius}, x: ${x}, y: ${y})`)
-  }
-  if (m.borderWidth && m.borderColor) {
-    lines.push(`${ind}.overlay(RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0)}).stroke(${swiftColor(null, m.borderColor)}, lineWidth: ${m.borderWidth}))`)
-  }
-  // 3D-primitive transforms — Z offset (`.offset(z:)`) plus per-axis
-  // rotation (`.rotation3DEffect(...)`). Only emitted when non-zero so
-  // boilerplate stays out of the common case. Applied here so the modifier
-  // chain order matches the inspector layout.
-  const threeD = ['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh']
-  if (threeD.includes(panel.panelType)) {
-    if (panel.zOffset)        lines.push(`${ind}.offset(z: ${panel.zOffset})`)
-    if (panel.rotX)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotX}), axis: (x: 1, y: 0, z: 0))`)
-    if (panel.rotY)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotY}), axis: (x: 0, y: 1, z: 0))`)
-    if (panel.rotZ)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotZ}), axis: (x: 0, y: 0, z: 1))`)
+  const arr = Array.isArray(panel.modifiers) ? panel.modifiers : []
+  for (const entry of arr) {
+    const def = MODIFIERS[entry.type]
+    if (!def || typeof def.emit !== 'function') continue
+    const out = def.emit(entry, panel)
+    if (!out) continue
+    if (Array.isArray(out)) {
+      for (const ln of out) if (ln) lines.push(`${ind}${ln}`)
+    } else {
+      lines.push(`${ind}${out}`)
+    }
   }
 
-  // visionOS `.hoverEffect()` family (spec §3.5).
-  // - `.hoverEffect(_:)` only matters on interactive controls.
-  // - `.hoverEffectDisabled(_:)` opts out per-view.
-  // - `.defaultHoverEffect(_:)` cascades to descendants when set on a stack.
-  // - `.hoverEffectGroup(_:)` shares one effect across grouped views.
+  // 3D-primitive transforms — Z offset (`.offset(z:)`) plus per-axis
+  // rotation (`.rotation3DEffect(...)`). These live on the panel root (not
+  // in the modifier stack) because 3D primitives have their own dedicated
+  // transform section in the inspector and reject the 2D modifier set.
+  const threeD = ['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh']
+  if (threeD.includes(panel.panelType)) {
+    if (panel.zOffset) lines.push(`${ind}.offset(z: ${panel.zOffset})`)
+    if (panel.rotX)    lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotX}), axis: (x: 1, y: 0, z: 0))`)
+    if (panel.rotY)    lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotY}), axis: (x: 0, y: 1, z: 0))`)
+    if (panel.rotZ)    lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotZ}), axis: (x: 0, y: 0, z: 1))`)
+  }
+
+  // visionOS `.hoverEffect()` family (spec §3.5) — kept as fixed panel-root
+  // fields, not modifier-stack entries, because the four knobs are tightly
+  // coupled (only one `.hoverEffect` per view; the others control inheritance).
   if (
     isInteractivePanel(panel.panelType) &&
     panel.hoverEffect && panel.hoverEffect !== 'inherit' && panel.hoverEffect !== 'none'
   ) {
     lines.push(`${ind}.hoverEffect(.${panel.hoverEffect})`)
   }
-  if (panel.hoverEffectDisabled) {
-    lines.push(`${ind}.hoverEffectDisabled(true)`)
-  }
+  if (panel.hoverEffectDisabled) lines.push(`${ind}.hoverEffectDisabled(true)`)
   if (panel.defaultHoverEffect && panel.defaultHoverEffect !== 'automatic') {
     lines.push(`${ind}.defaultHoverEffect(.${panel.defaultHoverEffect})`)
   }
   if (panel.hoverEffectGroup) {
-    // SwiftUI accepts a `HoverEffectGroup` value or `.automatic`.
     lines.push(`${ind}.hoverEffectGroup(.${panel.hoverEffectGroup})`)
-  }
-
-  if (m.clipShape && m.clipShape !== 'none') {
-    const shape = m.clipShape === 'capsule'  ? 'Capsule()'
-              : m.clipShape === 'circle'   ? 'Circle()'
-              : `RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0) || 12})`
-    lines.push(`${ind}.clipShape(${shape})`)
-  }
-
-  // visionOS chrome — `.glassBackgroundEffect()` (spec §3.3). The default
-  // shape (`auto`) emits the no-arg form so SwiftUI uses the
-  // container-relative rounded rect. Other shapes use the
-  // `.glassBackgroundEffect(in:displayMode:)` overload (visionOS 2+).
-  if (m.glassDisplayMode && m.glassDisplayMode !== 'never') {
-    const dm = m.glassDisplayMode === 'always' ? null : `displayMode: .${m.glassDisplayMode}`
-    if (!m.glassShape || m.glassShape === 'auto') {
-      lines.push(`${ind}.glassBackgroundEffect(${dm || ''})`)
-    } else {
-      const shape = m.glassShape === 'capsule'          ? 'Capsule()'
-                  : m.glassShape === 'circle'           ? 'Circle()'
-                  : m.glassShape === 'rectangle'        ? 'Rectangle()'
-                  : `RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0) || 16}, style: .continuous)`
-      const dmArg = dm ? `, ${dm}` : ''
-      lines.push(`${ind}.glassBackgroundEffect(in: ${shape}${dmArg})`)
-    }
-  }
-  // `.containerBackground(_:for:)` — placement defaults to `.window`.
-  if (m.containerBgColor) {
-    const placement = `.${m.containerBgFor || 'window'}`
-    lines.push(`${ind}.containerBackground(${swiftColor(null, m.containerBgColor)}, for: ${placement})`)
   }
 
   // Accessibility — `panel.accessibility` carries label/hint/value/traits.
@@ -299,33 +267,18 @@ function renderPanel(panel, items, pad, out) {
   const weight = fontW && fontW !== styleDefault ? `.weight(.${fontW})` : ''
 
   const applyTextModifiers = (l) => {
-    // Order mirrors the inspector's grouping (italic/underline/strike →
-    // case/lines/spacing/tracking/kerning/baseline → truncation/scale →
-    // font design/digits → alignment) so generated code reads predictably.
+    // Text-display modifiers (.italic, .underline, .lineLimit, .tracking,
+    // …) used to live as panel-root fields and get appended here. They've
+    // moved into the modifier stack (`panel.modifiers[]`) and are emitted by
+    // `renderModifiers` below in the order the designer placed them.
+    //
+    // `.multilineTextAlignment` is the one exception — it tracks the panel's
+    // `textAlign` field (an intrinsic Text property exposed in the Text
+    // section of the inspector), not a stack entry, so we still emit it here.
     const mods = []
-    if (panel.italic) mods.push('.italic()')
-    if (panel.underline) mods.push('.underline()')
-    if (panel.strikethrough) mods.push('.strikethrough()')
-    if (panel.textCase && panel.textCase !== 'none') mods.push(`.textCase(.${panel.textCase})`)
-    if (panel.lineLimit) mods.push(`.lineLimit(${panel.lineLimit})`)
-    if (panel.lineSpacing) mods.push(`.lineSpacing(${panel.lineSpacing})`)
-    if (panel.tracking) mods.push(`.tracking(${panel.tracking})`)
-    if (panel.kerning) mods.push(`.kerning(${panel.kerning})`)
-    if (panel.baselineOffset) mods.push(`.baselineOffset(${panel.baselineOffset})`)
-    // SwiftUI default truncationMode is `.tail`; only emit when overridden.
-    if (panel.truncationMode && panel.truncationMode !== 'tail') {
-      mods.push(`.truncationMode(.${panel.truncationMode})`)
+    if (panel.textAlign && panel.textAlign !== 'center') {
+      mods.push(`.multilineTextAlignment(.${panel.textAlign === 'left' ? 'leading' : 'trailing'})`)
     }
-    // Default minimumScaleFactor is 1.0 — omit when not shrinking.
-    if (panel.minimumScaleFactor != null && panel.minimumScaleFactor < 1) {
-      mods.push(`.minimumScaleFactor(${panel.minimumScaleFactor})`)
-    }
-    if (panel.allowsTightening) mods.push('.allowsTightening(true)')
-    if (panel.fontDesign && panel.fontDesign !== 'default') {
-      mods.push(`.fontDesign(.${panel.fontDesign})`)
-    }
-    if (panel.monospacedDigit) mods.push('.monospacedDigit()')
-    if (panel.textAlign && panel.textAlign !== 'center') mods.push(`.multilineTextAlignment(.${panel.textAlign === 'left' ? 'leading' : 'trailing'})`)
     return l + (mods.length ? mods.map((m) => `\n${ind}    ${m}`).join('') : '')
   }
 

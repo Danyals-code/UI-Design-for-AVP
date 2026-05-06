@@ -1,7 +1,7 @@
 import { useEffect, useRef, Suspense, memo } from 'react'
 import * as THREE from 'three'
 import { Canvas, useThree, useLoader } from '@react-three/fiber'
-import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment, Stats } from '@react-three/drei'
+import { OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment } from '@react-three/drei'
 import { useStore } from '../store'
 import SceneTree from './SceneTree'
 
@@ -85,9 +85,8 @@ function ZoomController() {
 function Canvas3D() {
   const select = useStore((s) => s.select)
   const isDragging = useStore((s) => s.isDragging)
-  const showGrid = useStore((s) => s.showGrid)
+  const gridAxes = useStore((s) => s.gridAxes)
   const showAxes = useStore((s) => s.showAxes)
-  const showStats = useStore((s) => s.showStats)
   const scene = useStore((s) => s.scene)
   const preview3D = scene.preview3D
   const isWindow = scene.sceneMode === 'window'
@@ -168,20 +167,42 @@ function Canvas3D() {
       <ambientLight intensity={1.0} />
       <directionalLight position={[5, 8, 5]} intensity={0.4} />
 
-      {showGrid && !scene.hdri && (
+      {/* Per-axis grid planes — Blender-style. Each axis toggles a grid that
+          lies perpendicular to that axis:
+            X → YZ plane (side wall, rotated 90° around Z)
+            Y → XZ plane (floor, default drei Grid orientation)
+            Z → XY plane (back wall, rotated 90° around X)
+          In 2D (head-on) mode only the back wall makes sense — a floor grid
+          would render edge-on as a thin line, and the side grid would point
+          straight at the camera. We hide X/Y when not in 3D preview so the
+          inactive states don't surprise the user. */}
+      {!scene.hdri && gridAxes.x && preview3D && (
+        <Grid
+          args={[40, 40]}
+          position={[0, 2.5, -4.5]}
+          rotation={[0, 0, Math.PI / 2]}
+          cellSize={0.25} cellThickness={0.5} cellColor={gridSub}
+          sectionSize={1.0} sectionThickness={1.0} sectionColor={gridMain}
+          fadeDistance={30} fadeStrength={1.2} infiniteGrid
+        />
+      )}
+      {!scene.hdri && gridAxes.y && preview3D && (
+        <Grid
+          args={[40, 40]}
+          position={[0, 0, -4.5]}
+          cellSize={0.25} cellThickness={0.5} cellColor={gridSub}
+          sectionSize={1.0} sectionThickness={1.0} sectionColor={gridMain}
+          fadeDistance={30} fadeStrength={1.2} infiniteGrid
+        />
+      )}
+      {!scene.hdri && gridAxes.z && (
         <Grid
           args={[40, 40]}
           position={[0, 2.5, -6]}
           rotation={[Math.PI / 2, 0, 0]}
-          cellSize={0.25}
-          cellThickness={0.5}
-          cellColor={gridSub}
-          sectionSize={1.0}
-          sectionThickness={1.0}
-          sectionColor={gridMain}
-          fadeDistance={30}
-          fadeStrength={1.2}
-          infiniteGrid
+          cellSize={0.25} cellThickness={0.5} cellColor={gridSub}
+          sectionSize={1.0} sectionThickness={1.0} sectionColor={gridMain}
+          fadeDistance={30} fadeStrength={1.2} infiniteGrid
         />
       )}
 
@@ -217,9 +238,6 @@ function Canvas3D() {
         </GizmoHelper>
       )}
 
-      {/* Statistics overlay — drei's <Stats /> wraps three.js Stats.js,
-          showing FPS / MS / MB in the top-left. Only mounted when toggled. */}
-      {showStats && <Stats />}
     </Canvas>
   )
 }

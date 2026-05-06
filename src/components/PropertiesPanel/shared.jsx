@@ -16,7 +16,6 @@ import {
   SYMBOL_RENDERING_MODES, SYMBOL_VARIANTS,
   ANIMATION_CURVES, TRANSITION_TYPES,
   ACCESSIBILITY_TRAITS,
-  GLASS_DISPLAY_MODES, GLASS_SHAPES, CONTAINER_BG_PLACEMENTS,
   ptToUnits
 } from '../../appleSystem'
 import {
@@ -97,6 +96,54 @@ export function ExplicitFrameSection({ item, updateItem, lockHeight = false, loc
       ) : (
         <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })} /></Row>
       )}
+    </Section>
+  )
+}
+
+// ---- Combined Layout (frame + appearance) ----------------------------
+//
+// For non-text panels these two were always edited together — the user
+// almost never resizes a frame without also touching its fill or radius.
+// Merging them into one "Layout" section halves the inspector's scroll
+// distance for the most common case.
+export function LayoutSection({ item, updateItem, scene, lockHeight = false, lockHeightHint = null }) {
+  const scheme = scene?.designScheme || 'light'
+  const hasSize = !!item.size
+  return (
+    <Section title="Layout" defaultOpen={true}>
+      {hasSize ? (
+        <>
+          <Row label="Width"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1]] })} /></Row>
+          {lockHeight ? (
+            <div className="text-[10px] text-textMute">{lockHeightHint || 'Height is auto.'}</div>
+          ) : (
+            <Row label="Height"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })} /></Row>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="text-[10px] text-textMute">Auto-sized from content (SwiftUI default).</div>
+          <button
+            className="btn w-full justify-center mt-1"
+            onClick={() => updateItem(item.id, { size: [ptToUnits(200), ptToUnits(40)] })}
+          >Set explicit frame</button>
+        </>
+      )}
+      <Row label="Fill">
+        <SemanticColorPicker
+          token={item.colorToken}
+          onChange={(t) => {
+            if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scheme) })
+            else updateItem(item.id, { colorToken: null })
+          }}
+        />
+      </Row>
+      <Row label="Hex">
+        <ColorRow value={item.color} onChange={(v) => updateItem(item.id, { color: v, colorToken: null })} />
+      </Row>
+      <Row label="Radius">
+        <PtField value={item.cornerRadius ?? 0} onChange={(v) => updateItem(item.id, { cornerRadius: Math.max(0, v) })} />
+      </Row>
     </Section>
   )
 }
@@ -197,228 +244,15 @@ export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTi
   )
 }
 
-// ---- Modifier sections -------------------------------------------------
+// ---- Modifier sections (removed) --------------------------------------
+//
+// `TextModifiers`, `UniversalModifiers`, and `VisionChromeRows` previously
+// lived here as flat-object editors over `item.modifiers`. Modifiers are now
+// an ordered array rendered by `ModifierStack`, sourced from a SwiftUI-
+// faithful registry (`src/modifiers/registry.js`) with strict per-view allow
+// lists. The inspector only offers the modifiers SwiftUI accepts on the
+// selected view, and chain order matches the export.
 
-// Text & Link modifiers — narrower set that matches what SwiftUI's `Text` /
-// `Link` actually respond to. Keeps `.italic()`, `.underline()`, `.lineLimit()`
-// etc. on the panel root rather than in `.modifiers`.
-export function TextModifiers({ item, updateItem }) {
-  const m = item.modifiers || {}
-  const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
-  const setField = (patch) => updateItem(item.id, patch)
-  return (
-    <Section title="Modifiers" defaultOpen={false}>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.italic() · .underline() · .strikethrough()</div>
-      <Row label="Italic">
-        <div className="segmented flex-1">
-          <button className={item.italic ? 'active' : ''} onClick={() => setField({ italic: true })}>On</button>
-          <button className={!item.italic ? 'active' : ''} onClick={() => setField({ italic: false })}>Off</button>
-        </div>
-      </Row>
-      <Row label="Underline">
-        <div className="segmented flex-1">
-          <button className={item.underline ? 'active' : ''} onClick={() => setField({ underline: true })}>On</button>
-          <button className={!item.underline ? 'active' : ''} onClick={() => setField({ underline: false })}>Off</button>
-        </div>
-      </Row>
-      <Row label="Strike">
-        <div className="segmented flex-1">
-          <button className={item.strikethrough ? 'active' : ''} onClick={() => setField({ strikethrough: true })}>On</button>
-          <button className={!item.strikethrough ? 'active' : ''} onClick={() => setField({ strikethrough: false })}>Off</button>
-        </div>
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.textCase() · .lineLimit() · .lineSpacing() · .tracking() · .kerning() · .baselineOffset()</div>
-      <Row label="Case">
-        <Select
-          value={item.textCase || 'none'}
-          options={[
-            { value: 'none',      label: 'None' },
-            { value: 'uppercase', label: 'UPPERCASE' },
-            { value: 'lowercase', label: 'lowercase' }
-          ]}
-          onChange={(v) => setField({ textCase: v })}
-        />
-      </Row>
-      <Row label="Lines"><IntField value={item.lineLimit ?? 0} min={0} max={20} onChange={(v) => setField({ lineLimit: Math.max(0, v) })} /></Row>
-      <Row label="Line Sp."><PtField value={item.lineSpacing ?? 0} onChange={(v) => setField({ lineSpacing: Math.max(0, v) })} /></Row>
-      <Row label="Tracking"><NumField value={item.tracking ?? 0} step={0.1} onChange={(v) => setField({ tracking: v })} suffix="pt" /></Row>
-      {/*
-        SwiftUI distinguishes `.tracking()` (inter-character space, applied
-        uniformly) from `.kerning()` (font-aware pair-by-pair adjustment) —
-        and `.baselineOffset()` shifts the entire run vertically. All three
-        feed straight into the SwiftUI exporter when non-zero.
-      */}
-      <Row label="Kerning"><NumField value={item.kerning ?? 0} step={0.1} onChange={(v) => setField({ kerning: v })} suffix="pt" /></Row>
-      <Row label="Baseline"><NumField value={item.baselineOffset ?? 0} step={0.5} onChange={(v) => setField({ baselineOffset: v })} suffix="pt" /></Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.truncationMode() · .minimumScaleFactor() · .allowsTightening()</div>
-      <Row label="Truncate">
-        <Select
-          value={item.truncationMode || 'tail'}
-          options={[
-            { value: 'tail',   label: 'Tail (default)' },
-            { value: 'middle', label: 'Middle' },
-            { value: 'head',   label: 'Head' }
-          ]}
-          onChange={(v) => setField({ truncationMode: v })}
-        />
-      </Row>
-      <Row label="Min Scale">
-        {/*
-          `.minimumScaleFactor(_:)` lets SwiftUI shrink text down to this
-          fraction of the requested size before truncating. 1.0 = no scaling
-          (the SwiftUI default).
-        */}
-        <Slider value={item.minimumScaleFactor ?? 1} min={0.1} max={1} step={0.05} onChange={(v) => setField({ minimumScaleFactor: v })} />
-      </Row>
-      <Row label="Tighten">
-        <div className="segmented flex-1">
-          <button className={item.allowsTightening ? 'active' : ''} onClick={() => setField({ allowsTightening: true })}>On</button>
-          <button className={!item.allowsTightening ? 'active' : ''} onClick={() => setField({ allowsTightening: false })}>Off</button>
-        </div>
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.fontDesign() · .monospacedDigit()</div>
-      <Row label="Design">
-        <Select
-          value={item.fontDesign || 'default'}
-          options={[
-            { value: 'default',    label: 'Default (SF)' },
-            { value: 'serif',      label: 'Serif (NY)' },
-            { value: 'rounded',    label: 'Rounded' },
-            { value: 'monospaced', label: 'Monospaced' }
-          ]}
-          onChange={(v) => setField({ fontDesign: v })}
-        />
-      </Row>
-      <Row label="Mono Digits">
-        <div className="segmented flex-1">
-          <button className={item.monospacedDigit ? 'active' : ''} onClick={() => setField({ monospacedDigit: true })}>On</button>
-          <button className={!item.monospacedDigit ? 'active' : ''} onClick={() => setField({ monospacedDigit: false })}>Off</button>
-        </div>
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.opacity()</div>
-      <Row label="Opacity">
-        <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.shadow()</div>
-      <Row label="Color"><ColorRow value={m.shadowColor || '#000000'} onChange={(v) => upd({ shadowColor: v })} /></Row>
-      <Row label="Radius"><IntField value={m.shadowRadius ?? 0} min={0} onChange={(v) => upd({ shadowRadius: v })} /></Row>
-      <Row label="X / Y">
-        <IntField value={m.shadowX ?? 0} onChange={(v) => upd({ shadowX: v })} />
-        <IntField value={m.shadowY ?? 0} onChange={(v) => upd({ shadowY: v })} />
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotationEffect() · .scaleEffect() · .offset()</div>
-      <Row label="Rotation"><NumField value={m.rotation ?? 0} step={1} onChange={(v) => upd({ rotation: v })} suffix="°" /></Row>
-      <Row label="Scale X"><NumField value={m.scaleX ?? 1} step={0.05} onChange={(v) => upd({ scaleX: v })} /></Row>
-      <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
-      <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
-      <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
-
-      <VisionChromeRows m={m} upd={upd} />
-    </Section>
-  )
-}
-
-// Shared visionOS chrome rows — `.glassBackgroundEffect()` +
-// `.containerBackground(_:for:)`. Pulled into UniversalModifiers and
-// TextModifiers so any panel/stack can opt into the visionOS-tuned glass
-// look without duplication. Spec §3.3.
-export function VisionChromeRows({ m, upd }) {
-  return (
-    <>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.glassBackgroundEffect() · .containerBackground()</div>
-      <Row label="Glass">
-        <Select
-          value={m.glassDisplayMode || 'never'}
-          options={GLASS_DISPLAY_MODES}
-          onChange={(v) => upd({ glassDisplayMode: v })}
-        />
-      </Row>
-      {m.glassDisplayMode && m.glassDisplayMode !== 'never' && (
-        <Row label="Shape">
-          <Select
-            value={m.glassShape || 'auto'}
-            options={GLASS_SHAPES}
-            onChange={(v) => upd({ glassShape: v })}
-          />
-        </Row>
-      )}
-      <Row label="BG For">
-        <Select
-          value={m.containerBgFor || 'window'}
-          options={CONTAINER_BG_PLACEMENTS}
-          onChange={(v) => upd({ containerBgFor: v })}
-        />
-      </Row>
-      <Row label="BG Color">
-        <ColorRow
-          value={m.containerBgColor || ''}
-          onChange={(v) => upd({ containerBgColor: v })}
-        />
-        {m.containerBgColor && (
-          <button className="btn btn-ghost text-[9px]" onClick={() => upd({ containerBgColor: null })} title="Clear container background">×</button>
-        )}
-      </Row>
-    </>
-  )
-}
-
-export function UniversalModifiers({ item, updateItem }) {
-  const m = item.modifiers || {}
-  const upd = (patch) => updateItem(item.id, { modifiers: { ...m, ...patch } })
-  return (
-    <Section title="Modifiers" defaultOpen={false}>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">.opacity() · .disabled() · .clipShape()</div>
-      <Row label="Opacity">
-        <Slider value={m.opacity ?? 1} min={0} max={1} step={0.01} onChange={(v) => upd({ opacity: v })} />
-      </Row>
-      <Row label="Disabled">
-        <div className="segmented flex-1">
-          <button className={m.disabled ? 'active' : ''} onClick={() => upd({ disabled: true })}>On</button>
-          <button className={!m.disabled ? 'active' : ''} onClick={() => upd({ disabled: false })}>Off</button>
-        </div>
-      </Row>
-      <Row label="Clip">
-        <Select
-          value={m.clipShape || 'none'}
-          options={[
-            { value: 'none',        label: 'None' },
-            { value: 'circle',      label: 'Circle' },
-            { value: 'capsule',     label: 'Capsule' },
-            { value: 'roundedRect', label: 'Rounded Rect' }
-          ]}
-          onChange={(v) => upd({ clipShape: v })}
-        />
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.shadow()</div>
-      <Row label="Color"><ColorRow value={m.shadowColor || '#000000'} onChange={(v) => upd({ shadowColor: v })} /></Row>
-      <Row label="Radius"><IntField value={m.shadowRadius ?? 0} min={0} onChange={(v) => upd({ shadowRadius: v })} /></Row>
-      <Row label="X / Y">
-        <IntField value={m.shadowX ?? 0} onChange={(v) => upd({ shadowX: v })} />
-        <IntField value={m.shadowY ?? 0} onChange={(v) => upd({ shadowY: v })} />
-      </Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.border()</div>
-      <Row label="Color"><ColorRow value={m.borderColor || '#000000'} onChange={(v) => upd({ borderColor: v })} /></Row>
-      <Row label="Width"><PtField value={m.borderWidth ?? 0} onChange={(v) => upd({ borderWidth: Math.max(0, v) })} /></Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.rotationEffect() · .scaleEffect() · .offset()</div>
-      <Row label="Rotation"><NumField value={m.rotation ?? 0} step={1} onChange={(v) => upd({ rotation: v })} suffix="°" /></Row>
-      <Row label="Scale X"><NumField value={m.scaleX ?? 1} step={0.05} onChange={(v) => upd({ scaleX: v })} /></Row>
-      <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
-      <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
-      <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
-
-      <VisionChromeRows m={m} upd={upd} />
-    </Section>
-  )
-}
 
 // ---- Styles section (controls per-control "style" pickers) ------------
 

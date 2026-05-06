@@ -26,32 +26,11 @@ export const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?
 
 // ---- shared defaults ----
 
-export const DEFAULT_MODIFIERS = {
-  opacity: 1.0,
-  shadowColor: null,
-  shadowRadius: 0,
-  shadowX: 0,
-  shadowY: 0,
-  rotation: 0,
-  scaleX: 1.0,
-  scaleY: 1.0,
-  offsetX: 0,
-  offsetY: 0,
-  borderColor: null,
-  borderWidth: 0,
-  disabled: false,
-  clipShape: 'none',
-  // visionOS chrome (spec §3.3). `glassBackgroundEffect` and
-  // `containerBackground` are first-class on visionOS — modelling them on
-  // every view so any panel/stack can opt in.
-  //   glassDisplayMode 'never'    → skip the modifier
-  //   glassDisplayMode 'always'   → emit `.glassBackgroundEffect()`
-  //   glassDisplayMode 'implicit' → emit `.glassBackgroundEffect(displayMode: .implicit)`
-  glassDisplayMode: 'never',
-  glassShape: 'auto',          // 'auto' = container-relative (default)
-  containerBgColor: null,      // hex or token; null = no override
-  containerBgFor: 'window'     // 'window' | 'navigation'
-}
+// Modifiers were once a flat object; they are now an ordered array of
+// `{ id, type, ...args }` entries (see src/modifiers/registry.js). Each new
+// item starts with an empty array — modifiers are added explicitly by the
+// designer from the inspector's "+ Add Modifier" dropdown, which is filtered
+// per view to the SwiftUI methods that view actually accepts.
 
 // Per-component style defaults. All values follow visionOS spec defaults
 // (`.automatic` resolves to the visionOS-tuned look). Where the spec gives
@@ -138,7 +117,7 @@ export const makeWindow = (overrides = {}) => ({
   volumeWorldAlignment: 'adaptive', // visionOS 2+
   supportedVolumeViewpoints: 'all', // 'all' | 'front' | 'frontBack'
   environment: { ...DEFAULT_ENVIRONMENT },
-  modifiers: { ...DEFAULT_MODIFIERS },
+  modifiers: [],
   ...overrides
 })
 
@@ -208,7 +187,7 @@ export const makeStack = (overrides = {}) => ({
   tabLabel: '',               // display label for the tab
   tabIcon: null,              // SF Symbol name for the tab icon
   //
-  modifiers: { ...DEFAULT_MODIFIERS },
+  modifiers: [],
   environment: { ...DEFAULT_ENVIRONMENT },
   name: 'VStack',
   parentId: null,
@@ -229,7 +208,7 @@ export const makePanel = (panelType, overrides = {}) => {
     parentId: null,
     visible: true,
     position: [0, 0, 0],
-    modifiers: { ...DEFAULT_MODIFIERS },
+    modifiers: [],
     styles: { ...DEFAULT_STYLES },
     animation: { ...DEFAULT_ANIMATION },
     accessibility: { ...DEFAULT_ACCESSIBILITY },

@@ -4,6 +4,7 @@ import LayersPanel from './components/LayersPanel'
 import PropertiesPanel from './components/PropertiesPanel'
 import Canvas3D from './components/Canvas3D'
 import ViewportOverlay from './components/ViewportOverlay'
+import SceneInfoOverlay from './components/SceneInfoOverlay'
 import CommandPalette from './components/CommandPalette'
 import VolumePlaceholder from './components/VolumePlaceholder'
 import Splash from './components/Splash'
@@ -90,18 +91,27 @@ export default function App() {
           updateItem(item.id, { position: [nx, ny, z] })
           e.preventDefault()
         } else if (item.type === 'panel') {
-          // For panels inside a stack, nudge modifiers.offset — that's how
-          // SwiftUI .offset(x:y:) works without disturbing layout.
-          const m = item.modifiers || {}
-          const ox = m.offsetX ?? 0
-          const oy = m.offsetY ?? 0
-          let nx = ox, ny = oy
+          // Arrow keys nudge an `.offset(x:y:)` modifier on the panel — that's
+          // how SwiftUI shifts a view without disturbing the parent layout.
+          // The modifier stack is an ordered array, so we find the first
+          // existing `offset` entry and bump it; if none, we append one.
+          const arr = Array.isArray(item.modifiers) ? item.modifiers : []
           const ptStep = e.shiftKey ? 10 : 1
-          if (e.key === 'ArrowLeft')  nx -= ptStep
-          if (e.key === 'ArrowRight') nx += ptStep
-          if (e.key === 'ArrowUp')    ny -= ptStep
-          if (e.key === 'ArrowDown')  ny += ptStep
-          updateItem(item.id, { modifiers: { ...m, offsetX: nx, offsetY: ny } })
+          let dx = 0, dy = 0
+          if (e.key === 'ArrowLeft')  dx -= ptStep
+          if (e.key === 'ArrowRight') dx += ptStep
+          if (e.key === 'ArrowUp')    dy -= ptStep
+          if (e.key === 'ArrowDown')  dy += ptStep
+          const idx = arr.findIndex((m) => m.type === 'offset')
+          let next
+          if (idx >= 0) {
+            next = arr.slice()
+            const cur = next[idx]
+            next[idx] = { ...cur, x: (cur.x || 0) + dx, y: (cur.y || 0) + dy }
+          } else {
+            next = [...arr, { id: `mod-arrow-${Date.now()}`, type: 'offset', x: dx, y: dy }]
+          }
+          updateItem(item.id, { modifiers: next })
           e.preventDefault()
         }
       }
@@ -123,6 +133,7 @@ export default function App() {
           {/* Toolbar renders on top of both the 3D canvas and the placeholder
               so "See in 3D" can live alongside zoom/grid. */}
           <ViewportOverlay />
+          <SceneInfoOverlay />
           {showViewport && (
             <div className="absolute bottom-3 left-3 text-[9px] text-textMute bg-[#151515]/70 backdrop-blur px-2.5 py-1.5 rounded-md border border-border/60 pointer-events-none tracking-wide">
               Double-click text to edit · <kbd className="kbd">⌘Z</kbd> undo · <kbd className="kbd">⇧A</kbd> add · arrows to nudge
