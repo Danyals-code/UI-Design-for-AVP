@@ -40,16 +40,31 @@ export const DEFAULT_MODIFIERS = {
   borderColor: null,
   borderWidth: 0,
   disabled: false,
-  clipShape: 'none'
+  clipShape: 'none',
+  // visionOS chrome (spec §3.3). `glassBackgroundEffect` and
+  // `containerBackground` are first-class on visionOS — modelling them on
+  // every view so any panel/stack can opt in.
+  //   glassDisplayMode 'never'    → skip the modifier
+  //   glassDisplayMode 'always'   → emit `.glassBackgroundEffect()`
+  //   glassDisplayMode 'implicit' → emit `.glassBackgroundEffect(displayMode: .implicit)`
+  glassDisplayMode: 'never',
+  glassShape: 'auto',          // 'auto' = container-relative (default)
+  containerBgColor: null,      // hex or token; null = no override
+  containerBgFor: 'window'     // 'window' | 'navigation'
 }
 
+// Per-component style defaults. All values follow visionOS spec defaults
+// (`.automatic` resolves to the visionOS-tuned look). Where the spec gives
+// a different concrete default than `.automatic`, we keep the `.automatic`
+// alias so the exporter can elide the `.xxxStyle()` modifier entirely.
 export const DEFAULT_STYLES = {
-  toggleStyle: 'switch',
-  pickerStyle: 'menu',
-  labelStyle: 'titleAndIcon',
-  textFieldStyle: 'roundedBorder',
+  toggleStyle: 'automatic',     // → .switch on visionOS
+  pickerStyle: 'automatic',     // → .menu on visionOS
+  labelStyle: 'automatic',      // icon+title in body, icon-only in toolbars
+  textFieldStyle: 'automatic',  // → recessed glass (.thickMaterial) on visionOS
   controlSize: 'regular',
-  tableStyle: 'automatic'
+  tableStyle: 'automatic',
+  buttonBorderShape: 'automatic'
 }
 
 export const DEFAULT_ANIMATION = {
@@ -112,6 +127,16 @@ export const makeWindow = (overrides = {}) => ({
     windowResizability: 'automatic',
     gestures: ['tap', 'drag']
   },
+  // visionOS window-style metadata (spec §3.1, §3.2). Defaults match
+  // Apple's `.automatic` glass plate; `.volumetric` enables the rest of
+  // the volume-only knobs below.
+  windowStyle: 'automatic',         // 'automatic' | 'plain' | 'volumetric'
+  // Volume metadata — only consulted when windowStyle === 'volumetric'.
+  volumeDepthMeters: 1.0,           // .defaultSize depth in meters
+  worldScalingBehavior: 'automatic',// .defaultWorldScalingBehavior
+  volumeBaseplateVisibility: 'automatic',
+  volumeWorldAlignment: 'adaptive', // visionOS 2+
+  supportedVolumeViewpoints: 'all', // 'all' | 'front' | 'frontBack'
   environment: { ...DEFAULT_ENVIRONMENT },
   modifiers: { ...DEFAULT_MODIFIERS },
   ...overrides
@@ -122,7 +147,11 @@ export const makeStack = (overrides = {}) => ({
   type: 'stack',
   stackType: 'vstack',
   alignment: 'center',
-  spacing: 12,                // pt
+  // SwiftUI default for VStack/HStack `spacing` is `nil` — a system-adaptive
+  // value chosen at layout time. Keeping the field explicitly null so the
+  // exporter can omit the `spacing:` argument entirely (matches Apple's
+  // baseline). Designers can still set a concrete value to override.
+  spacing: null,              // pt | null (null = system-adaptive)
   padding: 24,                // pt (uniform — used when paddingEdges is null)
   paddingEdges: null,         // { top, bottom, leading, trailing } in pt — overrides padding
   fixedWidth: null,
@@ -137,9 +166,17 @@ export const makeStack = (overrides = {}) => ({
   widthMode:  'fit',
   heightMode: 'fit',
   ornament: null,
+  // Spec §1.26 / §3.4 — `attachmentAnchor` is required for `.ornament(...)`.
+  // 'scene' attaches in the scene-relative coordinate space (the default
+  // visionOS behaviour); 'parent' (visionOS 26) anchors to the owning view.
+  ornamentAnchorMode: 'scene',     // 'scene' | 'parent'
   ornamentContentAlignment: 'center',
   ornamentVisibility: 'automatic',
   ornamentOffset: 0,
+  // Spec §1.26 — Toolbar items carry a placement (.principal, .topBarLeading,
+  // .topBarTrailing, .bottomOrnament, …). Only consulted when the stack's
+  // stackType is 'toolbarItem' or 'toolbarItemGroup'.
+  toolbarPlacement: 'automatic',
   background: null,
   material: 'regular',
   scrollable: false,
@@ -150,6 +187,12 @@ export const makeStack = (overrides = {}) => ({
   columns: 2,
   gridMode: 'fixed',
   minColumnWidth: 140,        // pt — only consulted when gridMode==='adaptive'
+  // ScrollView-specific (§1.24) — axis defaults to `.vertical`, indicators
+  // default to true. Both feed the SwiftUI exporter.
+  scrollAxis: 'vertical',     // 'vertical' | 'horizontal' | 'both'
+  scrollShowsIndicators: true,
+  // ViewThatFits — `in:` axes; default both.
+  fitsAxes: 'both',           // 'both' | 'horizontal' | 'vertical'
   // Section-specific
   sectionHeader: '',          // for stackType 'section'
   sectionFooter: '',
@@ -252,7 +295,7 @@ export function seedScene() {
 // ---- scene settings ----
 
 export const DEFAULT_SCENE = {
-  sceneMode: 'window',          // 'window' | 'volume'
+  sceneMode: 'window',          // 'window' | 'volume' | 'immersive'
   windowPreset: 'regular',
   volumePreset: 'medium',
   colorScheme: 'dark',          // 'light' | 'dark' | 'image' — viewport bg
@@ -265,5 +308,19 @@ export const DEFAULT_SCENE = {
   // Volume mode is still under development — the 3D preview is hidden behind
   // a "See in 3D" affordance. When `preview3D` is true AND sceneMode==='volume'
   // we render the Canvas; otherwise we show the placeholder.
-  preview3D: false
+  preview3D: false,
+  // ImmersiveSpace scene options (spec §3.1). Only consulted when
+  // sceneMode === 'immersive'.
+  //   immersionStyle: .mixed (default), .progressive, .full, .automatic
+  //   progressiveRange: [min, max] for `.progressive(_:initialAmount:)`
+  //   upperLimbVisibility: .automatic | .visible | .hidden
+  //   preferredSurroundingsEffect: 'none' | 'systemDark' | 'colorMultiply'
+  //   immersiveEnvironmentBehavior: 'automatic' (default) | 'coexist' (visionOS 26)
+  immersionStyle: 'mixed',
+  progressiveRange: [0.5, 1.0],
+  progressiveInitial: 0.5,
+  upperLimbVisibility: 'automatic',
+  preferredSurroundingsEffect: 'none',
+  surroundingsColorMultiply: '#000000',
+  immersiveEnvironmentBehavior: 'automatic'
 }

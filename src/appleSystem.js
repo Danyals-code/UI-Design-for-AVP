@@ -8,24 +8,40 @@ export const ptToUnits = (pt) => pt / POINTS_PER_UNIT
 export const unitsToPt = (u) => Math.round(u * POINTS_PER_UNIT)
 
 // SwiftUI Font.TextStyle — authoritative set.
+//
+// Weights follow Apple's visionOS typography spec (WWDC23 #10076 + Apple
+// Design Resources Figma kit). visionOS bumps body weight one step relative
+// to iOS for legibility on glass — body is Medium (vs Regular on iOS) and
+// titles/headline render Bold by default. `extraLargeTitle` and
+// `extraLargeTitle2` are visionOS-only.
 export const TEXT_STYLES = {
-  largeTitle:  { label: 'Large Title',  pt: 34, weight: 'regular',  lineHeight: 41 },
-  title:       { label: 'Title',        pt: 28, weight: 'regular',  lineHeight: 34 },
-  title2:      { label: 'Title 2',      pt: 22, weight: 'regular',  lineHeight: 28 },
-  title3:      { label: 'Title 3',      pt: 20, weight: 'regular',  lineHeight: 25 },
-  headline:    { label: 'Headline',     pt: 17, weight: 'semibold', lineHeight: 22 },
-  body:        { label: 'Body',         pt: 17, weight: 'regular',  lineHeight: 22 },
-  callout:     { label: 'Callout',      pt: 16, weight: 'regular',  lineHeight: 21 },
-  subheadline: { label: 'Subheadline',  pt: 15, weight: 'regular',  lineHeight: 20 },
-  footnote:    { label: 'Footnote',     pt: 13, weight: 'regular',  lineHeight: 18 },
-  caption:     { label: 'Caption',      pt: 12, weight: 'regular',  lineHeight: 16 },
-  caption2:    { label: 'Caption 2',    pt: 11, weight: 'regular',  lineHeight: 13 }
+  extraLargeTitle:  { label: 'Extra Large Title',   pt: 36, weight: 'bold',    lineHeight: 44 },
+  extraLargeTitle2: { label: 'Extra Large Title 2', pt: 28, weight: 'bold',    lineHeight: 34 },
+  largeTitle:  { label: 'Large Title',  pt: 34, weight: 'bold',    lineHeight: 41 },
+  title:       { label: 'Title',        pt: 28, weight: 'bold',    lineHeight: 34 },
+  title2:      { label: 'Title 2',      pt: 22, weight: 'bold',    lineHeight: 28 },
+  title3:      { label: 'Title 3',      pt: 20, weight: 'semibold',lineHeight: 25 },
+  headline:    { label: 'Headline',     pt: 17, weight: 'bold',    lineHeight: 22 },
+  body:        { label: 'Body',         pt: 17, weight: 'medium',  lineHeight: 22 },
+  callout:     { label: 'Callout',      pt: 16, weight: 'regular', lineHeight: 21 },
+  subheadline: { label: 'Subheadline',  pt: 15, weight: 'regular', lineHeight: 20 },
+  footnote:    { label: 'Footnote',     pt: 13, weight: 'regular', lineHeight: 18 },
+  caption:     { label: 'Caption',      pt: 12, weight: 'regular', lineHeight: 16 },
+  caption2:    { label: 'Caption 2',    pt: 11, weight: 'regular', lineHeight: 13 }
 }
 
 export const TEXT_STYLE_ORDER = [
+  'extraLargeTitle', 'extraLargeTitle2',
   'largeTitle', 'title', 'title2', 'title3', 'headline',
   'body', 'callout', 'subheadline', 'footnote', 'caption', 'caption2'
 ]
+
+// Resolve the spec-default weight for a text style. Used by the SwiftUI
+// exporter to decide whether to emit `.fontWeight(...)` — if the panel's
+// weight matches the visionOS default for its style, the modifier is
+// omitted so SwiftUI's own resolution wins on device.
+export const textStyleDefaultWeight = (style) =>
+  TEXT_STYLES[style]?.weight ?? 'regular'
 
 // visionOS window sizes. These match Apple's default "regular" window.
 // Users can resize the window freely; these are just starting presets.
@@ -45,8 +61,11 @@ export const VOLUME_PRESETS = {
 
 // visionOS uses a glass material for window backgrounds. We approximate with
 // a translucent fill + subtle border in the scene.
-export const WINDOW_CORNER_RADIUS = 25   // pt — matches the 1636×1142 regular preset
-export const WINDOW_BORDER_RADIUS = 25
+// Window outer corner radius: visionOS HIG / Apple Design Resources cite
+// ~46 pt as the system-determined value for the standard glass plate.
+// Not formally published, but consistent across simulator measurements.
+export const WINDOW_CORNER_RADIUS = 46   // pt
+export const WINDOW_BORDER_RADIUS = 46
 
 // Default inner padding applied to a Window's content stack. Matches the
 // 14pt edge inset used by Apple's reference layouts for a regular visionOS
@@ -76,15 +95,36 @@ export const ORNAMENT_DEFAULTS = {
 }
 
 // Gap between the window edge and the attached ornament.
-export const ORNAMENT_GAP = 24 // pt
+// visionOS bottom ornaments overlap the window edge by 20 pt (WWDC23 #10076).
+export const ORNAMENT_GAP = 20 // pt
 
 // SwiftUI button styles.
+// `automatic` is the visionOS default — it resolves to a glass-bordered
+// capsule for text/text+icon and to a circle for icon-only buttons.
+// `glass` / `glassProminent` are the explicit visionOS 26 styles.
+// `destructive` isn't a SwiftUI ButtonStyle — it's expressed via the
+// `role: .destructive` initializer — kept here as a convenience.
 export const BUTTON_STYLES = {
+  automatic:         { label: 'Automatic (Glass Capsule)' },
   plain:             { label: 'Plain' },
+  borderless:        { label: 'Borderless' },
   bordered:          { label: 'Bordered' },
   borderedProminent: { label: 'Prominent' },
+  glass:             { label: 'Glass' },
+  glassProminent:    { label: 'Glass Prominent' },
   destructive:       { label: 'Destructive' }
 }
+
+// Default `.buttonBorderShape()` shape per visionOS HIG: capsule for
+// text/text+icon buttons; circle for icon-only buttons. Other allowed
+// values per spec §1.2: `roundedRectangle` (with optional radius) and
+// `automatic` (system-decided).
+export const BUTTON_BORDER_SHAPES = [
+  { value: 'automatic',        label: 'Automatic' },
+  { value: 'capsule',          label: 'Capsule' },
+  { value: 'circle',           label: 'Circle' },
+  { value: 'roundedRectangle', label: 'Rounded Rectangle' }
+]
 
 // Apple visionOS Liquid Glass material tiers. Every tier renders as a
 // layered liquid-glass stack (drop shadow + frosted base + bright rim +
@@ -292,41 +332,106 @@ export const STACK_TYPES = {
     label: 'Tab',
     description: 'A single named tab within a TabView',
     alignments: ['leading', 'center', 'trailing']
+  },
+  // Spec §1.24 — `ScrollView(_ axes:, showsIndicators:, content:)`. Default
+  // axis is `.vertical`. Models a scroll container around child content.
+  scrollView: {
+    label: 'ScrollView',
+    description: 'Scroll container — wraps children on the chosen axis',
+    alignments: ['center']
+  },
+  // Spec §1.24 — `LazyVGrid(columns:, alignment:, spacing:, pinnedViews:, content:)`.
+  // Renders rows lazily as they scroll into view; columns drive item width.
+  lazyVGrid: {
+    label: 'LazyVGrid',
+    description: 'Lazy 2D grid — flows columns vertically',
+    alignments: ['leading', 'center', 'trailing']
+  },
+  lazyHGrid: {
+    label: 'LazyHGrid',
+    description: 'Lazy 2D grid — flows rows horizontally',
+    alignments: ['top', 'center', 'bottom']
+  },
+  // Spec §1.24 — `ViewThatFits(in:[.horizontal,.vertical], content:)`.
+  // Picks the first child that fits in the available space.
+  viewThatFits: {
+    label: 'ViewThatFits',
+    description: 'Picks the first child that fits the available space',
+    alignments: ['center']
+  },
+  // Spec §1.26 — `Toolbar` is a SwiftUI modifier (`.toolbar { ... }`) whose
+  // body is a builder of `ToolbarItem`/`ToolbarItemGroup`. We model it as
+  // a stack so designers can drop items into it; the exporter wires it as
+  // a `.toolbar { … }` modifier on the parent view.
+  toolbar: {
+    label: 'Toolbar',
+    description: 'Attaches a toolbar (top, bottom, or ornament) to the parent view',
+    alignments: ['center']
+  },
+  // ToolbarItem — a single placement (`.principal`, `.bottomOrnament`, etc.).
+  // `toolbarItem.placement` drives where it lives in the chrome.
+  toolbarItem: {
+    label: 'ToolbarItem',
+    description: 'A single placement slot in a Toolbar',
+    alignments: ['center']
+  },
+  // ToolbarItemGroup — multiple items sharing one placement.
+  toolbarItemGroup: {
+    label: 'ToolbarItemGroup',
+    description: 'A group of toolbar items sharing one placement',
+    alignments: ['leading', 'center', 'trailing']
   }
 }
 
 export const STACK_TYPE_ORDER = [
   'vstack', 'hstack', 'zstack', 'grid',
-  'lazyvstack', 'lazyhstack',
+  'lazyvstack', 'lazyhstack', 'lazyVGrid', 'lazyHGrid',
+  'scrollView', 'viewThatFits',
   'section', 'disclosure', 'navigationStack',
-  'tabView', 'tab'
+  'tabView', 'tab',
+  'toolbar', 'toolbarItem', 'toolbarItemGroup'
 ]
 
 // ---- Phase 7: Style Modifiers ----
 
+// SwiftUI ToggleStyle — `.checkbox` is intentionally absent: it is
+// macOS-only and unavailable on visionOS (spec §1.4).
 export const TOGGLE_STYLES = [
-  { value: 'switch',   label: 'Switch' },
-  { value: 'checkbox', label: 'Checkbox' },
-  { value: 'button',   label: 'Button' }
+  { value: 'automatic', label: 'Automatic (Switch)' },
+  { value: 'switch',    label: 'Switch' },
+  { value: 'button',    label: 'Button' }
 ]
 
+// SwiftUI PickerStyle. `.navigationLink` requires an enclosing
+// NavigationStack; `.palette` is visionOS 1+. `.automatic` resolves to
+// `.menu` on visionOS.
 export const PICKER_STYLES = [
-  { value: 'menu',      label: 'Menu' },
-  { value: 'segmented', label: 'Segmented' },
-  { value: 'wheel',     label: 'Wheel' },
-  { value: 'inline',    label: 'Inline' },
-  { value: 'palette',   label: 'Palette' }
+  { value: 'automatic',      label: 'Automatic (Menu)' },
+  { value: 'menu',           label: 'Menu' },
+  { value: 'segmented',      label: 'Segmented' },
+  { value: 'wheel',          label: 'Wheel' },
+  { value: 'inline',         label: 'Inline' },
+  { value: 'palette',        label: 'Palette' },
+  { value: 'navigationLink', label: 'Navigation Link' }
 ]
 
+// SwiftUI LabelStyle. `.automatic` shows icon+title in body context and
+// icon-only in toolbars (the visionOS-tuned default).
 export const LABEL_STYLES = [
+  { value: 'automatic',    label: 'Automatic' },
   { value: 'titleAndIcon', label: 'Title & Icon' },
   { value: 'iconOnly',     label: 'Icon Only' },
   { value: 'titleOnly',    label: 'Title Only' }
 ]
 
+// SwiftUI TextFieldStyle. `.automatic` resolves on visionOS to a recessed
+// glass field (`.thickMaterial` background); `.roundedBorder` is the
+// iOS-style rounded rect — kept here so designers can opt into it
+// explicitly.
 export const TEXTFIELD_STYLES = [
-  { value: 'roundedBorder', label: 'Rounded Border' },
-  { value: 'plain',         label: 'Plain' }
+  { value: 'automatic',    label: 'Automatic (Recessed Glass)' },
+  { value: 'plain',        label: 'Plain' },
+  { value: 'roundedBorder', label: 'Rounded Border' }
 ]
 
 export const CONTROL_SIZES = [
@@ -343,6 +448,89 @@ export const TABLE_STYLES = [
   { value: 'bordered',  label: 'Bordered' }
 ]
 
+// ---- Additional style enums (spec parity, Step 1 foundation) ----
+//
+// These are surfaced so the inspector (Step 2) and the SwiftUI exporter
+// can reference a single source of truth. Ordering follows Apple docs:
+// `.automatic` first so it remains the default selection.
+
+export const TAB_VIEW_STYLES = [
+  { value: 'automatic',        label: 'Automatic (Glass Ornament)' },
+  { value: 'page',             label: 'Page' },
+  { value: 'sidebarAdaptable', label: 'Sidebar Adaptable' },
+  { value: 'tabBarOnly',       label: 'Tab Bar Only' },
+  { value: 'grouped',          label: 'Grouped' }
+]
+
+// SwiftUI WindowStyle (visionOS): `.automatic` (glass plate),
+// `.plain` (chrome-less), `.volumetric` (bounded 3D volume).
+export const WINDOW_STYLES = [
+  { value: 'automatic',  label: 'Automatic (Glass Plate)' },
+  { value: 'plain',      label: 'Plain' },
+  { value: 'volumetric', label: 'Volumetric' }
+]
+
+export const DATE_PICKER_STYLES = [
+  { value: 'automatic', label: 'Automatic (Compact)' },
+  { value: 'compact',   label: 'Compact' },
+  { value: 'graphical', label: 'Graphical' },
+  { value: 'wheel',     label: 'Wheel' }
+]
+
+export const PROGRESS_VIEW_STYLES = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'linear',    label: 'Linear' },
+  { value: 'circular',  label: 'Circular' }
+]
+
+export const GAUGE_STYLES = [
+  { value: 'automatic',                label: 'Automatic (Linear Capacity)' },
+  { value: 'linearCapacity',           label: 'Linear Capacity' },
+  { value: 'accessoryLinearCapacity',  label: 'Accessory Linear Capacity' },
+  { value: 'accessoryLinear',          label: 'Accessory Linear' },
+  { value: 'accessoryCircular',        label: 'Accessory Circular' },
+  { value: 'accessoryCircularCapacity',label: 'Accessory Circular Capacity' }
+]
+
+export const FORM_STYLES = [
+  { value: 'automatic', label: 'Automatic (Grouped)' },
+  { value: 'grouped',   label: 'Grouped' },
+  { value: 'columns',   label: 'Columns' }
+]
+
+export const MENU_STYLES = [
+  { value: 'automatic',       label: 'Automatic' },
+  { value: 'borderlessButton',label: 'Borderless Button' },
+  { value: 'button',          label: 'Button' }
+]
+
+export const NAVIGATION_SPLIT_VIEW_STYLES = [
+  { value: 'automatic',        label: 'Automatic (Balanced)' },
+  { value: 'balanced',         label: 'Balanced' },
+  { value: 'prominentDetail',  label: 'Prominent Detail' }
+]
+
+export const DISCLOSURE_GROUP_STYLES = [
+  { value: 'automatic', label: 'Automatic' }
+]
+
+export const GROUP_BOX_STYLES = [
+  { value: 'automatic', label: 'Automatic' }
+]
+
+// SwiftUI MenuOrder / MenuIndicator / MenuActionDismissBehavior.
+export const MENU_ORDER = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'priority',  label: 'Priority' },
+  { value: 'fixed',     label: 'Fixed' }
+]
+
+export const MENU_INDICATOR_VISIBILITY = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'visible',   label: 'Visible' },
+  { value: 'hidden',    label: 'Hidden' }
+]
+
 // List styles mirror SwiftUI's ListStyle protocol: DefaultListStyle,
 // PlainListStyle, InsetListStyle, InsetGroupedListStyle, GroupedListStyle,
 // SidebarListStyle, BorderedListStyle (macOS), CarouselListStyle (watchOS),
@@ -353,14 +541,17 @@ export const TABLE_STYLES = [
 // List — consistent spacing is part of the style contract).
 //
 // All values are in POINTS.
+// Row gap defaults to 4 pt on visionOS lists — the spec-mandated minimum
+// spacing between adjacent items so hover effects on neighbouring rows
+// don't visually overlap (WWDC23 #10076).
 export const LIST_STYLES = {
-  default:      { label: 'Default',       rowH: 44, pad: 12, inset: 20, gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
-  plain:        { label: 'Plain',         rowH: 44, pad: 0,  inset: 16, gap: 0,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
-  inset:        { label: 'Inset',         rowH: 44, pad: 10, inset: 24, gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
-  insetGrouped: { label: 'Inset Grouped', rowH: 44, pad: 12, inset: 20, gap: 0,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
-  grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
-  sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 2,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
-  bordered:     { label: 'Bordered',      rowH: 28, pad: 0,  inset: 0,  gap: 0,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 6,  showGroupCard: false, bordered: true },
+  default:      { label: 'Default',       rowH: 44, pad: 12, inset: 20, gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  plain:        { label: 'Plain',         rowH: 44, pad: 0,  inset: 16, gap: 4,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
+  inset:        { label: 'Inset',         rowH: 44, pad: 10, inset: 24, gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  insetGrouped: { label: 'Inset Grouped', rowH: 44, pad: 12, inset: 20, gap: 4,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
+  sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
+  bordered:     { label: 'Bordered',      rowH: 28, pad: 0,  inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 6,  showGroupCard: false, bordered: true },
   carousel:     { label: 'Carousel',      rowH: 72, pad: 12, inset: 16, gap: 10, showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 16, showGroupCard: false },
   elliptical:   { label: 'Elliptical',    rowH: 72, pad: 12, inset: 28, gap: 8,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 22, showGroupCard: false, tapered: true }
 }
@@ -534,9 +725,10 @@ export const TRANSITION_TYPES = [
 // ---- Phase 10: visionOS Spatial ----
 
 export const IMMERSION_STYLES = [
+  { value: 'automatic',   label: 'Automatic' },
   { value: 'mixed',       label: 'Mixed' },
-  { value: 'full',        label: 'Full' },
-  { value: 'progressive', label: 'Progressive' }
+  { value: 'progressive', label: 'Progressive' },
+  { value: 'full',        label: 'Full' }
 ]
 
 export const HOVER_EFFECTS = [
@@ -576,6 +768,141 @@ export const ACCESSIBILITY_TRAITS = [
   { value: 'isSummaryElement',   label: 'Summary' },
   { value: 'startsMediaSession', label: 'Starts Media' },
   { value: 'allowsDirectInteraction', label: 'Direct Interaction' }
+]
+
+// ---- TextField / SecureField (visionOS) ----
+//
+// Mirrors SwiftUI's UITextContentType / UIKeyboardType / SubmitLabel / etc.
+// We expose the cases that visionOS actually surfaces in its virtual
+// keyboard ornament — see spec §1.3.
+
+export const KEYBOARD_TYPES = [
+  { value: 'default',          label: 'Default' },
+  { value: 'asciiCapable',     label: 'ASCII' },
+  { value: 'numbersAndPunctuation', label: 'Numbers & Punctuation' },
+  { value: 'URL',              label: 'URL' },
+  { value: 'numberPad',        label: 'Number Pad' },
+  { value: 'phonePad',         label: 'Phone Pad' },
+  { value: 'namePhonePad',     label: 'Name & Phone' },
+  { value: 'emailAddress',     label: 'Email' },
+  { value: 'decimalPad',       label: 'Decimal' },
+  { value: 'twitter',          label: 'Twitter' },
+  { value: 'webSearch',        label: 'Web Search' }
+]
+
+export const TEXT_CONTENT_TYPES = [
+  { value: '',                 label: '— None —' },
+  { value: 'name',             label: 'Name' },
+  { value: 'givenName',        label: 'Given Name' },
+  { value: 'familyName',       label: 'Family Name' },
+  { value: 'username',         label: 'Username' },
+  { value: 'password',         label: 'Password' },
+  { value: 'newPassword',      label: 'New Password' },
+  { value: 'oneTimeCode',      label: 'One-Time Code' },
+  { value: 'emailAddress',     label: 'Email' },
+  { value: 'telephoneNumber',  label: 'Phone' },
+  { value: 'URL',              label: 'URL' },
+  { value: 'fullStreetAddress',label: 'Address' },
+  { value: 'postalCode',       label: 'Postal Code' },
+  { value: 'creditCardNumber', label: 'Credit Card' }
+]
+
+export const SUBMIT_LABELS = [
+  { value: 'return',   label: 'Return' },
+  { value: 'done',     label: 'Done' },
+  { value: 'go',       label: 'Go' },
+  { value: 'send',     label: 'Send' },
+  { value: 'search',   label: 'Search' },
+  { value: 'next',     label: 'Next' },
+  { value: 'continue', label: 'Continue' },
+  { value: 'join',     label: 'Join' },
+  { value: 'route',    label: 'Route' }
+]
+
+export const TEXT_AUTOCAPITALIZATION = [
+  { value: 'sentences',  label: 'Sentences (default)' },
+  { value: 'never',      label: 'Never' },
+  { value: 'characters', label: 'Characters' },
+  { value: 'words',      label: 'Words' }
+]
+
+// ---- DatePicker components & ProgressView/Gauge label edges ----
+
+export const DATE_COMPONENTS = [
+  { value: 'date',                label: 'Date Only' },
+  { value: 'hourAndMinute',       label: 'Time Only' },
+  { value: 'dateAndTime',         label: 'Date + Time (default)' },
+  { value: 'hourMinuteAndSecond', label: 'Time + Seconds (visionOS 2+)' }
+]
+
+// ---- Volume metadata (visionOS volumetric windows, spec §3.2) ----
+//
+// Apple maps point space to physical metres at exactly 1360 pt = 1 m on
+// visionOS. We expose the conversion here so the Volume inspector can
+// display real-world dimensions, and the SwiftUI exporter can emit
+// `.defaultSize(width:height:depth:in: .meters)` directly.
+
+export const POINTS_PER_METER = 1360
+export const ptToMeters = (pt) => pt / POINTS_PER_METER
+export const metersToPt = (m) => m * POINTS_PER_METER
+
+export const WORLD_SCALING_BEHAVIOR = [
+  { value: 'automatic',       label: 'Automatic (volumes → fixed)' },
+  { value: 'dynamic',         label: 'Dynamic (window-like)' },
+  { value: 'fixed',           label: 'Fixed (real-world)' },
+  { value: 'trackingSurface', label: 'Tracking Surface (visionOS 26)' }
+]
+
+export const VOLUME_BASEPLATE_VISIBILITY = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'visible',   label: 'Visible' },
+  { value: 'hidden',    label: 'Hidden' }
+]
+
+export const VOLUME_WORLD_ALIGNMENT = [
+  { value: 'adaptive',      label: 'Adaptive (default, visionOS 2+)' },
+  { value: 'gravityAligned',label: 'Gravity Aligned' }
+]
+
+export const VOLUME_VIEWPOINTS = [
+  { value: 'all',     label: 'All four sides (default)' },
+  { value: 'front',   label: 'Front only' },
+  { value: 'frontBack', label: 'Front + Back' }
+]
+
+// ---- Glass background & container background (visionOS, spec §3.3) ----
+//
+// `.glassBackgroundEffect(displayMode:)` adds Apple's tuned translucent
+// layer with specular highlights. The optional `in: shape` overload
+// (visionOS 2+) lets the designer pick a containing shape that produces
+// the highlight curve. `.containerBackground(_:for:)` paints the window
+// or navigation chrome background and is window-scoped on visionOS.
+
+export const GLASS_DISPLAY_MODES = [
+  { value: 'never',    label: 'Never (off)' },
+  { value: 'always',   label: 'Always' },
+  { value: 'implicit', label: 'Implicit (cascaded)' }
+]
+
+export const GLASS_SHAPES = [
+  { value: 'auto',             label: 'Container Relative (default)' },
+  { value: 'capsule',          label: 'Capsule' },
+  { value: 'circle',           label: 'Circle' },
+  { value: 'roundedRectangle', label: 'Rounded Rectangle' },
+  { value: 'rectangle',        label: 'Rectangle (no specular)' }
+]
+
+export const CONTAINER_BG_PLACEMENTS = [
+  { value: 'window',     label: 'Window' },
+  { value: 'navigation', label: 'Navigation' }
+]
+
+// ---- Image scale (Label, Image, SF Symbol) ----
+
+export const IMAGE_SCALES = [
+  { value: 'small',  label: 'Small' },
+  { value: 'medium', label: 'Medium (default)' },
+  { value: 'large',  label: 'Large' }
 ]
 
 // SwiftUI ToolbarItem placements.

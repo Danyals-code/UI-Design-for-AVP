@@ -70,22 +70,57 @@ export function PanelProps({ item, scene }) {
           decorative views. We mirror that policy: the section is hidden
           for non-interactive types so the inspector doesn't suggest a
           knob that has no effect in SwiftUI. */}
-      {isInteractivePanel(item.panelType) && (
-        <Section title="Interaction" defaultOpen={false}>
-          <Row label="Hover">
-            <Select
-              value={item.hoverEffect || 'inherit'}
-              options={HOVER_EFFECT_OPTIONS}
-              onChange={(v) => updateItem(item.id, { hoverEffect: v })}
-            />
-          </Row>
-          <div className="text-[10px] text-textMute leading-relaxed mt-1">
-            visionOS gaze-driven hover. <code>inherit</code> uses the
-            window’s effect; <code>highlight</code> tints,
-            <code>lift</code> raises with a soft shadow.
+      {/*
+        Spec §3.5 — visionOS hover modifier family.
+        - `.hoverEffect(_:)` only applies to interactive controls.
+        - `.hoverEffectDisabled(_:)` and `.defaultHoverEffect(_:)` make
+          sense on any view, so we surface them outside the
+          interactive-only gate.
+        - `.hoverEffectGroup(_:)` shares one effect across grouped views.
+      */}
+      <Section title="Interaction" defaultOpen={false}>
+        {isInteractivePanel(item.panelType) && (
+          <>
+            <Row label="Hover">
+              <Select
+                value={item.hoverEffect || 'inherit'}
+                options={HOVER_EFFECT_OPTIONS}
+                onChange={(v) => updateItem(item.id, { hoverEffect: v })}
+              />
+            </Row>
+            <div className="text-[10px] text-textMute leading-relaxed mt-1">
+              visionOS gaze-driven hover. <code>inherit</code> uses the
+              window’s effect; <code>highlight</code> tints,
+              <code>lift</code> raises with a soft shadow.
+            </div>
+          </>
+        )}
+        <Row label="Disabled">
+          <div className="segmented flex-1">
+            <button className={item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: true })}>On</button>
+            <button className={!item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: false })}>Off</button>
           </div>
-        </Section>
-      )}
+        </Row>
+        <Row label="Default">
+          <Select
+            value={item.defaultHoverEffect || 'automatic'}
+            options={[
+              { value: 'automatic', label: 'Automatic' },
+              { value: 'highlight', label: 'Highlight' },
+              { value: 'lift',      label: 'Lift' }
+            ]}
+            onChange={(v) => updateItem(item.id, { defaultHoverEffect: v })}
+          />
+        </Row>
+        <Row label="Group">
+          <input
+            value={item.hoverEffectGroup || ''}
+            onChange={(e) => updateItem(item.id, { hoverEffectGroup: e.target.value || null })}
+            className="field flex-1"
+            placeholder="(none) e.g. automatic"
+          />
+        </Row>
+      </Section>
 
       <SymbolSection item={item} updateItem={updateItem} />
       <AnimationSection item={item} updateItem={updateItem} />

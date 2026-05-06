@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store'
 import AddDropdown from './AddDropdown'
 import { SF_SYMBOLS, SF_SYMBOL_ORDER } from '../appleSystem'
+import { validateContainment } from '../containment'
 import {
   EyeOpen, EyeClosed,
   FolderPlus,
@@ -123,6 +124,15 @@ function LayerRow({ item, depth }) {
   const toggleVisibility = useStore((s) => s.toggleVisibility)
   const toggleCollapse = useStore((s) => s.toggleCollapse)
   const moveItem       = useStore((s) => s.moveItem)
+
+  // Spec §1.27 containment check — non-blocking. We surface a yellow
+  // warning chip when the current parent isn't on the list of legal
+  // containers for this child shape (e.g. Section outside List/Form,
+  // Tab outside TabView). The designer can still ship the design; the
+  // chip just flags that the SwiftUI exporter may produce code Apple's
+  // compiler will reject.
+  const parent = items.find((p) => p.id === item.parentId) || null
+  const containmentWarning = validateContainment(item, parent)
 
   const [editing, setEditing]     = useState(false)
   const [nameVal, setNameVal]     = useState(item.name)
@@ -249,6 +259,13 @@ function LayerRow({ item, depth }) {
           >
             {item.name}
           </span>
+        )}
+
+        {containmentWarning && (
+          <span
+            className="flex-shrink-0 text-amber-400 text-[10px] font-bold cursor-help"
+            title={containmentWarning}
+          >⚠</span>
         )}
 
         <button

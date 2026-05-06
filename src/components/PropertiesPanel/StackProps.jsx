@@ -109,8 +109,28 @@ export function StackProps({ item }) {
         </Row>
         {item.stackType !== 'zstack' && (
           <Row label="Spacing">
-            <IntField value={item.spacing} min={0} onChange={(v) => updateItem(item.id, { spacing: v })} />
-            <span className="text-[9px] text-textMute">pt</span>
+            {/*
+              SwiftUI default for VStack/HStack `spacing` is `nil` — the system
+              picks a context-adaptive value at layout time. We model that as
+              `spacing === null` and let the user explicitly opt into a fixed
+              point value. The ⨯ button clears the override and returns to
+              system spacing (matches SwiftUI's `VStack { ... }` zero-arg form).
+            */}
+            <IntField
+              value={item.spacing == null ? 0 : item.spacing}
+              min={0}
+              onChange={(v) => updateItem(item.id, { spacing: v })}
+            />
+            <span className="text-[9px] text-textMute">
+              {item.spacing == null ? 'pt · auto' : 'pt'}
+            </span>
+            <button
+              className={`btn btn-ghost text-[9px] ${item.spacing == null ? 'text-accent' : ''}`}
+              title="Use SwiftUI's system-adaptive spacing (`spacing: nil`)"
+              onClick={() =>
+                updateItem(item.id, { spacing: item.spacing == null ? 8 : null })
+              }
+            >Auto</button>
           </Row>
         )}
         <Row label="Padding">
@@ -137,7 +157,7 @@ export function StackProps({ item }) {
             <Row label="Trailing"><IntField value={item.paddingEdges.trailing ?? 0} min={0} onChange={(v) => updateItem(item.id, { paddingEdges: { ...item.paddingEdges, trailing: v } })} /></Row>
           </div>
         )}
-        {item.stackType === 'grid' && (
+        {(item.stackType === 'grid' || item.stackType === 'lazyVGrid' || item.stackType === 'lazyHGrid') && (
           <>
             <Row label="Sizing">
               <div className="segmented flex-1">
@@ -152,16 +172,52 @@ export function StackProps({ item }) {
               </div>
             </Row>
             {(item.gridMode || 'fixed') === 'fixed' ? (
-              <Row label="Columns">
+              <Row label={item.stackType === 'lazyHGrid' ? 'Rows' : 'Columns'}>
                 <IntField value={item.columns || 2} min={1} max={12} onChange={(v) => updateItem(item.id, { columns: v })} />
               </Row>
             ) : (
-              <Row label="Min W">
+              <Row label="Min">
                 <IntField value={item.minColumnWidth ?? 140} min={40} max={600} onChange={(v) => updateItem(item.id, { minColumnWidth: v })} />
                 <span className="text-[9px] text-textMute">pt</span>
               </Row>
             )}
           </>
+        )}
+        {item.stackType === 'scrollView' && (
+          <>
+            {/*
+              Spec §1.24 — `ScrollView(_ axes:, showsIndicators:)`. Default
+              axis is `.vertical`; indicators default to true. Both fields
+              feed the SwiftUI exporter so the generated code matches.
+            */}
+            <Row label="Axis">
+              <div className="segmented flex-1">
+                <button className={(item.scrollAxis || 'vertical') === 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { scrollAxis: 'vertical' })}>Vertical</button>
+                <button className={item.scrollAxis === 'horizontal' ? 'active' : ''} onClick={() => updateItem(item.id, { scrollAxis: 'horizontal' })}>Horizontal</button>
+                <button className={item.scrollAxis === 'both' ? 'active' : ''} onClick={() => updateItem(item.id, { scrollAxis: 'both' })}>Both</button>
+              </div>
+            </Row>
+            <Row label="Indicators">
+              <div className="segmented flex-1">
+                <button className={(item.scrollShowsIndicators ?? true) ? 'active' : ''} onClick={() => updateItem(item.id, { scrollShowsIndicators: true })}>Show</button>
+                <button className={!(item.scrollShowsIndicators ?? true) ? 'active' : ''} onClick={() => updateItem(item.id, { scrollShowsIndicators: false })}>Hide</button>
+              </div>
+            </Row>
+          </>
+        )}
+        {item.stackType === 'viewThatFits' && (
+          <Row label="Fits Axes">
+            {/*
+              `in:` defaults to `[.horizontal, .vertical]`. Spec §1.24 —
+              the runtime evaluates each child against the available space
+              along these axes and picks the first that fits.
+            */}
+            <div className="segmented flex-1">
+              <button className={(item.fitsAxes || 'both') === 'both' ? 'active' : ''} onClick={() => updateItem(item.id, { fitsAxes: 'both' })}>Both</button>
+              <button className={item.fitsAxes === 'horizontal' ? 'active' : ''} onClick={() => updateItem(item.id, { fitsAxes: 'horizontal' })}>H Only</button>
+              <button className={item.fitsAxes === 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { fitsAxes: 'vertical' })}>V Only</button>
+            </div>
+          </Row>
         )}
         <div className="text-[10px] text-textMute leading-relaxed mt-1">
           {STACK_TYPES[item.stackType]?.description}
@@ -213,6 +269,42 @@ export function StackProps({ item }) {
             <IntField value={item.activeTab ?? 0} min={0} onChange={(v) => updateItem(item.id, { activeTab: v })} />
             <span className="text-[9px] text-textMute">index</span>
           </Row>
+        </Section>
+      )}
+
+      {/* Spec §1.26 — Toolbar items declare a placement (.principal,
+          .topBarLeading, .bottomOrnament, etc.). On visionOS the
+          .bottomOrnament placement materialises the bottom-edge ornament
+          look. */}
+      {(item.stackType === 'toolbarItem' || item.stackType === 'toolbarItemGroup') && (
+        <Section title="Toolbar Placement">
+          <Row label="Placement">
+            <select
+              value={item.toolbarPlacement || 'automatic'}
+              onChange={(e) => updateItem(item.id, { toolbarPlacement: e.target.value })}
+              className="field flex-1 cursor-pointer"
+            >
+              <option value="automatic">Automatic</option>
+              <option value="principal">Principal (center)</option>
+              <option value="topBarLeading">Top Bar Leading</option>
+              <option value="topBarTrailing">Top Bar Trailing</option>
+              <option value="navigation">Navigation</option>
+              <option value="bottomBar">Bottom Bar</option>
+              <option value="bottomOrnament">Bottom Ornament</option>
+              <option value="primaryAction">Primary Action</option>
+              <option value="secondaryAction">Secondary Action</option>
+              <option value="confirmationAction">Confirmation Action</option>
+              <option value="cancellationAction">Cancellation Action</option>
+              <option value="destructiveAction">Destructive Action</option>
+              <option value="status">Status</option>
+              <option value="title">Title</option>
+              <option value="subtitle">Subtitle</option>
+              <option value="keyboard">Keyboard</option>
+            </select>
+          </Row>
+          <div className="text-[10px] text-textMute leading-snug mt-1">
+            Drop interactive children inside this placement; the exporter wraps them in <code>ToolbarItem(placement:)</code>.
+          </div>
         </Section>
       )}
 
@@ -330,21 +422,41 @@ export function StackProps({ item }) {
       </Section>
 
       <Section title=".ornament()">
-        <div className="text-[9px] text-textMute mb-1">attachmentAnchor — which edge of the window</div>
+        <div className="text-[9px] text-textMute mb-1">attachmentAnchor — required (spec §1.26)</div>
+        {/*
+          Spec §1.26 / §3.4 — `OrnamentAttachmentAnchor` factories are
+          `.scene(UnitPoint3D)` (the visionOS default; renders in the
+          scene-relative coordinate space) or `.parent(_:)` (visionOS 26+;
+          anchored to the owning view). Both share the same UnitPoint3D
+          values, so we expose the mode separately from the anchor edge.
+        */}
+        <Row label="Mode">
+          <div className="segmented flex-1">
+            <button
+              className={(item.ornamentAnchorMode || 'scene') === 'scene' ? 'active' : ''}
+              onClick={() => updateItem(item.id, { ornamentAnchorMode: 'scene' })}
+            >.scene</button>
+            <button
+              className={item.ornamentAnchorMode === 'parent' ? 'active' : ''}
+              onClick={() => updateItem(item.id, { ornamentAnchorMode: 'parent' })}
+              title="visionOS 26+ — anchors to the owning view"
+            >.parent</button>
+          </div>
+        </Row>
         <Row label="Anchor">
           <Select
             value={item.ornament || ''}
             options={[
               { value: '',                label: '— None —' },
-              { value: 'leading',         label: '.scene(.leading)' },
-              { value: 'trailing',        label: '.scene(.trailing)' },
-              { value: 'top',             label: '.scene(.top)' },
-              { value: 'bottom',          label: '.scene(.bottom)' },
-              { value: 'topLeading',      label: '.scene(.topLeading)' },
-              { value: 'topTrailing',     label: '.scene(.topTrailing)' },
-              { value: 'bottomLeading',   label: '.scene(.bottomLeading)' },
-              { value: 'bottomTrailing',  label: '.scene(.bottomTrailing)' },
-              { value: 'center',          label: '.scene(.center)' }
+              { value: 'leading',         label: '.leading' },
+              { value: 'trailing',        label: '.trailing' },
+              { value: 'top',             label: '.top' },
+              { value: 'bottom',          label: '.bottom' },
+              { value: 'topLeading',      label: '.topLeading' },
+              { value: 'topTrailing',     label: '.topTrailing' },
+              { value: 'bottomLeading',   label: '.bottomLeading' },
+              { value: 'bottomTrailing',  label: '.bottomTrailing' },
+              { value: 'center',          label: '.center' }
             ]}
             onChange={(v) => updateItem(item.id, { ornament: v || null })}
           />

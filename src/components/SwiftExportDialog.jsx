@@ -9,8 +9,11 @@ import { exportSwiftUI } from '../export/swiftui'
 
 export default function SwiftExportDialog({ onClose }) {
   const items = useStore((s) => s.items)
+  const scene = useStore((s) => s.scene)
   const [appName, setAppName] = useState('MyApp')
-  const files = useMemo(() => exportSwiftUI(items, appName || 'MyApp'), [items, appName])
+  // Pass `scene` so the App-level Scene picks the right shape:
+  // WindowGroup / volumetric WindowGroup / ImmersiveSpace per spec §3.1.
+  const files = useMemo(() => exportSwiftUI(items, appName || 'MyApp', scene), [items, appName, scene])
   const [activeIdx, setActiveIdx] = useState(0)
   const active = files[activeIdx] || files[0]
 
