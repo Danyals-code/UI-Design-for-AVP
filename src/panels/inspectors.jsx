@@ -15,6 +15,17 @@ import {
 import {
   TextSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
+import {
+  BUTTON_BORDER_SHAPES, CONTROL_SIZES,
+  DATE_PICKER_STYLES, PROGRESS_VIEW_STYLES, GAUGE_STYLES,
+  MENU_STYLES, MENU_ORDER, MENU_INDICATOR_VISIBILITY,
+  FORM_STYLES, GROUP_BOX_STYLES, DISCLOSURE_GROUP_STYLES,
+  TABLE_STYLES, TAB_VIEW_STYLES, WINDOW_STYLES,
+  PICKER_STYLES, TOGGLE_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
+  SYMBOL_RENDERING_MODES,
+  KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
+  DATE_COMPONENTS, IMAGE_SCALES
+} from '../appleSystem'
 
 // ---- shared mini-inspectors -------------------------------------------
 
@@ -112,8 +123,120 @@ export const INSPECTORS = {
     <TextSection {...ctx} sectionTitle="Text" includeBody isText />
   ),
 
+  // Spec §1.17 — NavigationLink. Two emit modes: value-based (links into
+  // a NavigationStack `.navigationDestination(for:)`) and destination-based
+  // (inline destination view name). The inspector exposes both.
+  navigationlink: ({ item, updateItem }) => (
+    <>
+      <Section title="Navigation Link">
+        <Row label="Label">
+          <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="See Details" />
+        </Row>
+        <Row label="Mode">
+          <div className="segmented flex-1">
+            <button className={(item.linkMode || 'value') === 'value' ? 'active' : ''} onClick={() => updateItem(item.id, { linkMode: 'value' })}>Value</button>
+            <button className={item.linkMode === 'destination' ? 'active' : ''} onClick={() => updateItem(item.id, { linkMode: 'destination' })}>Destination</button>
+          </div>
+        </Row>
+        {(item.linkMode || 'value') === 'value' ? (
+          <Row label="Value">
+            <input
+              value={item.navValue || ''}
+              onChange={(e) => updateItem(item.id, { navValue: e.target.value })}
+              className="field flex-1"
+              placeholder="detail"
+            />
+          </Row>
+        ) : (
+          <Row label="Destination">
+            <input
+              value={item.destinationName || ''}
+              onChange={(e) => updateItem(item.id, { destinationName: e.target.value })}
+              className="field flex-1"
+              placeholder="DetailView"
+            />
+          </Row>
+        )}
+        <div className="text-[10px] text-textMute leading-snug mt-1">
+          Value links require an enclosing <code>NavigationStack</code> with a matching <code>.navigationDestination(for:)</code>.
+        </div>
+      </Section>
+      <TextSection {...{ item, updateItem }} sectionTitle="Text" includeBody={false} />
+    </>
+  ),
+
+  confirmationdialog: ({ item, updateItem }) => (
+    <Section title="Confirmation Dialog">
+      <Row label="Title"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
+      <Row label="Message"><textarea value={item.alertMessage || ''} onChange={(e) => updateItem(item.id, { alertMessage: e.target.value })} rows={2} className="field resize-none" /></Row>
+      <Row label="Buttons">
+        <input
+          value={(item.alertButtons || []).join(', ')}
+          onChange={(e) => updateItem(item.id, { alertButtons: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+          className="field flex-1"
+          placeholder="Delete, Cancel"
+        />
+      </Row>
+      <Row label="Title Vis">
+        {/*
+          `titleVisibility:` defaults to `.automatic` — visionOS shows the
+          title only when the dialog has a message body.
+        */}
+        <Select
+          value={item.titleVisibility || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'visible',   label: 'Visible' },
+            { value: 'hidden',    label: 'Hidden' }
+          ]}
+          onChange={(v) => updateItem(item.id, { titleVisibility: v })}
+        />
+      </Row>
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        Buttons named "Cancel" / "Delete" / "Remove" auto-receive the matching SwiftUI role.
+      </div>
+    </Section>
+  ),
+
+  inspector: ({ item, updateItem }) => (
+    <Section title="Inspector">
+      <Row label="Content"><textarea value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} rows={2} className="field resize-none" /></Row>
+      {/*
+        Spec §1.25 — `.inspectorColumnWidth(_:)` and the `(min:ideal:max:)`
+        overload. Either explicit width OR the min/ideal/max trio; null
+        leaves the system default (visionOS-tuned).
+      */}
+      <Row label="Width (pt)"><IntField value={item.inspectorColumnWidth ?? 0} min={0} onChange={(v) => updateItem(item.id, { inspectorColumnWidth: v || null })} /></Row>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-2 mb-1">Or min / ideal / max</div>
+      <Row label="Min"><IntField value={item.inspectorMinWidth ?? 0} min={0} onChange={(v) => updateItem(item.id, { inspectorMinWidth: v || null })} /></Row>
+      <Row label="Ideal"><IntField value={item.inspectorIdealWidth ?? 0} min={0} onChange={(v) => updateItem(item.id, { inspectorIdealWidth: v || null })} /></Row>
+      <Row label="Max"><IntField value={item.inspectorMaxWidth ?? 0} min={0} onChange={(v) => updateItem(item.id, { inspectorMaxWidth: v || null })} /></Row>
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        Trailing sidebar on wide windows; sheet in compact contexts.
+      </div>
+    </Section>
+  ),
+
   link: (ctx) => (
-    <TextSection {...ctx} sectionTitle="Text" includeBody isText />
+    <>
+      <Section title="Link">
+        {/*
+          Persisted destination URL. The SwiftUI exporter wraps this in
+          `URL(string:)` and force-unwraps; an empty string falls back to a
+          placeholder so the generated code still compiles.
+        */}
+        <Row label="URL">
+          <input
+            type="url"
+            value={ctx.item.url || ''}
+            onChange={(e) => ctx.updateItem(ctx.item.id, { url: e.target.value })}
+            className="field flex-1"
+            placeholder="https://..."
+          />
+        </Row>
+      </Section>
+      <TextSection {...ctx} sectionTitle="Text" includeBody isText />
+    </>
   ),
 
   button: (ctx) => (
@@ -121,10 +244,63 @@ export const INSPECTORS = {
       <Section title="Button Style">
         <Row label="Style">
           <Select
-            value={ctx.item.buttonStyle || 'bordered'}
+            value={ctx.item.buttonStyle || 'automatic'}
             options={Object.entries(BUTTON_STYLES).map(([k, v]) => ({ value: k, label: v.label }))}
             onChange={(v) => ctx.updateItem(ctx.item.id, { buttonStyle: v })}
           />
+        </Row>
+        {/*
+          `.buttonBorderShape(_:)` only takes effect on bordered styles —
+          we still expose it on every button so designers can preview the
+          shape switch (capsule / circle / rounded rect / automatic).
+        */}
+        <Row label="Shape">
+          <Select
+            value={ctx.item.buttonBorderShape || 'automatic'}
+            options={BUTTON_BORDER_SHAPES}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonBorderShape: v })}
+          />
+        </Row>
+        <Row label="Size">
+          <Select
+            value={ctx.item.controlSize || 'regular'}
+            options={CONTROL_SIZES}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { controlSize: v })}
+          />
+        </Row>
+        {/*
+          `role:` distinguishes destructive/cancel buttons. SwiftUI applies
+          the appropriate red tint and confirmation semantics automatically;
+          on visionOS the role is still respected even though the visual
+          treatment is glass-tuned.
+        */}
+        <Row label="Role">
+          <Select
+            value={ctx.item.buttonRole || 'none'}
+            options={[
+              { value: 'none',        label: 'None' },
+              { value: 'destructive', label: 'Destructive' },
+              { value: 'cancel',      label: 'Cancel' }
+            ]}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
+          />
+        </Row>
+        {/*
+          `.tint(_:)` overrides the system accent on the button label/border.
+          Empty hex falls back to the system tint (visionOS white on glass).
+        */}
+        <Row label="Tint">
+          <ColorRow
+            value={ctx.item.tint || '#0a84ff'}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
+          />
+          {ctx.item.tint && (
+            <button
+              className="btn btn-ghost text-[9px]"
+              title="Use system tint"
+              onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
+            >×</button>
+          )}
         </Row>
       </Section>
       <TextSection {...ctx} sectionTitle="Label" includeBody />
@@ -132,12 +308,38 @@ export const INSPECTORS = {
   ),
 
   toggle: ({ item, updateItem }) => (
-    <Section title="State">
+    <Section title="Toggle">
+      <Row label="Label">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Toggle" />
+      </Row>
       <Row label="Value">
         <div className="segmented flex-1">
           <button className={item.toggleOn ? 'active' : ''} onClick={() => updateItem(item.id, { toggleOn: true })}>On</button>
           <button className={!item.toggleOn ? 'active' : ''} onClick={() => updateItem(item.id, { toggleOn: false })}>Off</button>
         </div>
+      </Row>
+      <Row label="Style">
+        <Select
+          value={item.styles?.toggleStyle || 'automatic'}
+          options={TOGGLE_STYLES}
+          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, toggleStyle: v } })}
+        />
+      </Row>
+      <Row label="Size">
+        <Select
+          value={item.styles?.controlSize || 'regular'}
+          options={CONTROL_SIZES}
+          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, controlSize: v } })}
+        />
+      </Row>
+      <Row label="Tint">
+        <ColorRow
+          value={item.tint || '#34c759'}
+          onChange={(v) => updateItem(item.id, { tint: v })}
+        />
+        {item.tint && (
+          <button className="btn btn-ghost text-[9px]" onClick={() => updateItem(item.id, { tint: null })} title="System tint">×</button>
+        )}
       </Row>
     </Section>
   ),
@@ -222,6 +424,54 @@ export const INSPECTORS = {
           Row height &amp; spacing are fixed by the list style. The list grows
           in height as you add rows; width stays user-editable.
         </div>
+        {/*
+          Spec §1.19 — list-row modifiers. These attach to each row at
+          export time (`.listRowSeparator(...)`, `.listRowBackground(...)`),
+          so the values feed the SwiftUI exporter rather than the canvas.
+        */}
+        <div className="text-[10px] text-textMute uppercase tracking-wider mt-3 mb-1">.listRowSeparator() · .listRowBackground() · .listRowSpacing() · .headerProminence()</div>
+        <Row label="Separators">
+          <Select
+            value={item.listRowSeparator || 'automatic'}
+            options={[
+              { value: 'automatic', label: 'Automatic' },
+              { value: 'visible',   label: 'Visible' },
+              { value: 'hidden',    label: 'Hidden' }
+            ]}
+            onChange={(v) => updateItem(item.id, { listRowSeparator: v })}
+          />
+        </Row>
+        <Row label="Sep Tint">
+          <ColorRow
+            value={item.listRowSeparatorTint || ''}
+            onChange={(v) => updateItem(item.id, { listRowSeparatorTint: v })}
+          />
+        </Row>
+        <Row label="Row BG">
+          <ColorRow
+            value={item.listRowBackground || ''}
+            onChange={(v) => updateItem(item.id, { listRowBackground: v })}
+          />
+        </Row>
+        <Row label="Row Tint">
+          <ColorRow
+            value={item.listItemTint || ''}
+            onChange={(v) => updateItem(item.id, { listItemTint: v })}
+          />
+        </Row>
+        <Row label="Row Spacing">
+          <PtField value={item.listRowSpacing ?? 0} onChange={(v) => updateItem(item.id, { listRowSpacing: Math.max(0, v) })} />
+        </Row>
+        <Row label="Header">
+          <Select
+            value={item.headerProminence || 'standard'}
+            options={[
+              { value: 'standard',  label: 'Standard' },
+              { value: 'increased', label: 'Increased' }
+            ]}
+            onChange={(v) => updateItem(item.id, { headerProminence: v })}
+          />
+        </Row>
         <div className="text-[10px] text-textMute uppercase tracking-wider mt-2">Rows</div>
         {(item.rows || []).map((r, i) => (
           <div key={i} className="flex flex-col gap-1">
@@ -266,6 +516,9 @@ export const INSPECTORS = {
 
   table: ({ item, updateItem }) => (
     <Section title="Table">
+      <Row label="Style">
+        <Select value={item.tableStyle || 'automatic'} options={TABLE_STYLES} onChange={(v) => updateItem(item.id, { tableStyle: v })} />
+      </Row>
       <Row label="Columns">
         <input
           value={(item.columns || []).join(', ')}
@@ -300,6 +553,9 @@ export const INSPECTORS = {
 
   menu: ({ item, updateItem }) => (
     <Section title="Menu">
+      <Row label="Title">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Menu" />
+      </Row>
       <Row label="Items">
         <textarea
           value={(item.menuItems || []).join('\n')}
@@ -309,15 +565,48 @@ export const INSPECTORS = {
         />
       </Row>
       <div className="text-[10px] text-textMute">One item per line.</div>
+      <Row label="Style">
+        <Select value={item.menuStyle || 'automatic'} options={MENU_STYLES} onChange={(v) => updateItem(item.id, { menuStyle: v })} />
+      </Row>
+      <Row label="Order">
+        {/*
+          `.menuOrder(_:)` — `.priority` keeps the user's explicit ordering;
+          `.fixed` keeps Apple's; `.automatic` is the SwiftUI default.
+        */}
+        <Select value={item.menuOrder || 'automatic'} options={MENU_ORDER} onChange={(v) => updateItem(item.id, { menuOrder: v })} />
+      </Row>
+      <Row label="Indicator">
+        <Select value={item.menuIndicator || 'automatic'} options={MENU_INDICATOR_VISIBILITY} onChange={(v) => updateItem(item.id, { menuIndicator: v })} />
+      </Row>
     </Section>
   ),
 
-  form: ({ item, switchPanelType }) => (
-    <VariantSwitcher panelType="form" switchPanelType={switchPanelType} item={item} label="Collection" options={COLLECTION_VARIANTS} />
+  form: ({ item, updateItem, switchPanelType }) => (
+    <>
+      <VariantSwitcher panelType="form" switchPanelType={switchPanelType} item={item} label="Collection" options={COLLECTION_VARIANTS} />
+      <Section title="Form">
+        {/*
+          Spec §1.21 — Form `.automatic` resolves to grouped on visionOS.
+          `.columns` is macOS-flavoured but available; emitted only when
+          overridden so the device default applies on visionOS.
+        */}
+        <Row label="Style">
+          <Select value={item.formStyle || 'automatic'} options={FORM_STYLES} onChange={(v) => updateItem(item.id, { formStyle: v })} />
+        </Row>
+      </Section>
+    </>
   ),
 
-  groupbox: ({ item, switchPanelType }) => (
-    <VariantSwitcher panelType="groupbox" switchPanelType={switchPanelType} item={item} label="Collection" options={COLLECTION_VARIANTS} />
+  groupbox: ({ item, updateItem, switchPanelType }) => (
+    <>
+      <VariantSwitcher panelType="groupbox" switchPanelType={switchPanelType} item={item} label="Collection" options={COLLECTION_VARIANTS} />
+      <Section title="GroupBox">
+        <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+        <Row label="Style">
+          <Select value={item.groupBoxStyle || 'automatic'} options={GROUP_BOX_STYLES} onChange={(v) => updateItem(item.id, { groupBoxStyle: v })} />
+        </Row>
+      </Section>
+    </>
   ),
 
   outlinegroup: ({ item, switchPanelType }) => (
@@ -326,32 +615,97 @@ export const INSPECTORS = {
 
   progress: ({ item, updateItem }) => (
     <Section title="Progress">
-      <Row label="Value">
-        <Slider value={item.value ?? 0.5} min={0} max={1} step={0.01} onChange={(v) => updateItem(item.id, { value: v })} />
+      <Row label="Label">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="(none)" />
+      </Row>
+      <Row label="Determinate">
+        <div className="segmented flex-1">
+          <button className={!item.indeterminate ? 'active' : ''} onClick={() => updateItem(item.id, { indeterminate: false })}>Yes</button>
+          <button className={item.indeterminate ? 'active' : ''} onClick={() => updateItem(item.id, { indeterminate: true })}>No</button>
+        </div>
+      </Row>
+      {!item.indeterminate && (
+        <>
+          <Row label="Value">
+            <Slider value={item.value ?? 0.5} min={0} max={item.total ?? 1} step={0.01} onChange={(v) => updateItem(item.id, { value: v })} />
+          </Row>
+          {/*
+            `total:` defaults to 1.0. Stored so designers can express
+            `value: 30, total: 100`-style ratios; the exporter elides the
+            `total:` argument when it equals 1.
+          */}
+          <Row label="Total"><NumField value={item.total ?? 1} step={1} onChange={(v) => updateItem(item.id, { total: Math.max(0.01, v) })} /></Row>
+        </>
+      )}
+      <Row label="Style">
+        <Select value={item.progressViewStyle || 'automatic'} options={PROGRESS_VIEW_STYLES} onChange={(v) => updateItem(item.id, { progressViewStyle: v })} />
       </Row>
     </Section>
   ),
 
-  slider: ({ item, updateItem }) => (
-    <Section title="Slider">
-      <Row label="Value">
-        <Slider value={item.sliderValue ?? 0.5} min={0} max={1} step={0.01} onChange={(v) => updateItem(item.id, { sliderValue: v })} />
-      </Row>
-    </Section>
-  ),
+  slider: ({ item, updateItem }) => {
+    const lo = item.sliderMin ?? 0
+    const hi = item.sliderMax ?? 1
+    const step = item.sliderStep ?? 0
+    return (
+      <Section title="Slider">
+        <Row label="Value">
+          <Slider
+            value={item.sliderValue ?? lo}
+            min={lo}
+            max={hi}
+            step={step > 0 ? step : 0.01}
+            onChange={(v) => updateItem(item.id, { sliderValue: v })}
+          />
+        </Row>
+        <Row label="Min"><NumField value={lo} step={1} onChange={(v) => updateItem(item.id, { sliderMin: v })} /></Row>
+        <Row label="Max"><NumField value={hi} step={1} onChange={(v) => updateItem(item.id, { sliderMax: v })} /></Row>
+        {/*
+          `step:` defaults to 0 (continuous). Spec §1.5 emits `step:` only
+          when non-zero so SwiftUI keeps the continuous behaviour by default.
+        */}
+        <Row label="Step"><NumField value={step} step={0.05} onChange={(v) => updateItem(item.id, { sliderStep: Math.max(0, v) })} /></Row>
+        <Row label="Min Label"><input value={item.sliderMinLabel || ''} onChange={(e) => updateItem(item.id, { sliderMinLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+        <Row label="Max Label"><input value={item.sliderMaxLabel || ''} onChange={(e) => updateItem(item.id, { sliderMaxLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+      </Section>
+    )
+  },
 
   stepper: ({ item, updateItem }) => (
     <Section title="Stepper">
+      <Row label="Label">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Stepper" />
+      </Row>
       <Row label="Value"><IntField value={item.stepperValue ?? 0} min={item.stepperMin ?? 0} max={item.stepperMax ?? 100} onChange={(v) => updateItem(item.id, { stepperValue: v })} /></Row>
       <Row label="Min"><IntField value={item.stepperMin ?? 0} onChange={(v) => updateItem(item.id, { stepperMin: v })} /></Row>
       <Row label="Max"><IntField value={item.stepperMax ?? 100} onChange={(v) => updateItem(item.id, { stepperMax: v })} /></Row>
+      {/*
+        SwiftUI Stepper `step:` defaults to 1. Spec §1.6 — emit only when
+        the designer overrides so the SwiftUI default keeps applying.
+      */}
+      <Row label="Step"><IntField value={item.stepperStep ?? 1} min={1} onChange={(v) => updateItem(item.id, { stepperStep: Math.max(1, v) })} /></Row>
     </Section>
   ),
 
   gauge: ({ item, updateItem }) => (
     <Section title="Gauge">
-      <Row label="Value"><Slider value={item.value ?? 0.5} min={0} max={1} step={0.01} onChange={(v) => updateItem(item.id, { value: v })} /></Row>
-      <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Displayed text" /></Row>
+      <Row label="Value"><Slider value={item.value ?? 0.5} min={item.gaugeMin ?? 0} max={item.gaugeMax ?? 1} step={0.01} onChange={(v) => updateItem(item.id, { value: v })} /></Row>
+      <Row label="Min"><NumField value={item.gaugeMin ?? 0} step={1} onChange={(v) => updateItem(item.id, { gaugeMin: v })} /></Row>
+      <Row label="Max"><NumField value={item.gaugeMax ?? 1} step={1} onChange={(v) => updateItem(item.id, { gaugeMax: v })} /></Row>
+      <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Current value text" /></Row>
+      <Row label="Min Label"><input value={item.gaugeMinLabel || ''} onChange={(e) => updateItem(item.id, { gaugeMinLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+      <Row label="Max Label"><input value={item.gaugeMaxLabel || ''} onChange={(e) => updateItem(item.id, { gaugeMaxLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+      <Row label="Style">
+        <Select value={item.gaugeStyle || 'automatic'} options={GAUGE_STYLES} onChange={(v) => updateItem(item.id, { gaugeStyle: v })} />
+      </Row>
+      {/*
+        `.tint(_:)` accepts a `Gradient` for capacity gauges. We expose
+        a two-stop gradient (from/to); exporter writes `Gradient(colors:)`.
+      */}
+      <Row label="Gradient">
+        <ColorRow value={item.gaugeTintFrom || ''} onChange={(v) => updateItem(item.id, { gaugeTintFrom: v })} />
+        <ColorRow value={item.gaugeTintTo || ''} onChange={(v) => updateItem(item.id, { gaugeTintTo: v })} />
+      </Row>
     </Section>
   ),
 
@@ -442,6 +796,28 @@ export const INSPECTORS = {
           placeholder="Cancel, OK"
         />
       </Row>
+      {/*
+        Spec §1.25 — `.dialogIcon`, `.dialogSeverity`, `.dialogSuppressionToggle`.
+        `.standard` is the default severity.
+      */}
+      <Row label="Severity">
+        <Select
+          value={item.dialogSeverity || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'standard',  label: 'Standard' },
+            { value: 'critical',  label: 'Critical' }
+          ]}
+          onChange={(v) => updateItem(item.id, { dialogSeverity: v })}
+        />
+      </Row>
+      <Row label="Icon"><input value={item.dialogIcon || ''} onChange={(e) => updateItem(item.id, { dialogIcon: e.target.value })} className="field flex-1" placeholder="exclamationmark.triangle" /></Row>
+      <Row label="Suppress">
+        <div className="segmented flex-1">
+          <button className={item.dialogSuppressionToggle ? 'active' : ''} onClick={() => updateItem(item.id, { dialogSuppressionToggle: true })}>On</button>
+          <button className={!item.dialogSuppressionToggle ? 'active' : ''} onClick={() => updateItem(item.id, { dialogSuppressionToggle: false })}>Off</button>
+        </div>
+      </Row>
     </Section>
   ),
 
@@ -451,11 +827,60 @@ export const INSPECTORS = {
         <Select
           value={item.sheetDetent || 'large'}
           options={[
-            { value: 'medium', label: 'Medium' },
-            { value: 'large', label: 'Large' }
+            { value: 'medium',     label: 'Medium' },
+            { value: 'large',      label: 'Large' },
+            { value: 'fraction',   label: 'Fraction' },
+            { value: 'height',     label: 'Height (pt)' }
           ]}
           onChange={(v) => updateItem(item.id, { sheetDetent: v })}
         />
+      </Row>
+      {item.sheetDetent === 'fraction' && (
+        <Row label="Fraction"><Slider value={item.sheetFraction ?? 0.5} min={0.1} max={1} step={0.05} onChange={(v) => updateItem(item.id, { sheetFraction: v })} /></Row>
+      )}
+      {item.sheetDetent === 'height' && (
+        <Row label="Height (pt)"><IntField value={item.sheetHeight ?? 320} min={120} onChange={(v) => updateItem(item.id, { sheetHeight: v })} /></Row>
+      )}
+      {/* Spec §1.25 — full presentation modifier set. */}
+      <Row label="Drag">
+        <Select
+          value={item.presentationDragIndicator || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'visible',   label: 'Visible' },
+            { value: 'hidden',    label: 'Hidden' }
+          ]}
+          onChange={(v) => updateItem(item.id, { presentationDragIndicator: v })}
+        />
+      </Row>
+      <Row label="Corner"><PtField value={item.presentationCornerRadius ?? 0} onChange={(v) => updateItem(item.id, { presentationCornerRadius: Math.max(0, v) })} /></Row>
+      <Row label="Content Mode">
+        <Select
+          value={item.presentationContentInteraction || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'resizes',   label: 'Resizes' },
+            { value: 'scrolls',   label: 'Scrolls' }
+          ]}
+          onChange={(v) => updateItem(item.id, { presentationContentInteraction: v })}
+        />
+      </Row>
+      <Row label="BG Interact">
+        <Select
+          value={item.presentationBackgroundInteraction || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'enabled',   label: 'Enabled' },
+            { value: 'disabled',  label: 'Disabled' }
+          ]}
+          onChange={(v) => updateItem(item.id, { presentationBackgroundInteraction: v })}
+        />
+      </Row>
+      <Row label="Dismiss Lock">
+        <div className="segmented flex-1">
+          <button className={item.interactiveDismissDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { interactiveDismissDisabled: true })}>On</button>
+          <button className={!item.interactiveDismissDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { interactiveDismissDisabled: false })}>Off</button>
+        </div>
       </Row>
       <Row label="Content"><textarea value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} rows={2} className="field resize-none" /></Row>
     </Section>
@@ -464,25 +889,129 @@ export const INSPECTORS = {
   popover: ({ item, updateItem }) => (
     <Section title="Popover">
       <Row label="Content"><textarea value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} rows={2} className="field resize-none" /></Row>
+      {/*
+        Spec §1.25 — `attachmentAnchor:` defaults to `.rect(.bounds)`.
+        `arrowEdge:` is ignored on visionOS but kept here for fidelity to
+        the SwiftUI signature.
+      */}
+      <Row label="Anchor">
+        <Select
+          value={item.popoverAnchor || 'rectBounds'}
+          options={[
+            { value: 'rectBounds', label: '.rect(.bounds) (default)' },
+            { value: 'point',      label: 'Point' }
+          ]}
+          onChange={(v) => updateItem(item.id, { popoverAnchor: v })}
+        />
+      </Row>
+      <Row label="Arrow Edge">
+        <Select
+          value={item.popoverArrowEdge || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'top',       label: 'Top' },
+            { value: 'bottom',    label: 'Bottom' },
+            { value: 'leading',   label: 'Leading' },
+            { value: 'trailing',  label: 'Trailing' }
+          ]}
+          onChange={(v) => updateItem(item.id, { popoverArrowEdge: v })}
+        />
+      </Row>
+      <div className="text-[10px] text-textMute">Arrow edge is ignored on visionOS — popovers extend beyond window bounds.</div>
     </Section>
   ),
 
   // ---- Phase 3 type editors ----
   label: ({ item, updateItem }) => (
     <Section title="Label">
+      <Row label="Title"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Label" /></Row>
       <Row label="Icon"><input value={item.iconName || ''} onChange={(e) => updateItem(item.id, { iconName: e.target.value })} className="field flex-1" placeholder="A" maxLength={2} /></Row>
       <Row label="Icon Color"><ColorRow value={item.iconColor || '#007aff'} onChange={(v) => updateItem(item.id, { iconColor: v })} /></Row>
+      <Row label="Style">
+        <Select
+          value={item.styles?.labelStyle || 'automatic'}
+          options={LABEL_STYLES}
+          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, labelStyle: v } })}
+        />
+      </Row>
+      <Row label="Img Scale">
+        {/*
+          `.imageScale(_:)` defaults to `.medium`. Only applied when the
+          designer overrides; spec §1.12.
+        */}
+        <Select
+          value={item.imageScale || 'medium'}
+          options={IMAGE_SCALES}
+          onChange={(v) => updateItem(item.id, { imageScale: v })}
+        />
+      </Row>
+      <Row label="Symbol Mode">
+        <Select
+          value={item.symbolRenderingMode || 'monochrome'}
+          options={SYMBOL_RENDERING_MODES}
+          onChange={(v) => updateItem(item.id, { symbolRenderingMode: v })}
+        />
+      </Row>
     </Section>
   ),
   textfield: ({ item, updateItem }) => (
     <Section title="TextField">
       <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
+      <Row label="Value"><input value={item.textfieldValue || ''} onChange={(e) => updateItem(item.id, { textfieldValue: e.target.value })} className="field flex-1" placeholder="(empty)" /></Row>
+      <Row label="Style">
+        {/*
+          `.automatic` resolves to recessed glass (`.thickMaterial`) on
+          visionOS — keep it out of the exporter so the system look wins.
+        */}
+        <Select
+          value={item.styles?.textFieldStyle || 'automatic'}
+          options={TEXTFIELD_STYLES}
+          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, textFieldStyle: v } })}
+        />
+      </Row>
+      <Row label="Axis">
+        {/*
+          `.axis: .vertical` (visionOS 1+) lets the field grow into multiple
+          lines — `lineLimit` controls the cap.
+        */}
+        <div className="segmented flex-1">
+          <button className={item.axis !== 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'horizontal' })}>Horizontal</button>
+          <button className={item.axis === 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'vertical' })}>Vertical</button>
+        </div>
+      </Row>
+      {item.axis === 'vertical' && (
+        <Row label="Lines"><IntField value={item.lineLimit ?? 1} min={1} max={20} onChange={(v) => updateItem(item.id, { lineLimit: Math.max(1, v) })} /></Row>
+      )}
+      <Row label="Keyboard">
+        <Select value={item.keyboardType || 'default'} options={KEYBOARD_TYPES} onChange={(v) => updateItem(item.id, { keyboardType: v })} />
+      </Row>
+      <Row label="Content">
+        <Select value={item.textContentType || ''} options={TEXT_CONTENT_TYPES} onChange={(v) => updateItem(item.id, { textContentType: v })} />
+      </Row>
+      <Row label="Submit">
+        <Select value={item.submitLabel || 'return'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
+      </Row>
+      <Row label="Autocap">
+        <Select value={item.textInputAutocapitalization || 'sentences'} options={TEXT_AUTOCAPITALIZATION} onChange={(v) => updateItem(item.id, { textInputAutocapitalization: v })} />
+      </Row>
+      <Row label="Autocorrect">
+        <div className="segmented flex-1">
+          <button className={!item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: false })}>On</button>
+          <button className={item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: true })}>Off</button>
+        </div>
+      </Row>
     </Section>
   ),
   securefield: ({ item, updateItem }) => (
-    <Section title="TextField">
+    <Section title="SecureField">
       <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
       <Row label="Dots"><IntField value={item.dotCount || 8} min={1} max={20} onChange={(v) => updateItem(item.id, { dotCount: v })} /></Row>
+      <Row label="Submit">
+        <Select value={item.submitLabel || 'done'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
+      </Row>
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        SecureField forces <code>.textContentType(.password)</code> and disables selection.
+      </div>
     </Section>
   ),
   texteditor: ({ item, updateItem }) => (
@@ -498,7 +1027,12 @@ export const INSPECTORS = {
         <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
         <Row label="Value"><input value={item.pickerValue || ''} onChange={(e) => updateItem(item.id, { pickerValue: e.target.value })} className="field flex-1" /></Row>
         <Row label="Options"><input value={(item.pickerOptions || []).join(', ')} onChange={(e) => updateItem(item.id, { pickerOptions: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} className="field flex-1" /></Row>
-        <Row label="Style"><Select value={item.pickerStyle || 'menu'} options={[{value:'menu',label:'Menu'},{value:'segmented',label:'Segmented'},{value:'wheel',label:'Wheel'},{value:'inline',label:'Inline'}]} onChange={(v) => updateItem(item.id, { pickerStyle: v })} /></Row>
+        {/*
+          Picker style — `.automatic` resolves to `.menu` on visionOS so we
+          keep it as the default and let the exporter elide the modifier.
+          `.navigationLink` is included for use inside NavigationStack.
+        */}
+        <Row label="Style"><Select value={item.pickerStyle || 'automatic'} options={PICKER_STYLES} onChange={(v) => updateItem(item.id, { pickerStyle: v })} /></Row>
       </Section>
     </>
   ),
@@ -508,7 +1042,16 @@ export const INSPECTORS = {
       <Section title="DatePicker">
         <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
         <Row label="Date"><input type="date" value={item.dateValue || ''} onChange={(e) => updateItem(item.id, { dateValue: e.target.value })} className="field flex-1" /></Row>
-        <Row label="Style"><Select value={item.dateStyle || 'compact'} options={[{value:'compact',label:'Compact'},{value:'graphical',label:'Graphical'},{value:'wheel',label:'Wheel'}]} onChange={(v) => updateItem(item.id, { dateStyle: v })} /></Row>
+        {/*
+          `displayedComponents:` — defaults to `[.hourAndMinute, .date]`
+          (we model that as 'dateAndTime'). visionOS 2 adds `hourMinuteAndSecond`.
+        */}
+        <Row label="Components">
+          <Select value={item.displayedComponents || 'dateAndTime'} options={DATE_COMPONENTS} onChange={(v) => updateItem(item.id, { displayedComponents: v })} />
+        </Row>
+        <Row label="Style">
+          <Select value={item.dateStyle || 'automatic'} options={DATE_PICKER_STYLES} onChange={(v) => updateItem(item.id, { dateStyle: v })} />
+        </Row>
       </Section>
     </>
   ),
@@ -518,6 +1061,16 @@ export const INSPECTORS = {
       <Section title="ColorPicker">
         <Row label="Label"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
         <Row label="Color"><ColorRow value={item.pickedColor || '#ff0000'} onChange={(v) => updateItem(item.id, { pickedColor: v })} /></Row>
+        <Row label="Opacity">
+          {/*
+            `supportsOpacity:` defaults to true (spec §1.9). When the
+            designer opts out we omit the alpha slider on the system panel.
+          */}
+          <div className="segmented flex-1">
+            <button className={(item.supportsOpacity ?? true) ? 'active' : ''} onClick={() => updateItem(item.id, { supportsOpacity: true })}>On</button>
+            <button className={!(item.supportsOpacity ?? true) ? 'active' : ''} onClick={() => updateItem(item.id, { supportsOpacity: false })}>Off</button>
+          </div>
+        </Row>
       </Section>
     </>
   ),

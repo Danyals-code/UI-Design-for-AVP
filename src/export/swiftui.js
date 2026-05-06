@@ -14,7 +14,7 @@
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
-import { unitsToPt } from '../appleSystem'
+import { unitsToPt, textStyleDefaultWeight } from '../appleSystem'
 import { emitPanel, isInteractivePanel } from '../panels/registry'
 
 // ---------- helpers ----------
@@ -99,7 +99,7 @@ function swiftMaterial(token) {
   return map[token] || null
 }
 
-function stackOpener(stackType, alignment, spacing) {
+function stackOpener(stackType, alignment, spacing, stack) {
   const align = alignment && alignment !== 'center' ? `.${alignment}` : null
   const sp = typeof spacing === 'number' ? spacing : null
   const argList = []
@@ -115,6 +115,30 @@ function stackOpener(stackType, alignment, spacing) {
     case 'disclosure':      return `DisclosureGroup {`
     case 'navigationStack': return `NavigationStack {`
     case 'tabView':         return `TabView {`
+    // Spec §1.24 — ScrollView axes default to `.vertical`. We only emit
+    // the axis argument when the designer overrode the default; same for
+    // showsIndicators (default true).
+    case 'scrollView': {
+      const axis = stack?.scrollAxis === 'horizontal' ? '.horizontal'
+                 : stack?.scrollAxis === 'both' ? '[.horizontal, .vertical]'
+                 : null
+      const showsArg = stack?.scrollShowsIndicators === false ? `, showsIndicators: false` : ''
+      const axisArg = axis ? axis : ''
+      const argsCombined = axis ? `(${axisArg}${showsArg})`
+                                : (showsArg ? `(${showsArg.replace(/^,\s*/, '')})` : '')
+      return `ScrollView${argsCombined} {`
+    }
+    // ViewThatFits accepts an `in:` axis set; default is both axes.
+    case 'viewThatFits': {
+      const axes = stack?.fitsAxes
+      const arg = axes && axes !== 'both'
+        ? (axes === 'horizontal' ? '(in: .horizontal)' : '(in: .vertical)')
+        : ''
+      return `ViewThatFits${arg} {`
+    }
+    // LazyV/HGrid emit fully via the renderStack code path (it already
+    // knows about adaptive vs fixed columns); these fall through to the
+    // catch-all so the renderer routes them correctly.
     default:                return `VStack${argStr} {`
   }
 }
@@ -175,15 +199,26 @@ function renderModifiers(panel, lines, pad) {
     if (panel.rotZ)           lines.push(`${ind}.rotation3DEffect(.degrees(${panel.rotZ}), axis: (x: 0, y: 0, z: 1))`)
   }
 
-  // visionOS `.hoverEffect()` — only emitted on interactive controls
-  // (Button, Toggle, Picker, Slider, etc.) and only when the panel opts out
-  // of inheritance. SwiftUI ignores the modifier on decorative views, so
-  // emitting it on a Text or Rectangle would be misleading noise.
+  // visionOS `.hoverEffect()` family (spec §3.5).
+  // - `.hoverEffect(_:)` only matters on interactive controls.
+  // - `.hoverEffectDisabled(_:)` opts out per-view.
+  // - `.defaultHoverEffect(_:)` cascades to descendants when set on a stack.
+  // - `.hoverEffectGroup(_:)` shares one effect across grouped views.
   if (
     isInteractivePanel(panel.panelType) &&
     panel.hoverEffect && panel.hoverEffect !== 'inherit' && panel.hoverEffect !== 'none'
   ) {
     lines.push(`${ind}.hoverEffect(.${panel.hoverEffect})`)
+  }
+  if (panel.hoverEffectDisabled) {
+    lines.push(`${ind}.hoverEffectDisabled(true)`)
+  }
+  if (panel.defaultHoverEffect && panel.defaultHoverEffect !== 'automatic') {
+    lines.push(`${ind}.defaultHoverEffect(.${panel.defaultHoverEffect})`)
+  }
+  if (panel.hoverEffectGroup) {
+    // SwiftUI accepts a `HoverEffectGroup` value or `.automatic`.
+    lines.push(`${ind}.hoverEffectGroup(.${panel.hoverEffectGroup})`)
   }
 
   if (m.clipShape && m.clipShape !== 'none') {
@@ -191,6 +226,29 @@ function renderModifiers(panel, lines, pad) {
               : m.clipShape === 'circle'   ? 'Circle()'
               : `RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0) || 12})`
     lines.push(`${ind}.clipShape(${shape})`)
+  }
+
+  // visionOS chrome — `.glassBackgroundEffect()` (spec §3.3). The default
+  // shape (`auto`) emits the no-arg form so SwiftUI uses the
+  // container-relative rounded rect. Other shapes use the
+  // `.glassBackgroundEffect(in:displayMode:)` overload (visionOS 2+).
+  if (m.glassDisplayMode && m.glassDisplayMode !== 'never') {
+    const dm = m.glassDisplayMode === 'always' ? null : `displayMode: .${m.glassDisplayMode}`
+    if (!m.glassShape || m.glassShape === 'auto') {
+      lines.push(`${ind}.glassBackgroundEffect(${dm || ''})`)
+    } else {
+      const shape = m.glassShape === 'capsule'          ? 'Capsule()'
+                  : m.glassShape === 'circle'           ? 'Circle()'
+                  : m.glassShape === 'rectangle'        ? 'Rectangle()'
+                  : `RoundedRectangle(cornerRadius: ${unitsToPt(panel.cornerRadius || 0) || 16}, style: .continuous)`
+      const dmArg = dm ? `, ${dm}` : ''
+      lines.push(`${ind}.glassBackgroundEffect(in: ${shape}${dmArg})`)
+    }
+  }
+  // `.containerBackground(_:for:)` — placement defaults to `.window`.
+  if (m.containerBgColor) {
+    const placement = `.${m.containerBgFor || 'window'}`
+    lines.push(`${ind}.containerBackground(${swiftColor(null, m.containerBgColor)}, for: ${placement})`)
   }
 
   // Accessibility — `panel.accessibility` carries label/hint/value/traits.
@@ -232,15 +290,41 @@ function renderPanel(panel, items, pad, out) {
   const fill = swiftColor(panel.colorToken, panel.color)
   const style = panel.textStyle || 'body'
   const fontW = panel.fontWeight
-  const weight = fontW && fontW !== 'regular' ? `.weight(.${fontW})` : ''
+  // Only emit `.weight(...)` when the panel's weight differs from the
+  // visionOS default for its text style. visionOS body resolves to Medium,
+  // titles/headline to Bold — emitting `.weight(.medium)` for body would
+  // be redundant and could lock the device into a fixed value if Apple
+  // tunes the style later. See textStyleDefaultWeight in appleSystem.js.
+  const styleDefault = textStyleDefaultWeight(style)
+  const weight = fontW && fontW !== styleDefault ? `.weight(.${fontW})` : ''
 
   const applyTextModifiers = (l) => {
+    // Order mirrors the inspector's grouping (italic/underline/strike →
+    // case/lines/spacing/tracking/kerning/baseline → truncation/scale →
+    // font design/digits → alignment) so generated code reads predictably.
     const mods = []
     if (panel.italic) mods.push('.italic()')
     if (panel.underline) mods.push('.underline()')
     if (panel.strikethrough) mods.push('.strikethrough()')
+    if (panel.textCase && panel.textCase !== 'none') mods.push(`.textCase(.${panel.textCase})`)
     if (panel.lineLimit) mods.push(`.lineLimit(${panel.lineLimit})`)
+    if (panel.lineSpacing) mods.push(`.lineSpacing(${panel.lineSpacing})`)
     if (panel.tracking) mods.push(`.tracking(${panel.tracking})`)
+    if (panel.kerning) mods.push(`.kerning(${panel.kerning})`)
+    if (panel.baselineOffset) mods.push(`.baselineOffset(${panel.baselineOffset})`)
+    // SwiftUI default truncationMode is `.tail`; only emit when overridden.
+    if (panel.truncationMode && panel.truncationMode !== 'tail') {
+      mods.push(`.truncationMode(.${panel.truncationMode})`)
+    }
+    // Default minimumScaleFactor is 1.0 — omit when not shrinking.
+    if (panel.minimumScaleFactor != null && panel.minimumScaleFactor < 1) {
+      mods.push(`.minimumScaleFactor(${panel.minimumScaleFactor})`)
+    }
+    if (panel.allowsTightening) mods.push('.allowsTightening(true)')
+    if (panel.fontDesign && panel.fontDesign !== 'default') {
+      mods.push(`.fontDesign(.${panel.fontDesign})`)
+    }
+    if (panel.monospacedDigit) mods.push('.monospacedDigit()')
     if (panel.textAlign && panel.textAlign !== 'center') mods.push(`.multilineTextAlignment(.${panel.textAlign === 'left' ? 'leading' : 'trailing'})`)
     return l + (mods.length ? mods.map((m) => `\n${ind}    ${m}`).join('') : '')
   }
@@ -268,21 +352,54 @@ function emitPresentationModifier(p, pad, out, stateBag) {
   stateBag.push(stateName)
 
   if (p.panelType === 'sheet') {
-    const detent = p.sheetDetent === 'medium' ? '.medium' : '.large'
+    // Spec §1.25 — translate the inspector's detent/fraction/height into
+    // SwiftUI's `.presentationDetents([...])`. All other presentation
+    // modifiers are emitted as a chain on the sheet content.
+    let detent = '.large'
+    if (p.sheetDetent === 'medium') detent = '.medium'
+    else if (p.sheetDetent === 'fraction') detent = `.fraction(${p.sheetFraction ?? 0.5})`
+    else if (p.sheetDetent === 'height')   detent = `.height(${p.sheetHeight ?? 320})`
     out.push(`${ind}.sheet(isPresented: $${stateName}) {`)
     out.push(`${ind}    Text("${escapeString(p.text || 'Sheet')}")`)
     out.push(`${ind}        .presentationDetents([${detent}])`)
+    if (p.presentationDragIndicator && p.presentationDragIndicator !== 'automatic') {
+      out.push(`${ind}        .presentationDragIndicator(.${p.presentationDragIndicator})`)
+    }
+    if (p.presentationCornerRadius && p.presentationCornerRadius > 0) {
+      out.push(`${ind}        .presentationCornerRadius(${p.presentationCornerRadius})`)
+    }
+    if (p.presentationContentInteraction && p.presentationContentInteraction !== 'automatic') {
+      out.push(`${ind}        .presentationContentInteraction(.${p.presentationContentInteraction})`)
+    }
+    if (p.presentationBackgroundInteraction && p.presentationBackgroundInteraction !== 'automatic') {
+      out.push(`${ind}        .presentationBackgroundInteraction(.${p.presentationBackgroundInteraction})`)
+    }
+    if (p.interactiveDismissDisabled) {
+      out.push(`${ind}        .interactiveDismissDisabled()`)
+    }
     out.push(`${ind}}`)
   } else if (p.panelType === 'popover') {
-    out.push(`${ind}.popover(isPresented: $${stateName}) {`)
+    // visionOS ignores `arrowEdge:` but the SwiftUI signature still
+    // accepts it — emit when the designer set a non-automatic value so
+    // the code compiles unchanged on iPadOS / macOS.
+    const arrow = p.popoverArrowEdge && p.popoverArrowEdge !== 'automatic'
+      ? `, arrowEdge: .${p.popoverArrowEdge}` : ''
+    out.push(`${ind}.popover(isPresented: $${stateName}${arrow}) {`)
     out.push(`${ind}    Text("${escapeString(p.text || 'Popover')}")`)
     out.push(`${ind}        .padding()`)
     out.push(`${ind}}`)
-  } else if (p.panelType === 'alert') {
-    const buttons = p.alertButtons && p.alertButtons.length ? p.alertButtons : ['OK']
-    out.push(`${ind}.alert("${escapeString(p.text || 'Alert')}", isPresented: $${stateName}) {`)
+  } else if (p.panelType === 'confirmationdialog') {
+    // Spec §1.25 — confirmationDialog auto-adds a Cancel/dismiss button
+    // when none is provided. We honour any list the designer supplied
+    // and detect destructive/cancel roles by name.
+    const buttons = p.alertButtons && p.alertButtons.length ? p.alertButtons : ['Cancel']
+    const tv = p.titleVisibility && p.titleVisibility !== 'automatic'
+      ? `, titleVisibility: .${p.titleVisibility}` : ''
+    out.push(`${ind}.confirmationDialog("${escapeString(p.text || 'Confirm')}", isPresented: $${stateName}${tv}) {`)
     for (const btn of buttons) {
-      const role = /cancel/i.test(btn) ? ', role: .cancel' : ''
+      const role = /cancel/i.test(btn) ? ', role: .cancel'
+                 : /delete|remove|destroy/i.test(btn) ? ', role: .destructive'
+                 : ''
       out.push(`${ind}    Button("${escapeString(btn)}"${role}) { }`)
     }
     if (p.alertMessage) {
@@ -290,13 +407,106 @@ function emitPresentationModifier(p, pad, out, stateBag) {
       out.push(`${ind}    Text("${escapeString(p.alertMessage)}")`)
     }
     out.push(`${ind}}`)
+  } else if (p.panelType === 'inspector') {
+    // Spec §1.25 — `.inspector(isPresented:content:)` becomes a trailing
+    // sidebar on wide windows and a sheet in compact contexts. Width
+    // hints (`.inspectorColumnWidth`) chain after the closure.
+    out.push(`${ind}.inspector(isPresented: $${stateName}) {`)
+    out.push(`${ind}    Text("${escapeString(p.text || 'Inspector')}")`)
+    out.push(`${ind}        .padding()`)
+    out.push(`${ind}}`)
+    if (p.inspectorColumnWidth != null) {
+      out.push(`${ind}.inspectorColumnWidth(${p.inspectorColumnWidth})`)
+    } else if (p.inspectorMinWidth != null || p.inspectorIdealWidth != null || p.inspectorMaxWidth != null) {
+      const args = []
+      if (p.inspectorMinWidth   != null) args.push(`min: ${p.inspectorMinWidth}`)
+      if (p.inspectorIdealWidth != null) args.push(`ideal: ${p.inspectorIdealWidth}`)
+      if (p.inspectorMaxWidth   != null) args.push(`max: ${p.inspectorMaxWidth}`)
+      out.push(`${ind}.inspectorColumnWidth(${args.join(', ')})`)
+    }
+  } else if (p.panelType === 'alert') {
+    const buttons = p.alertButtons && p.alertButtons.length ? p.alertButtons : ['OK']
+    out.push(`${ind}.alert("${escapeString(p.text || 'Alert')}", isPresented: $${stateName}) {`)
+    for (const btn of buttons) {
+      const role = /cancel/i.test(btn) ? ', role: .cancel'
+                 : /delete|remove|destroy/i.test(btn) ? ', role: .destructive'
+                 : ''
+      out.push(`${ind}    Button("${escapeString(btn)}"${role}) { }`)
+    }
+    if (p.alertMessage) {
+      out.push(`${ind}} message: {`)
+      out.push(`${ind}    Text("${escapeString(p.alertMessage)}")`)
+    }
+    out.push(`${ind}}`)
+    // Dialog metadata modifiers — `.dialogIcon`, `.dialogSeverity`,
+    // `.dialogSuppressionToggle` chain after the alert closure.
+    if (p.dialogIcon) {
+      out.push(`${ind}.dialogIcon(Image(systemName: "${escapeString(p.dialogIcon)}"))`)
+    }
+    if (p.dialogSeverity && p.dialogSeverity !== 'automatic') {
+      out.push(`${ind}.dialogSeverity(.${p.dialogSeverity})`)
+    }
+    if (p.dialogSuppressionToggle) {
+      out.push(`${ind}.dialogSuppressionToggle(isSuppressed: .constant(false))`)
+    }
   }
 }
 
 // ---------- stack rendering ----------
 
+// Spec §1.26 — Render a `toolbar` stack as a `.toolbar { ... }` modifier
+// on the parent view. Items inside are emitted as `ToolbarItem(placement:)`
+// or `ToolbarItemGroup(placement:)` blocks. Used by renderWindow /
+// renderStack to attach toolbar children as a trailing modifier rather
+// than an inline child.
+function emitToolbarModifier(toolbar, items, pad, out, stateBag) {
+  const ind = `${indent(pad)}    `
+  const inner = indent(pad + 2)
+  out.push(`${ind}.toolbar {`)
+  const kids = items.filter((c) => c.parentId === toolbar.id && c.visible !== false)
+  for (const k of kids) {
+    if (k.type !== 'stack') continue
+    const placement = k.toolbarPlacement || 'automatic'
+    if (k.stackType === 'toolbarItemGroup') {
+      out.push(`${inner}ToolbarItemGroup(placement: .${placement}) {`)
+      const inners = items.filter((c) => c.parentId === k.id)
+      for (const ii of inners) {
+        if (ii.type === 'panel') renderPanel(ii, items, pad + 3, out)
+        else if (ii.type === 'stack') renderStack(ii, items, pad + 3, out, stateBag)
+      }
+      out.push(`${inner}}`)
+    } else {
+      // Treat anything else (toolbarItem or generic stacks) as a single
+      // ToolbarItem. Unknown sub-stacks render their child as the body.
+      out.push(`${inner}ToolbarItem(placement: .${placement}) {`)
+      const inners = items.filter((c) => c.parentId === k.id)
+      if (inners.length === 0) {
+        // Empty placeholder so the closure compiles.
+        out.push(`${inner}    Text("Item")`)
+      } else {
+        for (const ii of inners) {
+          if (ii.type === 'panel') renderPanel(ii, items, pad + 3, out)
+          else if (ii.type === 'stack') renderStack(ii, items, pad + 3, out, stateBag)
+        }
+      }
+      out.push(`${inner}}`)
+    }
+  }
+  out.push(`${ind}}`)
+}
+
 function renderStack(stack, items, pad, out, stateBag) {
   const ind = indent(pad)
+
+  // Toolbar / ToolbarItem / ToolbarItemGroup stacks are inline-skip when
+  // rendered standalone — they only make sense as a `.toolbar { ... }`
+  // modifier emitted by emitToolbarModifier. If a designer drops one
+  // outside a parent that handles it (e.g. a free-floating toolbar in
+  // the layers tree), emit a comment so the export still compiles.
+  if (stack.stackType === 'toolbar' || stack.stackType === 'toolbarItem' || stack.stackType === 'toolbarItemGroup') {
+    out.push(`${ind}// ${stack.stackType} — render via .toolbar { … } modifier on the parent`)
+    return
+  }
 
   // NavigationSplitView — styled root HStack with splitStyle.
   if (stack.splitStyle) {
@@ -332,7 +542,10 @@ function renderStack(stack, items, pad, out, stateBag) {
       if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
       else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
     } else if (kids.length > 1) {
-      out.push(`${ind}    VStack(alignment: .${stack.alignment || 'center'}, spacing: ${stack.spacing ?? 0}) {`)
+      {
+        const sp = typeof stack.spacing === 'number' ? `, spacing: ${stack.spacing}` : ''
+        out.push(`${ind}    VStack(alignment: .${stack.alignment || 'center'}${sp}) {`)
+      }
       for (const c of kids) {
         if (c.type === 'stack') renderStack(c, items, pad + 2, out, stateBag)
         else if (c.type === 'panel') renderPanel(c, items, pad + 2, out)
@@ -344,15 +557,28 @@ function renderStack(stack, items, pad, out, stateBag) {
     return
   }
 
-  // Grid — adaptive vs fixed.
-  if (stack.stackType === 'grid') {
+  // Grid family — `grid`, `lazyVGrid`, `lazyHGrid` all share the
+  // adaptive-vs-fixed column model on the canvas. SwiftUI's `Grid` view
+  // doesn't take a `columns:` parameter — that's `LazyVGrid` semantics —
+  // so we emit `LazyVGrid` for the legacy `grid` type to preserve the
+  // existing exporter contract, and `LazyHGrid` for `lazyHGrid`.
+  const isGridLike = stack.stackType === 'grid' ||
+                     stack.stackType === 'lazyVGrid' ||
+                     stack.stackType === 'lazyHGrid'
+  if (isGridLike) {
+    const hasSp = typeof stack.spacing === 'number'
+    const itemSp = hasSp ? `, spacing: ${stack.spacing}` : ''
+    const gridSp = hasSp ? `, spacing: ${stack.spacing}` : ''
+    const isHorizontal = stack.stackType === 'lazyHGrid'
+    const ctor = isHorizontal ? 'LazyHGrid' : 'LazyVGrid'
+    const tracksKey = isHorizontal ? 'rows' : 'columns'
     if ((stack.gridMode || 'fixed') === 'adaptive') {
-      out.push(`${ind}LazyVGrid(columns: [GridItem(.adaptive(minimum: ${stack.minColumnWidth ?? 140}), spacing: ${stack.spacing ?? 0})], spacing: ${stack.spacing ?? 0}) {`)
+      out.push(`${ind}${ctor}(${tracksKey}: [GridItem(.adaptive(minimum: ${stack.minColumnWidth ?? 140})${itemSp})]${gridSp}) {`)
     } else {
-      out.push(`${ind}LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: ${stack.spacing ?? 0}), count: ${stack.columns || 2}), spacing: ${stack.spacing ?? 0}) {`)
+      out.push(`${ind}${ctor}(${tracksKey}: Array(repeating: GridItem(.flexible()${itemSp}), count: ${stack.columns || 2})${gridSp}) {`)
     }
   } else {
-    out.push(`${ind}${stackOpener(stack.stackType, stack.alignment, stack.spacing)}`)
+    out.push(`${ind}${stackOpener(stack.stackType, stack.alignment, stack.spacing, stack)}`)
   }
 
   const kids = items.filter((c) => c.parentId === stack.id)
@@ -389,12 +615,19 @@ function renderWindow(win, items, pad, out, stateBag) {
   const ind = indent(pad)
   // A Window's direct content children — separate ornaments and presentation
   // overlays so each can attach as a modifier rather than an inline child.
-  const presentationTypes = new Set(['sheet', 'popover', 'alert'])
+  // Spec §1.25 — every panel type that attaches as a `.xxx(...)` modifier
+  // on the parent view, not as an inline child. We separate them so they
+  // can ride along after the body and emit matching `@State` declarations.
+  const presentationTypes = new Set(['sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'])
   const ownChildren = items.filter((c) => c.parentId === win.id)
   const presentationKids = ownChildren.filter((c) => c.type === 'panel' && presentationTypes.has(c.panelType))
   const ornamentKids = ownChildren.filter((c) => c.type === 'stack' && c.ornament)
+  // Spec §1.26 — every Toolbar child becomes a `.toolbar { … }` modifier
+  // on the window body. Direct children with stackType 'toolbar' route
+  // here instead of being emitted inline.
+  const toolbarKids = ownChildren.filter((c) => c.type === 'stack' && c.stackType === 'toolbar')
   const inlineKids = ownChildren.filter((c) =>
-    !presentationKids.includes(c) && !ornamentKids.includes(c)
+    !presentationKids.includes(c) && !ornamentKids.includes(c) && !toolbarKids.includes(c)
   )
 
   out.push(`${ind}ZStack {`)
@@ -406,10 +639,26 @@ function renderWindow(win, items, pad, out, stateBag) {
   out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
   if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
 
-  // Ornaments first (visionOS draws them in the scene-relative coordinate
-  // space; presentations sit modally on top).
+  // Toolbars first — they sit at the chrome level. Each child Toolbar
+  // attaches as its own `.toolbar { … }` modifier.
+  for (const t of toolbarKids) {
+    emitToolbarModifier(t, items, pad, out, stateBag)
+  }
+
+  // Ornaments next (visionOS draws them in the scene-relative coordinate
+  // space; presentations sit modally on top). Spec §1.26 / §3.4 —
+  // `attachmentAnchor:` is required and may be `.scene(...)` or
+  // `.parent(...)` (visionOS 26).
   for (const o of ornamentKids) {
-    out.push(`${ind}    .ornament(attachmentAnchor: .scene(.${o.ornament})) {`)
+    const anchorMode = o.ornamentAnchorMode || 'scene'  // 'scene' | 'parent'
+    const anchor = anchorMode === 'parent'
+      ? `.parent(.${o.ornament})`
+      : `.scene(.${o.ornament})`
+    const visibility = o.ornamentVisibility && o.ornamentVisibility !== 'automatic'
+      ? `, visibility: .${o.ornamentVisibility}` : ''
+    const alignment = o.ornamentContentAlignment && o.ornamentContentAlignment !== 'center'
+      ? `, contentAlignment: .${o.ornamentContentAlignment}` : ''
+    out.push(`${ind}    .ornament(attachmentAnchor: ${anchor}${visibility}${alignment}) {`)
     renderStack(o, items, pad + 2, out, stateBag)
     out.push(`${ind}    }`)
   }
@@ -464,7 +713,7 @@ function wrapTabView(viewName, windows, items) {
   ].filter((l) => l !== null).join('\n')
 }
 
-function renderAppFile(tabs, appName) {
+function renderAppFile(tabs, appName, scene = {}, items = []) {
   const imports = [
     `//`,
     `//  ${appName}.swift`,
@@ -474,13 +723,78 @@ function renderAppFile(tabs, appName) {
     `import SwiftUI`,
     ``
   ]
+  // Build the top-level Scene per the user's chosen scene mode (spec §3.1).
+  // - 'window'    → WindowGroup (default 1280x720 unless overridden)
+  // - 'volume'    → WindowGroup with .windowStyle(.volumetric) + volume metadata
+  // - 'immersive' → ImmersiveSpace with .immersionStyle(...) and friends
+  const mode = scene.sceneMode || 'window'
+  const allWindows = items.filter((i) => i.type === 'window')
+  const firstWindow = allWindows[0] || {}
+
+  const sceneLines = []
+  if (mode === 'immersive') {
+    sceneLines.push(`        ImmersiveSpace(id: "Immersive") {`)
+    sceneLines.push(`            RootView()`)
+    sceneLines.push(`        }`)
+    // Immersion modifiers (spec §3.1)
+    const style = scene.immersionStyle || 'mixed'
+    if (style === 'progressive') {
+      const lo = scene.progressiveRange?.[0] ?? 0.5
+      const hi = scene.progressiveRange?.[1] ?? 1.0
+      const init = scene.progressiveInitial ?? 0.5
+      // visionOS 2+ form: range with explicit initial amount
+      sceneLines.push(`        .immersionStyle(selection: .constant(.progressive(${lo}...${hi}, initialAmount: ${init})), in: .progressive)`)
+    } else if (style !== 'automatic') {
+      sceneLines.push(`        .immersionStyle(selection: .constant(.${style}), in: .${style})`)
+    }
+    if (scene.upperLimbVisibility && scene.upperLimbVisibility !== 'automatic') {
+      sceneLines.push(`        .upperLimbVisibility(.${scene.upperLimbVisibility})`)
+    }
+    if (scene.preferredSurroundingsEffect === 'systemDark') {
+      sceneLines.push(`        .preferredSurroundingsEffect(.systemDark)`)
+    } else if (scene.preferredSurroundingsEffect === 'colorMultiply' && scene.surroundingsColorMultiply) {
+      const c = scene.surroundingsColorMultiply
+      // Reuse swiftColor via a tiny shim — we don't have ctx here, so spell it out.
+      sceneLines.push(`        .preferredSurroundingsEffect(.colorMultiply(Color(red: ${parseInt(c.slice(1, 3), 16) / 255}, green: ${parseInt(c.slice(3, 5), 16) / 255}, blue: ${parseInt(c.slice(5, 7), 16) / 255})))`)
+    }
+    if (scene.immersiveEnvironmentBehavior && scene.immersiveEnvironmentBehavior !== 'automatic') {
+      sceneLines.push(`        .immersiveEnvironmentBehavior(.${scene.immersiveEnvironmentBehavior})`)
+    }
+  } else {
+    sceneLines.push(`        WindowGroup {`)
+    sceneLines.push(`            RootView()`)
+    sceneLines.push(`        }`)
+    if (mode === 'volume' || firstWindow.windowStyle === 'volumetric') {
+      // Volumetric WindowGroup (spec §3.2). Emit `.defaultSize(in: .meters)`
+      // when the user provided a depth, plus the world-scaling/baseplate
+      // /alignment/viewpoints modifiers.
+      sceneLines.push(`        .windowStyle(.volumetric)`)
+      const depth = firstWindow.volumeDepthMeters ?? 1.0
+      sceneLines.push(`        .defaultSize(width: ${depth}, height: ${depth}, depth: ${depth}, in: .meters)`)
+      if (firstWindow.worldScalingBehavior && firstWindow.worldScalingBehavior !== 'automatic') {
+        sceneLines.push(`        .defaultWorldScalingBehavior(.${firstWindow.worldScalingBehavior})`)
+      }
+      if (firstWindow.volumeBaseplateVisibility && firstWindow.volumeBaseplateVisibility !== 'automatic') {
+        sceneLines.push(`        .volumeBaseplateVisibility(.${firstWindow.volumeBaseplateVisibility})`)
+      }
+      if (firstWindow.volumeWorldAlignment && firstWindow.volumeWorldAlignment !== 'adaptive') {
+        sceneLines.push(`        .volumeWorldAlignment(.${firstWindow.volumeWorldAlignment})`)
+      }
+      if (firstWindow.supportedVolumeViewpoints && firstWindow.supportedVolumeViewpoints !== 'all') {
+        const v = firstWindow.supportedVolumeViewpoints === 'front'
+          ? '.front' : '[.front, .back]'
+        sceneLines.push(`        .supportedVolumeViewpoints(${v})`)
+      }
+    } else if (firstWindow.windowStyle === 'plain') {
+      sceneLines.push(`        .windowStyle(.plain)`)
+    }
+  }
+
   const appStruct = [
     `@main`,
     `struct ${appName}: App {`,
     `    var body: some Scene {`,
-    `        WindowGroup {`,
-    `            RootView()`,
-    `        }`,
+    ...sceneLines,
     `    }`,
     `}`,
     ``
@@ -504,13 +818,17 @@ function renderAppFile(tabs, appName) {
     }
     root.push(`        }`)
   }
+  // visionOS forces `colorScheme` to `.dark` system-wide (spec §0.4). Apply
+  // it on RootView so previews honour the visionOS palette even if the
+  // generated code is reused on iPad.
+  root.push(`        .preferredColorScheme(.dark)`)
   root.push(`    }`, `}`, ``)
   return [...imports, ...appStruct, ...root].join('\n')
 }
 
 // ---------- public entry point ----------
 
-export function exportSwiftUI(items, appName = 'MyApp') {
+export function exportSwiftUI(items, appName = 'MyApp', scene = {}) {
   const tabs = items.filter((i) => i.type === 'tab')
   const files = []
   for (const tab of tabs) {
@@ -523,7 +841,7 @@ export function exportSwiftUI(items, appName = 'MyApp') {
   }
   files.push({
     filename: `${appName}.swift`,
-    content: renderAppFile(tabs, appName)
+    content: renderAppFile(tabs, appName, scene, items)
   })
   return files
 }

@@ -71,7 +71,9 @@ export const PANELS = {
       text: 'Hello World',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      fontWeight: 'regular',
+      // visionOS body defaults to Medium (one step heavier than iOS Regular)
+      // for legibility on glass — see TEXT_STYLES in appleSystem.js.
+      fontWeight: 'medium',
       textAlign: 'left',
       // SwiftUI Text-only modifiers (kept on the panel root so they appear
       // alongside the existing text fields rather than in the generic
@@ -83,7 +85,14 @@ export const PANELS = {
       lineLimit:     0,       // .lineLimit(n) — 0 = unlimited
       lineSpacing:   0,       // .lineSpacing(pt)
       tracking:      0,       // .tracking(pt)
-      textCase:      'none'   // .textCase(.uppercase / .lowercase)
+      kerning:       0,       // .kerning(pt) — pair-aware spacing
+      baselineOffset:0,       // .baselineOffset(pt)
+      textCase:      'none',  // .textCase(.uppercase / .lowercase)
+      truncationMode:'tail',  // .truncationMode(.tail / .middle / .head)
+      minimumScaleFactor: 1,  // .minimumScaleFactor(0..1) — 1 = no scaling
+      allowsTightening: false,// .allowsTightening(_:)
+      fontDesign:    'default',// .fontDesign(.default / .serif / .rounded / .monospaced)
+      monospacedDigit: false  // .monospacedDigit()
     },
     emit(panel, ctx) {
       const { push, escapeString, applyTextModifiers, style, weight, textColor } = ctx
@@ -106,15 +115,35 @@ export const PANELS = {
       textAlign: 'center',
       textColor: '#ffffff',
       textColorToken: 'designButtonText',
-      buttonStyle: 'bordered'
+      // visionOS default: `.automatic` resolves to a glass-bordered capsule
+      // for text/text+icon buttons. We elide `.buttonStyle(...)` from the
+      // exporter when the value is `automatic` so the device renders the
+      // system-tuned glass effect without an override.
+      buttonStyle: 'automatic',
+      buttonBorderShape: 'automatic'
     },
     emit(panel, ctx) {
-      const { push, escapeString, sym } = ctx
+      const { push, escapeString, swiftColor, sym } = ctx
       const label = sym
         ? `Label("${escapeString(panel.text || 'Button')}", systemImage: "${sym}")`
         : `Text("${escapeString(panel.text || 'Button')}")`
-      const bs = panel.buttonStyle && panel.buttonStyle !== 'plain' ? `.buttonStyle(.${panel.buttonStyle})` : ''
-      push(`Button { /* action */ } label: { ${label} }${bs}`)
+      // `role:` is part of the Button initializer (not a modifier) so it
+      // sits inside the parentheses. visionOS still draws a glass capsule
+      // but the system flags it as destructive/cancel for VoiceOver.
+      const role = panel.buttonRole && panel.buttonRole !== 'none'
+        ? `(role: .${panel.buttonRole}) ` : ''
+      // `.automatic` and `.plain` are SwiftUI's built-in zero-config styles —
+      // for `.automatic` we omit the modifier entirely so visionOS picks the
+      // system glass treatment.
+      const bs = panel.buttonStyle && panel.buttonStyle !== 'automatic' && panel.buttonStyle !== 'plain'
+        ? `.buttonStyle(.${panel.buttonStyle})` : ''
+      const shape = panel.buttonBorderShape && panel.buttonBorderShape !== 'automatic'
+        ? `.buttonBorderShape(.${panel.buttonBorderShape})` : ''
+      const size = panel.controlSize && panel.controlSize !== 'regular'
+        ? `.controlSize(.${panel.controlSize})` : ''
+      const tint = panel.tint
+        ? `.tint(${swiftColor(null, panel.tint)})` : ''
+      push(`Button${role}{ /* action */ } label: { ${label} }${bs}${shape}${size}${tint}`)
     }
   },
 
@@ -142,8 +171,15 @@ export const PANELS = {
       toggleOn: true
     },
     emit(panel, ctx) {
-      const { push, escapeString } = ctx
-      push(`Toggle("${escapeString(panel.text || 'Toggle')}", isOn: .constant(${panel.toggleOn ? 'true' : 'false'}))`)
+      const { push, escapeString, swiftColor } = ctx
+      // Spec §1.4 — `.toggleStyle(.automatic)` resolves to `.switch` on
+      // visionOS, so we elide the modifier when the user kept the default.
+      const ts = panel.styles?.toggleStyle && panel.styles.toggleStyle !== 'automatic'
+        ? `.toggleStyle(.${panel.styles.toggleStyle})` : ''
+      const cs = panel.styles?.controlSize && panel.styles.controlSize !== 'regular'
+        ? `.controlSize(.${panel.styles.controlSize})` : ''
+      const tint = panel.tint ? `.tint(${swiftColor(null, panel.tint)})` : ''
+      push(`Toggle("${escapeString(panel.text || 'Toggle')}", isOn: .constant(${panel.toggleOn ? 'true' : 'false'}))${ts}${cs}${tint}`)
     }
   },
 
@@ -227,7 +263,7 @@ export const PANELS = {
       text: 'Search',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      fontWeight: 'regular',
+      fontWeight: 'medium',          // visionOS body weight
       textColor: '#8e8e93',
       textColorToken: 'secondary',
       textAlign: 'left'
@@ -255,18 +291,47 @@ export const PANELS = {
       ],
       // 'default' | 'plain' | 'inset' | 'insetGrouped' | 'grouped' |
       // 'sidebar' | 'bordered' | 'carousel' | 'elliptical'
-      listStyle: 'insetGrouped'
+      listStyle: 'insetGrouped',
+      // Spec §1.19 — list-row modifiers. Each affects the export only
+      // (canvas list visuals are driven by the listStyle preset).
+      listRowSeparator: 'automatic',
+      listRowSeparatorTint: '',
+      listRowBackground: '',
+      listItemTint: '',
+      listRowSpacing: 0,
+      headerProminence: 'standard'
     },
     emit(panel, ctx) {
-      const { push, escapeString } = ctx
+      const { push, escapeString, swiftColor } = ctx
+      // Per-row modifiers attach to each row; build a single trailing
+      // chain we paste onto every row line so generated SwiftUI matches
+      // what the inspector specified.
+      const rowMods = []
+      if (panel.listRowSeparator && panel.listRowSeparator !== 'automatic') {
+        rowMods.push(`.listRowSeparator(.${panel.listRowSeparator})`)
+      }
+      if (panel.listRowSeparatorTint) {
+        rowMods.push(`.listRowSeparatorTint(${swiftColor(null, panel.listRowSeparatorTint)})`)
+      }
+      if (panel.listRowBackground) {
+        rowMods.push(`.listRowBackground(${swiftColor(null, panel.listRowBackground)})`)
+      }
+      if (panel.listItemTint) {
+        rowMods.push(`.listItemTint(${swiftColor(null, panel.listItemTint)})`)
+      }
+      const rowChain = rowMods.join('')
       push(`List {`)
       ;(panel.rows || []).forEach((r) => {
         const rowLabel = r.systemImage
           ? `Label("${escapeString(r.title || '')}", systemImage: "${r.systemImage}")`
           : `Text("${escapeString(r.title || '')}")`
-        push(`    ${rowLabel}`)
+        push(`    ${rowLabel}${rowChain}`)
       })
-      push(`}${panel.listStyle ? `.listStyle(.${panel.listStyle})` : ''}`)
+      const ls = panel.listStyle ? `.listStyle(.${panel.listStyle})` : ''
+      const hp = panel.headerProminence && panel.headerProminence !== 'standard'
+        ? `.headerProminence(.${panel.headerProminence})` : ''
+      const sp = panel.listRowSpacing ? `.listRowSpacing(${panel.listRowSpacing})` : ''
+      push(`}${ls}${hp}${sp}`)
     }
   },
 
@@ -282,13 +347,16 @@ export const PANELS = {
         ['Bravo',   'Pending',  'B'],
         ['Charlie', 'Complete', 'A'],
         ['Delta',   'Active',   'C']
-      ]
+      ],
+      tableStyle: 'automatic'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
       push(`Table(/* rows */[]) {`)
       ;(panel.columns || []).forEach((c) => push(`    TableColumn("${escapeString(c)}") { _ in Text("") }`))
-      push(`}`)
+      const ts = panel.tableStyle && panel.tableStyle !== 'automatic'
+        ? `.tableStyle(.${panel.tableStyle})` : ''
+      push(`}${ts}`)
     }
   },
 
@@ -298,14 +366,26 @@ export const PANELS = {
       color: '#ffffff',
       colorToken: 'secondarySystemBackground',
       cornerRadius: ptToUnits(12),
+      text: 'Menu',
       menuItems: ['Cut', 'Copy', 'Paste', 'Duplicate', 'Select All'],
-      material: 'thick'
+      material: 'thick',
+      // Spec §1.14 — menu style/order/indicator. All default to `.automatic`
+      // so the exporter elides them unless the designer overrides.
+      menuStyle: 'automatic',
+      menuOrder: 'automatic',
+      menuIndicator: 'automatic'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
       push(`Menu("${escapeString(panel.text || 'Menu')}") {`)
       ;(panel.menuItems || []).forEach((m) => push(`    Button("${escapeString(m)}") { }`))
-      push(`}`)
+      const ms = panel.menuStyle && panel.menuStyle !== 'automatic'
+        ? `.menuStyle(.${panel.menuStyle})` : ''
+      const mo = panel.menuOrder && panel.menuOrder !== 'automatic'
+        ? `.menuOrder(.${panel.menuOrder})` : ''
+      const mi = panel.menuIndicator && panel.menuIndicator !== 'automatic'
+        ? `.menuIndicator(.${panel.menuIndicator})` : ''
+      push(`}${ms}${mo}${mi}`)
     }
   },
 
@@ -316,10 +396,26 @@ export const PANELS = {
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(4),
       value: 0.65,
-      indeterminate: false
+      total: 1.0,                    // SwiftUI default — spec §1.10
+      indeterminate: false,
+      progressViewStyle: 'automatic',
+      text: ''                        // optional title label
     },
     emit(panel, ctx) {
-      ctx.push(`ProgressView(value: ${panel.value ?? 0.5})`)
+      const { push, escapeString } = ctx
+      const title = panel.text ? `"${escapeString(panel.text)}"` : null
+      const totalArg = panel.total != null && panel.total !== 1 ? `, total: ${panel.total}` : ''
+      let ctor
+      if (panel.indeterminate) {
+        ctor = title ? `ProgressView(${title})` : `ProgressView()`
+      } else {
+        ctor = title
+          ? `ProgressView(${title}, value: ${panel.value ?? 0.5}${totalArg})`
+          : `ProgressView(value: ${panel.value ?? 0.5}${totalArg})`
+      }
+      const ps = panel.progressViewStyle && panel.progressViewStyle !== 'automatic'
+        ? `.progressViewStyle(.${panel.progressViewStyle})` : ''
+      push(`${ctor}${ps}`)
     }
   },
 
@@ -329,10 +425,38 @@ export const PANELS = {
       color: '#e3e3e8',
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(2),
-      sliderValue: 0.5
+      sliderValue: 0.5,
+      // Spec §1.5 — bounds default `0...1`, step `0` (continuous), no labels.
+      sliderMin: 0,
+      sliderMax: 1,
+      sliderStep: 0,
+      sliderMinLabel: '',
+      sliderMaxLabel: ''
     },
     emit(panel, ctx) {
-      ctx.push(`Slider(value: .constant(${panel.sliderValue ?? 0.5}))`)
+      const { push, escapeString } = ctx
+      const v = panel.sliderValue ?? 0.5
+      const lo = panel.sliderMin ?? 0
+      const hi = panel.sliderMax ?? 1
+      const stepArg = panel.sliderStep && panel.sliderStep > 0 ? `, step: ${panel.sliderStep}` : ''
+      const range = !(lo === 0 && hi === 1) || stepArg
+      // visionOS Sliders accept optional `minimumValueLabel` /
+      // `maximumValueLabel` for accessory icons or text. Emit the labelled
+      // form when either is non-empty so the label slot is rendered on
+      // device exactly as the canvas previews.
+      if (panel.sliderMinLabel || panel.sliderMaxLabel) {
+        push(`Slider(value: .constant(${v}), in: ${lo}...${hi}${stepArg}) {`)
+        push(`    Text("")`)
+        push(`} minimumValueLabel: {`)
+        push(`    Text("${escapeString(panel.sliderMinLabel || '')}")`)
+        push(`} maximumValueLabel: {`)
+        push(`    Text("${escapeString(panel.sliderMaxLabel || '')}")`)
+        push(`}`)
+      } else if (range) {
+        push(`Slider(value: .constant(${v}), in: ${lo}...${hi}${stepArg})`)
+      } else {
+        push(`Slider(value: .constant(${v}))`)
+      }
     }
   },
 
@@ -344,11 +468,13 @@ export const PANELS = {
       cornerRadius: ptToUnits(8),
       stepperValue: 5,
       stepperMin: 0,
-      stepperMax: 10
+      stepperMax: 10,
+      stepperStep: 1            // SwiftUI default per spec §1.6
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`Stepper("${escapeString(panel.text || 'Stepper')}", value: .constant(${panel.stepperValue ?? 0}), in: ${panel.stepperMin ?? 0}...${panel.stepperMax ?? 10})`)
+      const step = panel.stepperStep && panel.stepperStep !== 1 ? `, step: ${panel.stepperStep}` : ''
+      push(`Stepper("${escapeString(panel.text || 'Stepper')}", value: .constant(${panel.stepperValue ?? 0}), in: ${panel.stepperMin ?? 0}...${panel.stepperMax ?? 10}${step})`)
     }
   },
 
@@ -361,11 +487,30 @@ export const PANELS = {
       value: 0.7,
       gaugeMin: 0,
       gaugeMax: 100,
-      text: '70'
+      text: '70',
+      gaugeMinLabel: '',
+      gaugeMaxLabel: '',
+      gaugeStyle: 'automatic',
+      // Optional 2-stop tint gradient — spec §1.11 `tint(_:)` accepts a
+      // Gradient on capacity gauges. Empty = system tint.
+      gaugeTintFrom: '',
+      gaugeTintTo: ''
     },
     emit(panel, ctx) {
-      const { push, escapeString } = ctx
-      push(`Gauge(value: ${panel.value ?? 0.5}) { Text("${escapeString(panel.text || '')}") }`)
+      const { push, escapeString, swiftColor } = ctx
+      const lo = panel.gaugeMin ?? 0
+      const hi = panel.gaugeMax ?? 1
+      const valueLabel = panel.text ? `currentValueLabel: { Text("${escapeString(panel.text)}") }` : null
+      const minLabel = panel.gaugeMinLabel ? `minimumValueLabel: { Text("${escapeString(panel.gaugeMinLabel)}") }` : null
+      const maxLabel = panel.gaugeMaxLabel ? `maximumValueLabel: { Text("${escapeString(panel.gaugeMaxLabel)}") }` : null
+      const labelArgs = [valueLabel, minLabel, maxLabel].filter(Boolean).join(', ')
+      const labelClause = labelArgs ? `, ${labelArgs}` : ''
+      const gs = panel.gaugeStyle && panel.gaugeStyle !== 'automatic'
+        ? `.gaugeStyle(.${panel.gaugeStyle})` : ''
+      const tint = panel.gaugeTintFrom && panel.gaugeTintTo
+        ? `.tint(Gradient(colors: [${swiftColor(null, panel.gaugeTintFrom)}, ${swiftColor(null, panel.gaugeTintTo)}]))`
+        : ''
+      push(`Gauge(value: ${panel.value ?? 0.5}, in: ${lo}...${hi}${labelClause}) { Text("") }${gs}${tint}`)
     }
   },
 
@@ -455,8 +600,16 @@ export const PANELS = {
       colorToken: 'systemBackground',
       cornerRadius: ptToUnits(20),
       text: 'Sheet Content',
-      sheetDetent: 'large',  // 'medium' | 'large'
-      material: 'regular'
+      sheetDetent: 'large',          // 'medium' | 'large' | 'fraction' | 'height'
+      sheetFraction: 0.5,             // honoured when sheetDetent === 'fraction'
+      sheetHeight: 320,               // pt — honoured when sheetDetent === 'height'
+      material: 'regular',
+      // Spec §1.25 — full presentation modifier set.
+      presentationDragIndicator: 'automatic',
+      presentationCornerRadius: 0,    // 0 = system (no override)
+      presentationContentInteraction: 'automatic',
+      presentationBackgroundInteraction: 'automatic',
+      interactiveDismissDisabled: false
     },
     emit(_panel, ctx) {
       ctx.push('// sheet — emitted as a .sheet(...) modifier on the parent view')
@@ -470,7 +623,9 @@ export const PANELS = {
       colorToken: 'secondarySystemBackground',
       cornerRadius: ptToUnits(12),
       text: 'Popover',
-      material: 'thick'
+      material: 'thick',
+      popoverAnchor: 'rectBounds',
+      popoverArrowEdge: 'automatic'   // ignored on visionOS but preserved
     },
     emit(_panel, ctx) {
       ctx.push('// popover — emitted as a .popover(...) modifier on the parent view')
@@ -486,7 +641,11 @@ export const PANELS = {
       text: 'Alert Title',
       alertMessage: 'Are you sure you want to proceed?',
       alertButtons: ['Cancel', 'OK'],
-      material: 'thick'
+      material: 'thick',
+      // Spec §1.25 — dialog metadata.
+      dialogSeverity: 'automatic',
+      dialogIcon: '',
+      dialogSuppressionToggle: false
     },
     emit(_panel, ctx) {
       ctx.push('// alert — emitted as an .alert(...) modifier on the parent view')
@@ -503,7 +662,7 @@ export const PANELS = {
       text: 'Label',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      fontWeight: 'regular',
+      fontWeight: 'medium',          // visionOS body weight
       textAlign: 'left',
       iconName: 'A',
       iconColor: '#007aff',
@@ -511,12 +670,21 @@ export const PANELS = {
       // (Settings.app pattern). null tile ⇒ fall back to the classic circle.
       iconTileColor: null,   // semantic token or '#rrggbb'
       iconTileSize: 28,      // pt
-      iconTileRadius: 6      // pt
+      iconTileRadius: 6,     // pt
+      // Spec §1.12 — `.imageScale` defaults to `.medium`; `symbolRenderingMode`
+      // defaults to monochrome. Both are emitted only when overridden.
+      imageScale: 'medium'
     },
     emit(panel, ctx) {
       const { push, escapeString, sym, style, weight } = ctx
       const icon = sym || panel.iconName || 'circle.fill'
-      push(`Label("${escapeString(panel.text || 'Label')}", systemImage: "${icon}").font(.${style}${weight})`)
+      const ls = panel.styles?.labelStyle && panel.styles.labelStyle !== 'automatic'
+        ? `.labelStyle(.${panel.styles.labelStyle})` : ''
+      const is = panel.imageScale && panel.imageScale !== 'medium'
+        ? `.imageScale(.${panel.imageScale})` : ''
+      const sm = panel.symbolRenderingMode && panel.symbolRenderingMode !== 'monochrome'
+        ? `.symbolRenderingMode(.${panel.symbolRenderingMode})` : ''
+      push(`Label("${escapeString(panel.text || 'Label')}", systemImage: "${icon}").font(.${style}${weight})${ls}${is}${sm}`)
     }
   },
 
@@ -531,11 +699,46 @@ export const PANELS = {
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       textColor: '#8e8e93',
-      textColorToken: 'secondary'
+      textColorToken: 'secondary',
+      // Spec §1.3 — keyboardType, textContentType, submitLabel,
+      // autocorrectionDisabled, textInputAutocapitalization, axis, lineLimit.
+      keyboardType: 'default',
+      textContentType: '',                  // '' = no .textContentType modifier
+      submitLabel: 'return',
+      autocorrectionDisabled: false,
+      textInputAutocapitalization: 'sentences',
+      axis: 'horizontal',                   // 'horizontal' (default) | 'vertical'
+      lineLimit: 1                          // honoured when axis === 'vertical'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`TextField("${escapeString(panel.text || '')}", text: .constant("${escapeString(panel.textfieldValue || '')}"))`)
+      const ax = panel.axis === 'vertical' ? `, axis: .vertical` : ''
+      const lines = []
+      lines.push(`TextField("${escapeString(panel.text || '')}", text: .constant("${escapeString(panel.textfieldValue || '')}")${ax})`)
+      // `.textFieldStyle(.automatic)` is implicit on visionOS — only emit
+      // when overridden so the device's recessed-glass field shows through.
+      if (panel.styles?.textFieldStyle && panel.styles.textFieldStyle !== 'automatic') {
+        lines.push(`    .textFieldStyle(.${panel.styles.textFieldStyle})`)
+      }
+      if (panel.keyboardType && panel.keyboardType !== 'default') {
+        lines.push(`    .keyboardType(.${panel.keyboardType})`)
+      }
+      if (panel.textContentType) {
+        lines.push(`    .textContentType(.${panel.textContentType})`)
+      }
+      if (panel.submitLabel && panel.submitLabel !== 'return') {
+        lines.push(`    .submitLabel(.${panel.submitLabel})`)
+      }
+      if (panel.autocorrectionDisabled) {
+        lines.push(`    .autocorrectionDisabled(true)`)
+      }
+      if (panel.textInputAutocapitalization && panel.textInputAutocapitalization !== 'sentences') {
+        lines.push(`    .textInputAutocapitalization(.${panel.textInputAutocapitalization})`)
+      }
+      if (panel.axis === 'vertical' && panel.lineLimit && panel.lineLimit !== 1) {
+        lines.push(`    .lineLimit(${panel.lineLimit})`)
+      }
+      push(lines.join('\n' + ctx.ind))
     }
   },
 
@@ -550,11 +753,17 @@ export const PANELS = {
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       textColor: '#000000',
-      textColorToken: 'primary'
+      textColorToken: 'primary',
+      // SecureField forces `.textContentType(.password)` and disables
+      // selection per spec §1.3 — these are runtime-enforced; we still
+      // expose `submitLabel` since visionOS surfaces it on the keyboard.
+      submitLabel: 'done'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`SecureField("${escapeString(panel.text || '')}", text: .constant(""))`)
+      const sl = panel.submitLabel && panel.submitLabel !== 'return'
+        ? `.submitLabel(.${panel.submitLabel})` : ''
+      push(`SecureField("${escapeString(panel.text || '')}", text: .constant(""))${sl}`)
     }
   },
 
@@ -586,7 +795,7 @@ export const PANELS = {
       text: 'Selection',
       pickerValue: 'Option 1',
       pickerOptions: ['Option 1', 'Option 2', 'Option 3'],
-      pickerStyle: 'menu',
+      pickerStyle: 'automatic',  // → .menu on visionOS (spec §1.7)
       textStyle: 'body',
       fontSize: textStyleToFontSize('body')
     },
@@ -595,7 +804,11 @@ export const PANELS = {
       const opts = panel.pickerOptions || []
       push(`Picker("${escapeString(panel.text || '')}", selection: .constant("${escapeString(panel.pickerValue || opts[0] || '')}")) {`)
       opts.forEach((o) => push(`    Text("${escapeString(o)}").tag("${escapeString(o)}")`))
-      push(`}${panel.pickerStyle ? `.pickerStyle(.${panel.pickerStyle})` : ''}`)
+      // `.automatic` resolves to `.menu` on visionOS — let the system
+      // decide so we don't lock the picker into a specific style.
+      const ps = panel.pickerStyle && panel.pickerStyle !== 'automatic'
+        ? `.pickerStyle(.${panel.pickerStyle})` : ''
+      push(`}${ps}`)
     }
   },
 
@@ -607,13 +820,29 @@ export const PANELS = {
       cornerRadius: ptToUnits(8),
       text: 'Date',
       dateValue: '2026-04-16',
-      dateStyle: 'compact',
+      // Spec §1.8 — `.automatic` resolves to `.compact` on visionOS.
+      dateStyle: 'automatic',
+      // `displayedComponents:` defaults to `[.date, .hourAndMinute]` —
+      // we model the four documented combinations (date, time, both, or
+      // visionOS-2-only seconds form).
+      displayedComponents: 'dateAndTime',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body')
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`DatePicker("${escapeString(panel.text || 'Date')}", selection: .constant(Date()))`)
+      const compMap = {
+        date: '.date',
+        hourAndMinute: '.hourAndMinute',
+        dateAndTime: '[.date, .hourAndMinute]',
+        hourMinuteAndSecond: '.hourMinuteAndSecond'
+      }
+      const comp = compMap[panel.displayedComponents] || compMap.dateAndTime
+      const compArg = panel.displayedComponents && panel.displayedComponents !== 'dateAndTime'
+        ? `, displayedComponents: ${comp}` : ''
+      const ds = panel.dateStyle && panel.dateStyle !== 'automatic'
+        ? `.datePickerStyle(.${panel.dateStyle})` : ''
+      push(`DatePicker("${escapeString(panel.text || 'Date')}", selection: .constant(Date())${compArg})${ds}`)
     }
   },
 
@@ -625,12 +854,16 @@ export const PANELS = {
       cornerRadius: 0,
       text: 'Color',
       pickedColor: '#ff3b30',
+      // SwiftUI default is true (spec §1.9). Stored explicitly so the
+      // exporter can omit `supportsOpacity:` when the default holds.
+      supportsOpacity: true,
       textStyle: 'body',
       fontSize: textStyleToFontSize('body')
     },
     emit(panel, ctx) {
       const { push, escapeString, swiftColor } = ctx
-      push(`ColorPicker("${escapeString(panel.text || 'Color')}", selection: .constant(${swiftColor(null, panel.pickedColor || '#ff3b30')}))`)
+      const op = panel.supportsOpacity === false ? `, supportsOpacity: false` : ''
+      push(`ColorPicker("${escapeString(panel.text || 'Color')}", selection: .constant(${swiftColor(null, panel.pickedColor || '#ff3b30')})${op})`)
     }
   },
 
@@ -642,9 +875,12 @@ export const PANELS = {
       colorToken: 'systemBlue',
       cornerRadius: 0,
       text: 'Open Link',
+      // Persisted destination for the SwiftUI `Link(destination: URL(...))`
+      // initializer. visionOS opens the URL in Safari in a new window.
+      url: 'https://www.apple.com/vision-pro/',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      fontWeight: 'regular',
+      fontWeight: 'medium',   // visionOS body weight
       textAlign: 'left',
       italic:        false,
       underline:     true,    // links conventionally underlined by default
@@ -652,12 +888,99 @@ export const PANELS = {
       lineLimit:     1,
       lineSpacing:   0,
       tracking:      0,
-      textCase:      'none'
+      kerning:       0,
+      baselineOffset:0,
+      textCase:      'none',
+      truncationMode:'tail',
+      minimumScaleFactor: 1,
+      allowsTightening: false,
+      fontDesign:    'default',
+      monospacedDigit: false
     },
     emit(panel, ctx) {
-      // We don't persist a URL — use the displayed text as the destination label.
       const { push, escapeString, style, weight } = ctx
-      push(`Link("${escapeString(panel.text || 'Open')}", destination: URL(string: "https://example.com")!).font(.${style}${weight})`)
+      const url = (panel.url || 'https://example.com').trim()
+      push(`Link("${escapeString(panel.text || 'Open')}", destination: URL(string: "${escapeString(url)}")!).font(.${style}${weight})`)
+    }
+  },
+
+  // Spec §1.17 — `NavigationLink`. Two emit forms: value-based (requires
+  // an enclosing NavigationStack with `.navigationDestination(for:)`) and
+  // destination-based (builds the destination view inline). The exporter
+  // chooses based on `linkMode`.
+  navigationlink: {
+    defaults: {
+      size: [ptToUnits(220), ptToUnits(28)],
+      widthMode: 'fit',
+      color: '#0a84ff',
+      colorToken: 'systemBlue',
+      cornerRadius: 0,
+      text: 'See Details',
+      // 'value' = `NavigationLink("Title", value: someHashable)`
+      // 'destination' = `NavigationLink { Destination() } label: { Text(...) }`
+      linkMode: 'value',
+      navValue: 'detail',          // Hashable identifier for value-based links
+      destinationName: 'DetailView',
+      textStyle: 'body',
+      fontSize: textStyleToFontSize('body'),
+      fontWeight: 'medium',
+      textAlign: 'left'
+    },
+    emit(panel, ctx) {
+      const { push, escapeString, style, weight } = ctx
+      if (panel.linkMode === 'destination') {
+        push(`NavigationLink {`)
+        push(`    ${panel.destinationName || 'DetailView'}()`)
+        push(`} label: {`)
+        push(`    Text("${escapeString(panel.text || 'Open')}").font(.${style}${weight})`)
+        push(`}`)
+      } else {
+        push(`NavigationLink("${escapeString(panel.text || 'Open')}", value: "${escapeString(panel.navValue || 'detail')}").font(.${style}${weight})`)
+      }
+    }
+  },
+
+  // Spec §1.25 — `.confirmationDialog(_:isPresented:titleVisibility:actions:)`.
+  // Distinct from `.alert(...)` because visionOS renders it differently
+  // (a glass-styled action sheet that can include destructive role buttons).
+  confirmationdialog: {
+    defaults: {
+      size: [ptToUnits(300), ptToUnits(180)],
+      color: '#ffffff',
+      colorToken: 'secondarySystemBackground',
+      cornerRadius: ptToUnits(16),
+      text: 'Are you sure?',
+      alertMessage: 'This action cannot be undone.',
+      alertButtons: ['Delete', 'Cancel'],
+      titleVisibility: 'automatic',  // 'automatic' | 'visible' | 'hidden'
+      material: 'thick'
+    },
+    emit(_panel, ctx) {
+      ctx.push('// confirmationDialog — emitted as a .confirmationDialog(...) modifier on the parent view')
+    }
+  },
+
+  // Spec §1.25 — `.inspector(isPresented:content:)` (visionOS 1+). On
+  // wide windows the inspector renders as a trailing sidebar; in compact
+  // contexts SwiftUI adapts to a sheet. Stored as a presentation panel
+  // so the exporter wires it as a modifier on the parent view.
+  inspector: {
+    defaults: {
+      size: [ptToUnits(320), ptToUnits(480)],
+      color: '#ffffff',
+      colorToken: 'systemBackground',
+      cornerRadius: ptToUnits(16),
+      text: 'Inspector content',
+      material: 'regular',
+      // `.inspectorColumnWidth(_:)` / `(min:ideal:max:)` overrides; `null`
+      // = use the system default. Stored in pt; exporter elides when null.
+      inspectorColumnWidth: null,
+      inspectorMinWidth: null,
+      inspectorIdealWidth: null,
+      inspectorMaxWidth: null
+    },
+    emit(_panel, ctx) {
+      ctx.push('// inspector — emitted as an .inspector(...) modifier on the parent view')
     }
   },
 
@@ -703,13 +1026,18 @@ export const PANELS = {
         { title: 'Notifications', subtitle: 'On' }
       ],
       rowHeight: 48,
-      listStyle: 'insetGrouped'
+      listStyle: 'insetGrouped',
+      // Spec §1.21 — `.formStyle(.automatic)` resolves to grouped on
+      // visionOS. Stored explicitly so the exporter can elide it.
+      formStyle: 'automatic'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
       push(`Form {`)
       ;(panel.rows || []).forEach((r) => push(`    Text("${escapeString(r.title || '')}")`))
-      push(`}`)
+      const fs = panel.formStyle && panel.formStyle !== 'automatic'
+        ? `.formStyle(.${panel.formStyle})` : ''
+      push(`}${fs}`)
     }
   },
 
@@ -721,11 +1049,14 @@ export const PANELS = {
       cornerRadius: ptToUnits(12),
       text: 'Settings',
       textStyle: 'headline',
-      fontSize: textStyleToFontSize('headline')
+      fontSize: textStyleToFontSize('headline'),
+      groupBoxStyle: 'automatic'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`GroupBox("${escapeString(panel.text || '')}") { }`)
+      const gs = panel.groupBoxStyle && panel.groupBoxStyle !== 'automatic'
+        ? `.groupBoxStyle(.${panel.groupBoxStyle})` : ''
+      push(`GroupBox("${escapeString(panel.text || '')}") { }${gs}`)
     }
   },
 
@@ -745,12 +1076,62 @@ export const PANELS = {
       rowHeight: 44
     },
     emit(panel, ctx) {
-      // SwiftUI OutlineGroup needs a recursive data model — emit a simple
-      // placeholder Text list. Phase 4 may revisit this with proper nesting.
+      // Spec §1.23 — OutlineGroup needs a recursive data type. We emit a
+      // self-contained `OutlineNode` struct (id, title, optional children)
+      // and a hand-rolled tree built from the inspector's flat
+      // (title, indent) rows so the generated SwiftUI compiles directly
+      // without forcing the designer to wire up their own model.
       const { push, escapeString } = ctx
-      push(`// OutlineGroup — replace with your own recursive data model`)
+      const rows = panel.rows || []
+
+      // Reconstruct the indent-driven tree as a literal Swift array.
+      // Walk the flat list left-to-right, treating each row's `indent` as
+      // its tree depth. A small stack tracks the open ancestors.
+      const renderNodes = (startIdx, depth) => {
+        const out = []
+        let i = startIdx
+        while (i < rows.length && (rows[i].indent ?? 0) >= depth) {
+          if ((rows[i].indent ?? 0) > depth) { i++; continue }
+          const title = escapeString(rows[i].title || '')
+          // Look ahead for children (rows immediately after with indent+1).
+          const childStart = i + 1
+          let childEnd = childStart
+          while (childEnd < rows.length && (rows[childEnd].indent ?? 0) > depth) childEnd++
+          if (childEnd > childStart) {
+            const kids = renderNodes(childStart, depth + 1)
+            out.push({ title, children: kids })
+            i = childEnd
+          } else {
+            out.push({ title, children: null })
+            i++
+          }
+        }
+        return out
+      }
+      const tree = renderNodes(0, 0)
+      const dump = (nodes, indent) => {
+        const ind = '    '.repeat(indent)
+        const parts = nodes.map((n, i) => {
+          const prefix = `${ind}OutlineNode(title: "${n.title}"`
+          if (!n.children || !n.children.length) return `${prefix})`
+          const inner = dump(n.children, indent + 1)
+          return `${prefix}, children: [\n${inner}\n${ind}])`
+        })
+        return parts.join(',\n')
+      }
+      const seedLiteral = `[\n${dump(tree, 1)}\n]`
+
+      push(`// OutlineGroup — generated recursive model`)
+      push(`struct OutlineNode: Identifiable {`)
+      push(`    let id = UUID()`)
+      push(`    let title: String`)
+      push(`    var children: [OutlineNode]? = nil`)
+      push(`}`)
+      push(`let outlineSeed: [OutlineNode] = ${seedLiteral}`)
       push(`List {`)
-      ;(panel.rows || []).forEach((r) => push(`    Text("${escapeString(r.title || '')}")`))
+      push(`    OutlineGroup(outlineSeed, children: \\.children) { node in`)
+      push(`        Text(node.title)`)
+      push(`    }`)
       push(`}`)
     }
   },

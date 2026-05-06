@@ -16,6 +16,7 @@ import {
   SYMBOL_RENDERING_MODES, SYMBOL_VARIANTS,
   ANIMATION_CURVES, TRANSITION_TYPES,
   ACCESSIBILITY_TRAITS,
+  GLASS_DISPLAY_MODES, GLASS_SHAPES, CONTAINER_BG_PLACEMENTS,
   ptToUnits
 } from '../../appleSystem'
 import {
@@ -227,7 +228,7 @@ export function TextModifiers({ item, updateItem }) {
         </div>
       </Row>
 
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.textCase() · .lineLimit() · .lineSpacing() · .tracking()</div>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.textCase() · .lineLimit() · .lineSpacing() · .tracking() · .kerning() · .baselineOffset()</div>
       <Row label="Case">
         <Select
           value={item.textCase || 'none'}
@@ -242,6 +243,61 @@ export function TextModifiers({ item, updateItem }) {
       <Row label="Lines"><IntField value={item.lineLimit ?? 0} min={0} max={20} onChange={(v) => setField({ lineLimit: Math.max(0, v) })} /></Row>
       <Row label="Line Sp."><PtField value={item.lineSpacing ?? 0} onChange={(v) => setField({ lineSpacing: Math.max(0, v) })} /></Row>
       <Row label="Tracking"><NumField value={item.tracking ?? 0} step={0.1} onChange={(v) => setField({ tracking: v })} suffix="pt" /></Row>
+      {/*
+        SwiftUI distinguishes `.tracking()` (inter-character space, applied
+        uniformly) from `.kerning()` (font-aware pair-by-pair adjustment) —
+        and `.baselineOffset()` shifts the entire run vertically. All three
+        feed straight into the SwiftUI exporter when non-zero.
+      */}
+      <Row label="Kerning"><NumField value={item.kerning ?? 0} step={0.1} onChange={(v) => setField({ kerning: v })} suffix="pt" /></Row>
+      <Row label="Baseline"><NumField value={item.baselineOffset ?? 0} step={0.5} onChange={(v) => setField({ baselineOffset: v })} suffix="pt" /></Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.truncationMode() · .minimumScaleFactor() · .allowsTightening()</div>
+      <Row label="Truncate">
+        <Select
+          value={item.truncationMode || 'tail'}
+          options={[
+            { value: 'tail',   label: 'Tail (default)' },
+            { value: 'middle', label: 'Middle' },
+            { value: 'head',   label: 'Head' }
+          ]}
+          onChange={(v) => setField({ truncationMode: v })}
+        />
+      </Row>
+      <Row label="Min Scale">
+        {/*
+          `.minimumScaleFactor(_:)` lets SwiftUI shrink text down to this
+          fraction of the requested size before truncating. 1.0 = no scaling
+          (the SwiftUI default).
+        */}
+        <Slider value={item.minimumScaleFactor ?? 1} min={0.1} max={1} step={0.05} onChange={(v) => setField({ minimumScaleFactor: v })} />
+      </Row>
+      <Row label="Tighten">
+        <div className="segmented flex-1">
+          <button className={item.allowsTightening ? 'active' : ''} onClick={() => setField({ allowsTightening: true })}>On</button>
+          <button className={!item.allowsTightening ? 'active' : ''} onClick={() => setField({ allowsTightening: false })}>Off</button>
+        </div>
+      </Row>
+
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.fontDesign() · .monospacedDigit()</div>
+      <Row label="Design">
+        <Select
+          value={item.fontDesign || 'default'}
+          options={[
+            { value: 'default',    label: 'Default (SF)' },
+            { value: 'serif',      label: 'Serif (NY)' },
+            { value: 'rounded',    label: 'Rounded' },
+            { value: 'monospaced', label: 'Monospaced' }
+          ]}
+          onChange={(v) => setField({ fontDesign: v })}
+        />
+      </Row>
+      <Row label="Mono Digits">
+        <div className="segmented flex-1">
+          <button className={item.monospacedDigit ? 'active' : ''} onClick={() => setField({ monospacedDigit: true })}>On</button>
+          <button className={!item.monospacedDigit ? 'active' : ''} onClick={() => setField({ monospacedDigit: false })}>Off</button>
+        </div>
+      </Row>
 
       <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.opacity()</div>
       <Row label="Opacity">
@@ -262,7 +318,53 @@ export function TextModifiers({ item, updateItem }) {
       <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
       <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
       <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+
+      <VisionChromeRows m={m} upd={upd} />
     </Section>
+  )
+}
+
+// Shared visionOS chrome rows — `.glassBackgroundEffect()` +
+// `.containerBackground(_:for:)`. Pulled into UniversalModifiers and
+// TextModifiers so any panel/stack can opt into the visionOS-tuned glass
+// look without duplication. Spec §3.3.
+export function VisionChromeRows({ m, upd }) {
+  return (
+    <>
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">.glassBackgroundEffect() · .containerBackground()</div>
+      <Row label="Glass">
+        <Select
+          value={m.glassDisplayMode || 'never'}
+          options={GLASS_DISPLAY_MODES}
+          onChange={(v) => upd({ glassDisplayMode: v })}
+        />
+      </Row>
+      {m.glassDisplayMode && m.glassDisplayMode !== 'never' && (
+        <Row label="Shape">
+          <Select
+            value={m.glassShape || 'auto'}
+            options={GLASS_SHAPES}
+            onChange={(v) => upd({ glassShape: v })}
+          />
+        </Row>
+      )}
+      <Row label="BG For">
+        <Select
+          value={m.containerBgFor || 'window'}
+          options={CONTAINER_BG_PLACEMENTS}
+          onChange={(v) => upd({ containerBgFor: v })}
+        />
+      </Row>
+      <Row label="BG Color">
+        <ColorRow
+          value={m.containerBgColor || ''}
+          onChange={(v) => upd({ containerBgColor: v })}
+        />
+        {m.containerBgColor && (
+          <button className="btn btn-ghost text-[9px]" onClick={() => upd({ containerBgColor: null })} title="Clear container background">×</button>
+        )}
+      </Row>
+    </>
   )
 }
 
@@ -312,6 +414,8 @@ export function UniversalModifiers({ item, updateItem }) {
       <Row label="Scale Y"><NumField value={m.scaleY ?? 1} step={0.05} onChange={(v) => upd({ scaleY: v })} /></Row>
       <Row label="Offset X"><IntField value={m.offsetX ?? 0} onChange={(v) => upd({ offsetX: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
       <Row label="Offset Y"><IntField value={m.offsetY ?? 0} onChange={(v) => upd({ offsetY: v })} /><span className="text-[9px] text-textMute">pt</span></Row>
+
+      <VisionChromeRows m={m} upd={upd} />
     </Section>
   )
 }

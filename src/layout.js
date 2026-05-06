@@ -4,6 +4,19 @@
 
 import { ptToUnits, computeListHeightPt } from './appleSystem'
 
+// SwiftUI's default `spacing: nil` resolves at runtime to a small,
+// context-dependent gap. visionOS hovers around ~8 pt for typical body
+// content. We use this constant in the canvas so a stack with a null
+// `spacing` field previews close to what the simulator renders, while the
+// SwiftUI exporter still elides the `spacing:` argument so the device
+// keeps its system-adaptive value.
+export const SYSTEM_SPACING_PT = 8
+
+// Resolve a stack's `spacing` field for layout: explicit numbers win,
+// `null`/`undefined` fall back to the visionOS-approximated default.
+const stackSpacing = (s) =>
+  ptToUnits(typeof s === 'number' ? s : SYSTEM_SPACING_PT)
+
 // ---- padding helpers ----
 
 function resolvePadding(item) {
@@ -148,7 +161,7 @@ export function computeSize(item, items) {
   // Filter out spacers from fixed-size calculation (they expand later).
   const fixedChildren = children.filter((c) => !c.isSpacer)
   const sizes = fixedChildren.map((c) => computeSize(c, items))
-  const gap = ptToUnits(item.spacing ?? 0)
+  const gap = stackSpacing(item.spacing)
 
   // Section: add header + footer height
   const headerH = (item.stackType === 'section' && item.sectionHeader) ? ptToUnits(28) : 0
@@ -159,10 +172,25 @@ export function computeSize(item, items) {
   if (item.stackType === 'hstack' || item.stackType === 'lazyhstack') {
     w = sizes.reduce((s, [cw]) => s + cw, 0) + gap * Math.max(0, fixedChildren.length - 1) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
-  } else if (item.stackType === 'zstack') {
+  } else if (item.stackType === 'zstack' || item.stackType === 'viewThatFits') {
+    // ViewThatFits behaves like a ZStack at design-time: we lay out the
+    // first child at the parent size. Spec §1.24 — the runtime picks the
+    // first child that fits; on a static canvas all children stack.
     w = (sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : 0) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
-  } else if (item.stackType === 'grid') {
+  } else if (item.stackType === 'scrollView') {
+    // ScrollView's intrinsic size mirrors its content along the cross axis
+    // and 0 on the scroll axis (the parent decides). For canvas we treat
+    // it like a VStack/HStack of children based on the chosen axis.
+    const axis = item.scrollAxis || 'vertical'
+    if (axis === 'horizontal') {
+      w = sizes.reduce((s, [cw]) => s + cw, 0) + gap * Math.max(0, fixedChildren.length - 1) + padW(pad)
+      h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
+    } else {
+      w = (sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : 0) + padW(pad)
+      h = sizes.reduce((s, [, ch]) => s + ch, 0) + gap * Math.max(0, fixedChildren.length - 1) + padH(pad)
+    }
+  } else if (item.stackType === 'grid' || item.stackType === 'lazyVGrid' || item.stackType === 'lazyHGrid') {
     // Adaptive grid mirrors `LazyVGrid(columns: [GridItem(.adaptive(minimum: x))])`:
     // columns are derived from the parent's inner width once we know it.
     // Without that knowledge here (intrinsic path), use declared columns as
@@ -196,10 +224,13 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
   const [sw, sh] = outerSize || computeSize(stack, items)
   const innerW = Math.max(0, sw - padW(pad))
   const innerH = Math.max(0, sh - padH(pad))
-  const gap = ptToUnits(stack.spacing ?? 0)
-  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack'
+  const gap = stackSpacing(stack.spacing)
+  // ScrollView contributes to fill-resolution along its scroll axis only.
+  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
-                   stack.stackType === 'section' || stack.stackType === 'disclosure'
+                   stack.stackType === 'section' || stack.stackType === 'disclosure' ||
+                   (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') !== 'horizontal')
 
   // Compute per-axis flex share so main-axis fill stack children get the
   // correct width/height here (matches what layoutStack hands them).
@@ -256,7 +287,7 @@ export function layoutStack(stack, items, outerSize = null) {
   const [sw, sh] = outerSize || computeSize(stack, items)
   const innerW = sw - padW(pad)
   const innerH = sh - padH(pad)
-  const gap = ptToUnits(stack.spacing ?? 0)
+  const gap = stackSpacing(stack.spacing)
 
   // Disclosure collapsed: no children rendered
   if (stack.stackType === 'disclosure' && !stack.expanded) return new Map()
@@ -289,9 +320,14 @@ export function layoutStack(stack, items, outerSize = null) {
   // stack's inner size; on the *main* axis it behaves like a Spacer (shares
   // remaining space with siblings). We mark main-axis-fill children here
   // and expand them later, the same way spacers are expanded.
-  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack'
+  // ScrollView lays out like a VStack/HStack along its scroll axis — so
+  // we treat it as one for child positioning. ViewThatFits collapses to
+  // its first child (we render it ZStack-style on the canvas).
+  const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
-                   stack.stackType === 'section' || stack.stackType === 'disclosure'
+                   stack.stackType === 'section' || stack.stackType === 'disclosure' ||
+                   (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') !== 'horizontal')
   const mainAxisFill = (c) => {
     if (c.type !== 'stack') return false
     if (isHStack) return c.widthMode === 'fill'
@@ -320,8 +356,12 @@ export function layoutStack(stack, items, outerSize = null) {
   const headerH = (stack.stackType === 'section' && stack.sectionHeader) ? ptToUnits(28) : 0
   const footerH = (stack.stackType === 'section' && stack.sectionFooter) ? ptToUnits(22) : 0
 
-  // ---- Grid ----
-  if (stack.stackType === 'grid') {
+  // ---- Grid (Grid / LazyVGrid / LazyHGrid) ----
+  // LazyVGrid mirrors Grid's column-flow layout. LazyHGrid flows rows
+  // horizontally — we approximate with a single-axis HStack arrangement
+  // (the canvas isn't a virtualised renderer, so the lazy semantics are
+  // a no-op here; the layout matches what a single flush would render).
+  if (stack.stackType === 'grid' || stack.stackType === 'lazyVGrid' || stack.stackType === 'lazyHGrid') {
     const cols = gridColumnCount(stack, innerW, gap)
     const colW = innerW / cols
     const rowHs = []
@@ -369,8 +409,10 @@ export function layoutStack(stack, items, outerSize = null) {
     return out
   }
 
-  // ---- ZStack ----
-  if (stack.stackType === 'zstack') {
+  // ---- ZStack / ViewThatFits ----
+  // ViewThatFits picks one child at runtime — we Z-stack on canvas so all
+  // candidates remain visible to the designer.
+  if (stack.stackType === 'zstack' || stack.stackType === 'viewThatFits') {
     for (let i = 0; i < children.length; i++) {
       const [cw, ch] = sizes[i]
       let x = 0, y = 0

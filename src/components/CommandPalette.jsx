@@ -84,6 +84,18 @@ export default function CommandPalette() {
     { id: 'sheet',     label: 'Sheet',     group: 'Presentations',    Icon: SheetIcon,     run: () => addPresentation('sheet') },
     { id: 'alert',     label: 'Alert',     group: 'Presentations',    Icon: AlertIcon,     run: () => addPresentation('alert') },
     { id: 'popover',   label: 'Popover',   group: 'Presentations',    Icon: PopoverIcon,   run: () => addPresentation('popover') },
+    { id: 'confirmationdialog', label: 'Confirmation Dialog', group: 'Presentations', Icon: AlertIcon, run: () => addPresentation('confirmationdialog') },
+    { id: 'inspector', label: 'Inspector', group: 'Presentations', Icon: SheetIcon, run: () => addPresentation('inspector') },
+    { id: 'navigationlink', label: 'Navigation Link', group: 'Views', Icon: LinkIcon, run: () => addPanel('navigationlink') },
+    // Toolbar / ToolbarItem / ToolbarItemGroup — placement chrome (spec §1.26)
+    { id: 'toolbarStack',      label: 'Toolbar Stack',       group: 'Layout', Icon: VStackIcon, run: () => addStack('toolbar') },
+    { id: 'toolbarItem',       label: 'Toolbar Item',        group: 'Layout', Icon: VStackIcon, run: () => addStack('toolbarItem') },
+    { id: 'toolbarItemGroup',  label: 'Toolbar Item Group',  group: 'Layout', Icon: HStackIcon, run: () => addStack('toolbarItemGroup') },
+    // Layout primitives (spec §1.24)
+    { id: 'scrollView',        label: 'Scroll View',         group: 'Layout', Icon: VStackIcon, run: () => addStack('scrollView') },
+    { id: 'lazyVGrid',         label: 'Lazy V Grid',         group: 'Layout', Icon: VStackIcon, run: () => addStack('lazyVGrid') },
+    { id: 'lazyHGrid',         label: 'Lazy H Grid',         group: 'Layout', Icon: HStackIcon, run: () => addStack('lazyHGrid') },
+    { id: 'viewThatFits',      label: 'View That Fits',      group: 'Layout', Icon: ZStackIcon, run: () => addStack('viewThatFits') },
     // 3D — RealityKit / Model3D primitives. Embeddable in any window or
     // volume — they live inside the parent stack just like 2D views.
     { id: 'sphere',    label: 'Sphere',      group: '3D',          Icon: SphereIcon,    run: () => addPanel('sphere') },
