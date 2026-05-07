@@ -176,7 +176,7 @@ export const makeStack = (overrides = {}) => ({
   sectionHeader: '',          // for stackType 'section'
   sectionFooter: '',
   // Disclosure-specific
-  expanded: true,             // for stackType 'disclosure'
+  expanded: false,            // for stackType 'disclosure' — spec default is collapsed
   disclosureLabel: 'Section',
   // NavStack-specific
   activeChild: 0,             // for stackType 'navigationStack'

@@ -15,6 +15,19 @@
 
 import { GLASS_DISPLAY_MODES, GLASS_SHAPES, CONTAINER_BG_PLACEMENTS } from '../appleSystem'
 
+// Convert a 6-digit hex color to a SwiftUI Color(...) expression.
+// SwiftUI has no `Color(hex:)` init in its stdlib — always use Color(red:green:blue:).
+function hexToColor(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || '')
+  if (m) {
+    const r = (parseInt(m[1].slice(0, 2), 16) / 255).toFixed(3)
+    const g = (parseInt(m[1].slice(2, 4), 16) / 255).toFixed(3)
+    const b = (parseInt(m[1].slice(4, 6), 16) / 255).toFixed(3)
+    return `Color(red: ${r}, green: ${g}, blue: ${b})`
+  }
+  return '.primary'
+}
+
 // ---- view-kind helpers --------------------------------------------------
 
 export const viewKind = (item) => {
@@ -178,7 +191,7 @@ export const MODIFIERS = {
     },
     emit(args) {
       if (!args.radius || !args.color) return null
-      return `.shadow(color: Color(hex: "${args.color}"), radius: ${args.radius}, x: ${args.x || 0}, y: ${args.y || 0})`
+      return `.shadow(color: ${hexToColor(args.color)}, radius: ${args.radius}, x: ${args.x || 0}, y: ${args.y || 0})`
     }
   },
 
@@ -196,7 +209,7 @@ export const MODIFIERS = {
     },
     emit(args) {
       if (!args.width || !args.color) return null
-      return `.border(Color(hex: "${args.color}"), width: ${args.width})`
+      return `.border(${hexToColor(args.color)}, width: ${args.width})`
     }
   },
 
@@ -222,11 +235,11 @@ export const MODIFIERS = {
     swiftName: '.foregroundStyle',
     group: 'Color',
     defaults: { color: '#ffffff' },
-    appliesTo: (k) => KIND_TINTABLE.has(k),
+    appliesTo: has2DBox,
     summarize(args, acc) { acc.foregroundStyle = args.color },
     emit(args) {
       if (!args.color) return null
-      return `.foregroundStyle(Color(hex: "${args.color}"))`
+      return `.foregroundStyle(${hexToColor(args.color)})`
     }
   },
 
@@ -275,7 +288,7 @@ export const MODIFIERS = {
     },
     emit(args) {
       if (!args.color) return null
-      return `.containerBackground(Color(hex: "${args.color}"), for: .${args.placement || 'window'})`
+      return `.containerBackground(${hexToColor(args.color)}, for: .${args.placement || 'window'})`
     }
   },
 
@@ -445,21 +458,256 @@ export const MODIFIERS = {
     appliesTo: (k) => KIND_TEXTUAL.has(k),
     summarize(_a, acc) { acc.monospacedDigit = true },
     emit() { return `.monospacedDigit()` }
+  },
+
+  // ---- layout frame -------------------------------------------------------
+  frame: {
+    type: 'frame',
+    swiftName: '.frame',
+    group: 'Layout',
+    defaults: { width: null, height: null, maxWidth: false, maxHeight: false, alignment: 'center' },
+    appliesTo: has2DBox,
+    summarize(args, acc) {
+      if (args.width)     acc.frameWidth  = args.width
+      if (args.height)    acc.frameHeight = args.height
+      if (args.maxWidth)  acc.frameMaxWidth  = '.infinity'
+      if (args.maxHeight) acc.frameMaxHeight = '.infinity'
+    },
+    emit(args) {
+      const parts = []
+      if (args.width  != null)  parts.push(`width: ${args.width}`)
+      if (args.height != null)  parts.push(`height: ${args.height}`)
+      if (args.maxWidth)  parts.push(`maxWidth: .infinity`)
+      if (args.maxHeight) parts.push(`maxHeight: .infinity`)
+      if (args.alignment && args.alignment !== 'center') parts.push(`alignment: .${args.alignment}`)
+      if (parts.length === 0) return null
+      return `.frame(${parts.join(', ')})`
+    }
+  },
+
+  // ---- background / overlay -----------------------------------------------
+  background: {
+    type: 'background',
+    swiftName: '.background',
+    group: 'Decoration',
+    defaults: { color: '#1c1c1e', colorToken: null, material: null, alignment: 'center' },
+    appliesTo: has2DBox,
+    summarize(args, acc) { acc.background = args.color || args.material },
+    emit(args) {
+      if (args.material) return `.background(${args.material})`
+      if (!args.color && !args.colorToken) return null
+      const c = args.colorToken
+        ? { primary: '.primary', secondary: '.secondary', systemBlue: '.blue', systemRed: '.red',
+            systemGreen: '.green', systemOrange: '.orange', systemGray: '.gray' }[args.colorToken] || hexToColor(args.color || '#000000')
+        : hexToColor(args.color || '#000000')
+      const align = args.alignment && args.alignment !== 'center' ? `, alignment: .${args.alignment}` : ''
+      return `.background(${c}${align})`
+    }
+  },
+
+  overlay: {
+    type: 'overlay',
+    swiftName: '.overlay',
+    group: 'Decoration',
+    defaults: { color: '#ffffff', alignment: 'center', opacity: 0.2 },
+    appliesTo: has2DBox,
+    summarize(args, acc) { acc.overlay = { color: args.color, opacity: args.opacity } },
+    emit(args) {
+      if (!args.color) return null
+      const align = args.alignment && args.alignment !== 'center' ? `, alignment: .${args.alignment}` : ''
+      const op = (args.opacity != null && args.opacity !== 1) ? `.opacity(${args.opacity})` : ''
+      return `.overlay(${hexToColor(args.color)}${op ? `.${op.slice(1)}` : ''}${align})`
+    }
+  },
+
+  // ---- sizing helpers -------------------------------------------------------
+  aspectRatio: {
+    type: 'aspectRatio',
+    swiftName: '.aspectRatio',
+    group: 'Layout',
+    defaults: { ratio: null, contentMode: 'fit' },
+    appliesTo: has2DBox,
+    summarize(args, acc) { if (args.ratio) acc.aspectRatio = args.ratio },
+    emit(args) {
+      const r = args.ratio ? `${args.ratio}, ` : ''
+      return `.aspectRatio(${r}contentMode: .${args.contentMode || 'fit'})`
+    }
+  },
+
+  fixedSize: {
+    type: 'fixedSize',
+    swiftName: '.fixedSize',
+    group: 'Layout',
+    defaults: { horizontal: true, vertical: true },
+    appliesTo: has2DBox,
+    summarize(_a, acc) { acc.fixedSize = true },
+    emit(args) {
+      if (args.horizontal && args.vertical) return `.fixedSize()`
+      return `.fixedSize(horizontal: ${args.horizontal ? 'true' : 'false'}, vertical: ${args.vertical ? 'true' : 'false'})`
+    }
+  },
+
+  zIndex: {
+    type: 'zIndex',
+    swiftName: '.zIndex',
+    group: 'Layout',
+    defaults: { value: 1 },
+    appliesTo: has2DBox,
+    summarize(args, acc) { acc.zIndex = args.value },
+    emit(args) {
+      if (!args.value) return null
+      return `.zIndex(${args.value})`
+    }
+  },
+
+  layoutPriority: {
+    type: 'layoutPriority',
+    swiftName: '.layoutPriority',
+    group: 'Layout',
+    defaults: { value: 1 },
+    appliesTo: has2DBox,
+    summarize() {},
+    emit(args) {
+      if (!args.value) return null
+      return `.layoutPriority(${args.value})`
+    }
+  },
+
+  // ---- tint / color -------------------------------------------------------
+  tint: {
+    type: 'tint',
+    swiftName: '.tint',
+    group: 'Color',
+    defaults: { color: '#007aff' },
+    appliesTo: has2DBox,
+    summarize(args, acc) { acc.tint = args.color },
+    emit(args) {
+      if (!args.color) return null
+      return `.tint(${hexToColor(args.color)})`
+    }
+  },
+
+  // ---- visionOS hover effects --------------------------------------------
+  hoverEffect: {
+    type: 'hoverEffect',
+    swiftName: '.hoverEffect',
+    group: 'visionOS',
+    defaults: { value: 'automatic' },
+    appliesTo: (k) => KIND_INTERACTIVE.has(k) || k === 'stack',
+    summarize(args, acc) { acc.hoverEffect = args.value },
+    emit(args) {
+      if (!args.value || args.value === 'automatic') return `.hoverEffect()`
+      if (args.value === 'none') return `.hoverEffect(.none)`
+      return `.hoverEffect(.${args.value})`
+    }
+  },
+
+  hoverEffectDisabled: {
+    type: 'hoverEffectDisabled',
+    swiftName: '.hoverEffectDisabled',
+    group: 'visionOS',
+    defaults: { value: true },
+    appliesTo: has2DBox,
+    summarize(args, acc) { if (isOn(args.value)) acc.hoverEffectDisabled = true },
+    emit(args) { return isOn(args.value) ? `.hoverEffectDisabled(true)` : null }
+  },
+
+  // ---- content / hit-testing shape ----------------------------------------
+  contentShape: {
+    type: 'contentShape',
+    swiftName: '.contentShape',
+    group: 'Interaction',
+    defaults: { shape: 'rectangle' },
+    appliesTo: has2DBox,
+    summarize() {},
+    emit(args) {
+      const s = args.shape || 'rectangle'
+      const expr = s === 'circle' ? 'Circle()' : s === 'capsule' ? 'Capsule()' : 'Rectangle()'
+      return `.contentShape(${expr})`
+    }
+  },
+
+  // ---- navigation ---------------------------------------------------------
+  navigationTitle: {
+    type: 'navigationTitle',
+    swiftName: '.navigationTitle',
+    group: 'Navigation',
+    defaults: { title: '' },
+    appliesTo: has2DBox,
+    summarize() {},
+    emit(args) {
+      if (!args.title) return null
+      return `.navigationTitle("${args.title.replace(/"/g, '\\"')}")`
+    }
+  },
+
+  // ---- toolbar chrome -----------------------------------------------------
+  toolbarBackground: {
+    type: 'toolbarBackground',
+    swiftName: '.toolbarBackground',
+    group: 'Navigation',
+    defaults: { visibility: 'automatic', placement: 'automatic' },
+    appliesTo: has2DBox,
+    summarize() {},
+    emit(args) {
+      const vis = args.visibility || 'automatic'
+      if (vis === 'automatic') return null
+      const place = args.placement && args.placement !== 'automatic' ? `, for: .${args.placement}` : ''
+      return `.toolbarBackground(.${vis}${place})`
+    }
+  },
+
+  // ---- scroll -------------------------------------------------------------
+  scrollIndicators: {
+    type: 'scrollIndicators',
+    swiftName: '.scrollIndicators',
+    group: 'Scroll',
+    defaults: { value: 'hidden' },
+    appliesTo: (k) => k === 'stack',
+    summarize() {},
+    emit(args) {
+      if (!args.value || args.value === 'automatic') return null
+      return `.scrollIndicators(.${args.value})`
+    }
+  },
+
+  scrollDisabled: {
+    type: 'scrollDisabled',
+    swiftName: '.scrollDisabled',
+    group: 'Scroll',
+    defaults: { value: true },
+    appliesTo: (k) => k === 'stack',
+    summarize() {},
+    emit(args) { return isOn(args.value) ? `.scrollDisabled(true)` : null }
   }
 }
 
 // Stable display order in the "Add Modifier" dropdown — keeps related ones
 // together regardless of insertion order in the registry.
 const ORDER = [
+  // Layout
+  'frame', 'aspectRatio', 'fixedSize', 'zIndex', 'layoutPriority',
   'opacity', 'padding',
   'offset', 'rotationEffect', 'scaleEffect',
-  'shadow', 'border', 'clipShape', 'foregroundStyle',
+  // Decoration
+  'background', 'overlay',
+  'shadow', 'border', 'clipShape',
+  // Color
+  'foregroundStyle', 'tint',
+  // visionOS chrome
   'glassBackgroundEffect', 'containerBackground',
-  'disabled',
+  'hoverEffect', 'hoverEffectDisabled',
+  // Interaction
+  'disabled', 'contentShape',
+  // Text
   'italic', 'underline', 'strikethrough', 'textCase',
   'lineLimit', 'lineSpacing', 'tracking', 'kerning', 'baselineOffset',
   'truncationMode', 'minimumScaleFactor', 'allowsTightening',
-  'fontDesign', 'monospacedDigit'
+  'fontDesign', 'monospacedDigit',
+  // Navigation
+  'navigationTitle', 'toolbarBackground',
+  // Scroll
+  'scrollIndicators', 'scrollDisabled'
 ]
 
 export const ALL_MODIFIER_TYPES = ORDER

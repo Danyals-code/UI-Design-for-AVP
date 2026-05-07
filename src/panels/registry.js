@@ -20,6 +20,39 @@ import { TEXT_STYLES, ptToUnits } from '../appleSystem'
 
 const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?? 17)
 
+// Resolve a panel's colorToken/color to a valid UIColor Swift expression for
+// use inside SimpleMaterial on 3D primitives. UIColor can bridge from Color.
+function materialColor(colorToken, hexColor) {
+  if (colorToken) {
+    // e.g. 'systemBlue' → 'Color.blue', 'systemGreen' → 'Color.green'
+    const known = {
+      systemBlue: 'Color.blue', systemRed: 'Color.red', systemGreen: 'Color.green',
+      systemOrange: 'Color.orange', systemYellow: 'Color.yellow', systemPurple: 'Color.purple',
+      systemPink: 'Color.pink', systemTeal: 'Color.teal', systemIndigo: 'Color.indigo',
+      systemGray: 'Color.gray', systemBrown: 'Color.brown', systemMint: 'Color.mint',
+      systemCyan: 'Color.cyan', primary: 'Color.primary', secondary: 'Color.secondary'
+    }
+    if (known[colorToken]) return `UIColor(${known[colorToken]})`
+  }
+  if (hexColor) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hexColor)
+    if (m) {
+      const r = (parseInt(m[1].slice(0, 2), 16) / 255).toFixed(3)
+      const g = (parseInt(m[1].slice(2, 4), 16) / 255).toFixed(3)
+      const b = (parseInt(m[1].slice(4, 6), 16) / 255).toFixed(3)
+      return `UIColor(Color(red: ${r}, green: ${g}, blue: ${b}))`
+    }
+  }
+  return 'UIColor(Color.white)'
+}
+
+// Emit a `.clipShape(RoundedRectangle(...))` chain suffix for a given corner
+// radius in pt. Falls back to an empty string when radius is 0.
+function clipShapeSuffix(radiusPt) {
+  if (!radiusPt) return ''
+  return `.clipShape(RoundedRectangle(cornerRadius: ${radiusPt}, style: .continuous))`
+}
+
 // ---- emit helper conventions ----
 //
 // Every `emit(panel, ctx)` should call `ctx.push(line)` to append a single
@@ -53,7 +86,9 @@ export const PANELS = {
       // sized to its frame. Mirrors the visual the designer renders.
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
-      push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)}).cornerRadius(${unitsToPt(panel.cornerRadius || 0)})`)
+      const cr = unitsToPt(panel.cornerRadius || 0)
+      const clip = clipShapeSuffix(cr)
+      push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
     }
   },
 
@@ -421,7 +456,7 @@ export const PANELS = {
 
   slider: {
     defaults: {
-      size: [ptToUnits(280), ptToUnits(28)],
+      size: [ptToUnits(280), ptToUnits(60)],
       color: '#e3e3e8',
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(2),
@@ -548,7 +583,9 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
-      push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)}).cornerRadius(${unitsToPt(panel.cornerRadius || 0)})`)
+      const cr = unitsToPt(panel.cornerRadius || 0)
+      const clip = clipShapeSuffix(cr)
+      push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
     }
   },
 
@@ -1205,7 +1242,9 @@ export const PANELS = {
       const { push, swiftColor, unitsToPt } = ctx
       const a = swiftColor(null, panel.gradientFrom || '#007aff')
       const b = swiftColor(null, panel.gradientTo   || '#af52de')
-      push(`LinearGradient(colors: [${a}, ${b}], startPoint: .top, endPoint: .bottom).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)}).cornerRadius(${unitsToPt(panel.cornerRadius || 0)})`)
+      const cr = unitsToPt(panel.cornerRadius || 0)
+      const clip = clipShapeSuffix(cr)
+      push(`LinearGradient(colors: [${a}, ${b}], startPoint: .top, endPoint: .bottom).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
     }
   },
 
@@ -1274,12 +1313,10 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push } = ctx
       const r = ((panel.radius || 80) / 1000).toFixed(3)   // pt → m
-      const color = panel.colorToken
-        ? `.${panel.colorToken.replace(/^system/, '').toLowerCase()}`
-        : '.blue'
+      const color = materialColor(panel.colorToken, panel.color)
       push(`RealityView { content in`)
       push(`    let mesh = MeshResource.generateSphere(radius: ${r})`)
-      push(`    let material = SimpleMaterial(color: UIColor(${color}), isMetallic: false)`)
+      push(`    let material = SimpleMaterial(color: ${color}, isMetallic: false)`)
       push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
       push(`}`)
       push(`.frame(depth: ${panel.depth || 160})`)
@@ -1302,9 +1339,10 @@ export const PANELS = {
       const h  = ((panel.boxHeight || 120) / 1000).toFixed(3)
       const d  = ((panel.boxDepth  || 120) / 1000).toFixed(3)
       const cr = ((panel.boxCornerRadius || 0) / 1000).toFixed(3)
+      const color = materialColor(panel.colorToken, panel.color)
       push(`RealityView { content in`)
       push(`    let mesh = MeshResource.generateBox(width: ${w}, height: ${h}, depth: ${d}, cornerRadius: ${cr})`)
-      push(`    let material = SimpleMaterial(color: .systemGreen, isMetallic: false)`)
+      push(`    let material = SimpleMaterial(color: ${color}, isMetallic: false)`)
       push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
       push(`}`)
       push(`.frame(depth: ${panel.depth || 160})`)
@@ -1324,9 +1362,10 @@ export const PANELS = {
       const { push } = ctx
       const w = ((panel.planeWidth || 200) / 1000).toFixed(3)
       const d = ((panel.planeDepth || 140) / 1000).toFixed(3)
+      const color = materialColor(panel.colorToken, panel.color)
       push(`RealityView { content in`)
       push(`    let mesh = MeshResource.generatePlane(width: ${w}, depth: ${d})`)
-      push(`    let material = SimpleMaterial(color: .systemGray, isMetallic: false)`)
+      push(`    let material = SimpleMaterial(color: ${color}, isMetallic: false)`)
       push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
       push(`}`)
       push(`.frame(depth: ${panel.depth || 40})`)
@@ -1346,9 +1385,10 @@ export const PANELS = {
       const { push } = ctx
       const h = ((panel.coneHeight || 180) / 1000).toFixed(3)
       const r = ((panel.coneRadius || 70)  / 1000).toFixed(3)
+      const color = materialColor(panel.colorToken, panel.color)
       push(`RealityView { content in`)
       push(`    let mesh = MeshResource.generateCone(height: ${h}, radius: ${r})`)
-      push(`    let material = SimpleMaterial(color: .systemOrange, isMetallic: false)`)
+      push(`    let material = SimpleMaterial(color: ${color}, isMetallic: false)`)
       push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
       push(`}`)
       push(`.frame(depth: ${panel.depth || 180})`)
@@ -1368,9 +1408,10 @@ export const PANELS = {
       const { push } = ctx
       const h = ((panel.cylHeight || 180) / 1000).toFixed(3)
       const r = ((panel.cylRadius || 70)  / 1000).toFixed(3)
+      const color = materialColor(panel.colorToken, panel.color)
       push(`RealityView { content in`)
       push(`    let mesh = MeshResource.generateCylinder(height: ${h}, radius: ${r})`)
-      push(`    let material = SimpleMaterial(color: .systemPurple, isMetallic: false)`)
+      push(`    let material = SimpleMaterial(color: ${color}, isMetallic: false)`)
       push(`    content.add(ModelEntity(mesh: mesh, materials: [material]))`)
       push(`}`)
       push(`.frame(depth: ${panel.depth || 180})`)
@@ -1435,6 +1476,7 @@ export const PANELS = {
 const INTERACTIVE_PANEL_TYPES = new Set([
   'button',
   'link',
+  'navigationlink',
   'toggle',
   'slider',
   'stepper',

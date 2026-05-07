@@ -95,7 +95,8 @@ function swiftMaterial(token) {
     thinMaterial:      '.thinMaterial',
     regularMaterial:   '.regularMaterial',
     thickMaterial:     '.thickMaterial',
-    ultraThickMaterial:'.ultraThickMaterial'
+    ultraThickMaterial:'.ultraThickMaterial',
+    bar:               '.bar'
   }
   return map[token] || null
 }
@@ -112,8 +113,7 @@ function stackOpener(stackType, alignment, spacing, stack) {
     case 'zstack':          return `ZStack${align ? `(alignment: ${align})` : ''} {`
     case 'lazyhstack':      return `LazyHStack${argStr} {`
     case 'lazyvstack':      return `LazyVStack${argStr} {`
-    case 'section':         return `Section {`
-    case 'disclosure':      return `DisclosureGroup {`
+    // section and disclosure are handled as early-return paths in renderStack
     case 'navigationStack': return `NavigationStack {`
     case 'tabView':         return `TabView {`
     // Spec §1.24 — ScrollView axes default to `.vertical`. We only emit
@@ -510,6 +510,47 @@ function renderStack(stack, items, pad, out, stateBag) {
     return
   }
 
+  // Section — emit with optional header string and footer text.
+  if (stack.stackType === 'section') {
+    const header = stack.sectionHeader || ''
+    const footer = stack.sectionFooter || ''
+    if (header) {
+      out.push(`${ind}Section("${escapeString(header)}") {`)
+    } else {
+      out.push(`${ind}Section {`)
+    }
+    const kids = items.filter((c) => c.parentId === stack.id)
+    for (const c of kids) {
+      if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
+      else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
+    }
+    if (footer) {
+      out.push(`${ind}} footer: {`)
+      out.push(`${ind}    Text("${escapeString(footer)}")`)
+    }
+    out.push(`${ind}}`)
+    if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
+    return
+  }
+
+  // DisclosureGroup — emit with label and @State isExpanded binding.
+  if (stack.stackType === 'disclosure') {
+    const label = stack.disclosureLabel || 'Section'
+    const stateVar = `isExpanded_${String(stack.id).replace(/[^A-Za-z0-9]/g, '_')}`
+    stateBag.push(stateVar)
+    out.push(`${ind}DisclosureGroup(isExpanded: $${stateVar}) {`)
+    const kids = items.filter((c) => c.parentId === stack.id)
+    for (const c of kids) {
+      if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
+      else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
+    }
+    out.push(`${ind}} label: {`)
+    out.push(`${ind}    Text("${escapeString(label)}")`)
+    out.push(`${ind}}`)
+    if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
+    return
+  }
+
   // Grid family — `grid`, `lazyVGrid`, `lazyHGrid` all share the
   // adaptive-vs-fixed column model on the canvas. SwiftUI's `Grid` view
   // doesn't take a `columns:` parameter — that's `LazyVGrid` semantics —
@@ -554,7 +595,10 @@ function renderStack(stack, items, pad, out, stateBag) {
       out.push(`${ind}    .background(${bg})`)
     }
   }
-  if (stack.cornerRadius) out.push(`${ind}    .cornerRadius(${unitsToPt(stack.cornerRadius)})`)
+  if (stack.cornerRadius) {
+    const cr = unitsToPt(stack.cornerRadius)
+    out.push(`${ind}    .clipShape(RoundedRectangle(cornerRadius: ${cr}, style: .continuous))`)
+  }
   if (stack.scrollable) out.push(`${ind}    // wrap in ScrollView { … } for scrollable content`)
   if (stack.navTitle) out.push(`${ind}    .navigationTitle("${escapeString(stack.navTitle)}")`)
   if (stack.ornament) {
@@ -613,6 +657,7 @@ function renderWindow(win, items, pad, out, stateBag) {
       ? `, contentAlignment: .${o.ornamentContentAlignment}` : ''
     out.push(`${ind}    .ornament(attachmentAnchor: ${anchor}${visibility}${alignment}) {`)
     renderStack(o, items, pad + 2, out, stateBag)
+    out.push(`${indent(pad + 2)}    .glassBackgroundEffect()`)
     out.push(`${ind}    }`)
   }
 
@@ -740,6 +785,13 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
       }
     } else if (firstWindow.windowStyle === 'plain') {
       sceneLines.push(`        .windowStyle(.plain)`)
+    }
+    // Emit .defaultSize so visionOS honours the designed canvas size.
+    // Without this the runtime defaults to 1280×720 for regular windows.
+    const winW = unitsToPt(firstWindow.size?.[0] || 0)
+    const winH = unitsToPt(firstWindow.size?.[1] || 0)
+    if (winW > 0 && winH > 0 && (firstWindow.windowStyle !== 'volumetric' && mode !== 'volume')) {
+      sceneLines.push(`        .defaultSize(width: ${winW}, height: ${winH})`)
     }
   }
 
