@@ -217,6 +217,214 @@ function ModifierBody({ m, set }) {
         </Row>
       )
 
+    case 'frame':
+      return (
+        <>
+          <Row label="Width"><NumField value={m.width ?? ''} step={1} suffix="pt" onChange={(v) => set({ width: v || null })} /></Row>
+          <Row label="Height"><NumField value={m.height ?? ''} step={1} suffix="pt" onChange={(v) => set({ height: v || null })} /></Row>
+          <Row label="Max W">
+            <div className="segmented flex-1">
+              <button className={m.maxWidth ? 'active' : ''} onClick={() => set({ maxWidth: true })}>∞</button>
+              <button className={!m.maxWidth ? 'active' : ''} onClick={() => set({ maxWidth: false })}>Fixed</button>
+            </div>
+          </Row>
+          <Row label="Max H">
+            <div className="segmented flex-1">
+              <button className={m.maxHeight ? 'active' : ''} onClick={() => set({ maxHeight: true })}>∞</button>
+              <button className={!m.maxHeight ? 'active' : ''} onClick={() => set({ maxHeight: false })}>Fixed</button>
+            </div>
+          </Row>
+          <Row label="Align">
+            <Select
+              value={m.alignment || 'center'}
+              options={[
+                { value: 'topLeading', label: 'Top Leading' }, { value: 'top', label: 'Top' }, { value: 'topTrailing', label: 'Top Trailing' },
+                { value: 'leading', label: 'Leading' }, { value: 'center', label: 'Center' }, { value: 'trailing', label: 'Trailing' },
+                { value: 'bottomLeading', label: 'Bottom Leading' }, { value: 'bottom', label: 'Bottom' }, { value: 'bottomTrailing', label: 'Bottom Trailing' }
+              ]}
+              onChange={(v) => set({ alignment: v })}
+            />
+          </Row>
+        </>
+      )
+
+    case 'background':
+      return (
+        <>
+          <Row label="Color"><ColorRow value={m.color || '#1c1c1e'} onChange={(v) => set({ color: v })} /></Row>
+          <Row label="Material">
+            <Select
+              value={m.material || ''}
+              options={[
+                { value: '', label: 'Color' },
+                { value: '.ultraThinMaterial', label: 'Ultra Thin' },
+                { value: '.thinMaterial', label: 'Thin' },
+                { value: '.regularMaterial', label: 'Regular' },
+                { value: '.thickMaterial', label: 'Thick' },
+                { value: '.ultraThickMaterial', label: 'Ultra Thick' },
+                { value: '.bar', label: 'Bar' }
+              ]}
+              onChange={(v) => set({ material: v || null })}
+            />
+          </Row>
+        </>
+      )
+
+    case 'overlay':
+      return (
+        <>
+          <Row label="Color"><ColorRow value={m.color || '#ffffff'} onChange={(v) => set({ color: v })} /></Row>
+          <Row label="Opacity"><Slider value={m.opacity ?? 0.2} min={0} max={1} step={0.05} onChange={(v) => set({ opacity: v })} /></Row>
+        </>
+      )
+
+    case 'aspectRatio':
+      return (
+        <>
+          <Row label="Ratio"><NumField value={m.ratio ?? ''} step={0.1} onChange={(v) => set({ ratio: v || null })} /></Row>
+          <Row label="Mode">
+            <div className="segmented flex-1">
+              <button className={(m.contentMode || 'fit') === 'fit' ? 'active' : ''} onClick={() => set({ contentMode: 'fit' })}>Fit</button>
+              <button className={m.contentMode === 'fill' ? 'active' : ''} onClick={() => set({ contentMode: 'fill' })}>Fill</button>
+            </div>
+          </Row>
+        </>
+      )
+
+    case 'fixedSize':
+      return (
+        <>
+          <Row label="H">
+            <div className="segmented flex-1">
+              <button className={m.horizontal !== false ? 'active' : ''} onClick={() => set({ horizontal: true })}>On</button>
+              <button className={m.horizontal === false ? 'active' : ''} onClick={() => set({ horizontal: false })}>Off</button>
+            </div>
+          </Row>
+          <Row label="V">
+            <div className="segmented flex-1">
+              <button className={m.vertical !== false ? 'active' : ''} onClick={() => set({ vertical: true })}>On</button>
+              <button className={m.vertical === false ? 'active' : ''} onClick={() => set({ vertical: false })}>Off</button>
+            </div>
+          </Row>
+        </>
+      )
+
+    case 'zIndex':
+      return <Row label="Index"><NumField value={m.value ?? 1} step={1} onChange={(v) => set({ value: v })} /></Row>
+
+    case 'layoutPriority':
+      return <Row label="Priority"><NumField value={m.value ?? 1} step={1} onChange={(v) => set({ value: v })} /></Row>
+
+    case 'tint':
+      return <Row label="Color"><ColorRow value={m.color || '#007aff'} onChange={(v) => set({ color: v })} /></Row>
+
+    case 'hoverEffect':
+      return (
+        <Row label="Style">
+          <Select
+            value={m.value || 'automatic'}
+            options={[
+              { value: 'automatic', label: 'Automatic' },
+              { value: 'highlight', label: 'Highlight' },
+              { value: 'lift',      label: 'Lift' },
+              { value: 'none',      label: 'None' }
+            ]}
+            onChange={(v) => set({ value: v })}
+          />
+        </Row>
+      )
+
+    case 'hoverEffectDisabled':
+      return (
+        <Row label="On">
+          <div className="segmented flex-1">
+            <button className={m.value ? 'active' : ''} onClick={() => set({ value: true })}>On</button>
+            <button className={!m.value ? 'active' : ''} onClick={() => set({ value: false })}>Off</button>
+          </div>
+        </Row>
+      )
+
+    case 'contentShape':
+      return (
+        <Row label="Shape">
+          <Select
+            value={m.shape || 'rectangle'}
+            options={[
+              { value: 'rectangle', label: 'Rectangle' },
+              { value: 'circle',    label: 'Circle' },
+              { value: 'capsule',   label: 'Capsule' }
+            ]}
+            onChange={(v) => set({ shape: v })}
+          />
+        </Row>
+      )
+
+    case 'navigationTitle':
+      return (
+        <Row label="Title">
+          <input
+            className="inspector-input flex-1"
+            value={m.title || ''}
+            onChange={(e) => set({ title: e.target.value })}
+          />
+        </Row>
+      )
+
+    case 'toolbarBackground':
+      return (
+        <>
+          <Row label="Visible">
+            <Select
+              value={m.visibility || 'automatic'}
+              options={[
+                { value: 'automatic', label: 'Automatic' },
+                { value: 'visible',   label: 'Visible' },
+                { value: 'hidden',    label: 'Hidden' }
+              ]}
+              onChange={(v) => set({ visibility: v })}
+            />
+          </Row>
+          <Row label="For">
+            <Select
+              value={m.placement || 'automatic'}
+              options={[
+                { value: 'automatic',        label: 'Automatic' },
+                { value: 'navigationBar',    label: 'Navigation Bar' },
+                { value: 'tabBar',           label: 'Tab Bar' },
+                { value: 'bottomBar',        label: 'Bottom Bar' }
+              ]}
+              onChange={(v) => set({ placement: v })}
+            />
+          </Row>
+        </>
+      )
+
+    case 'scrollIndicators':
+      return (
+        <Row label="Style">
+          <Select
+            value={m.value || 'hidden'}
+            options={[
+              { value: 'automatic', label: 'Automatic' },
+              { value: 'visible',   label: 'Visible' },
+              { value: 'hidden',    label: 'Hidden' },
+              { value: 'never',     label: 'Never' }
+            ]}
+            onChange={(v) => set({ value: v })}
+          />
+        </Row>
+      )
+
+    case 'scrollDisabled':
+      return (
+        <Row label="On">
+          <div className="segmented flex-1">
+            <button className={m.value ? 'active' : ''} onClick={() => set({ value: true })}>On</button>
+            <button className={!m.value ? 'active' : ''} onClick={() => set({ value: false })}>Off</button>
+          </div>
+        </Row>
+      )
+
     // No-arg modifiers (italic, underline, strikethrough, monospacedDigit,
     // allowsTightening) render no body — the row title carries the meaning.
     case 'italic':

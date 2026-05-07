@@ -174,10 +174,20 @@ export const MATERIALS = {
     rimOpacity: 0.0,
     specularOpacity: 0.0,
     shadowOpacity: 0.30
+  },
+  // `.bar` material — used for toolbar/navigation chrome on visionOS.
+  // Visually sits between thin and regular; the system tunes it for legibility
+  // against toolbar-chrome backgrounds.
+  bar: {
+    label: 'Bar',
+    opacity: 0.62,
+    rimOpacity: 0.58,
+    specularOpacity: 0.38,
+    shadowOpacity: 0.20
   }
 }
 
-export const MATERIAL_ORDER = ['ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque']
+export const MATERIAL_ORDER = ['ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque', 'bar']
 
 // HDRIs bundled with the app (public/hdri/). Each `file` is loaded by drei's
 // <Environment files=...> via the RGBELoader. Keeping them local-first keeps
@@ -263,10 +273,10 @@ export const SYSTEM_COLORS = {
 export const SEMANTIC_COLOR_ORDER = [
   'primary', 'secondary', 'tertiary', 'quaternary',
   'systemBackground', 'secondarySystemBackground', 'tertiarySystemBackground',
-  'systemFill', 'secondarySystemFill',
+  'systemFill', 'secondarySystemFill', 'tertiarySystemFill', 'quaternarySystemFill',
   'systemBlue', 'systemRed', 'systemGreen', 'systemOrange',
   'systemYellow', 'systemPurple', 'systemPink', 'systemTeal',
-  'systemIndigo', 'systemGray'
+  'systemIndigo', 'systemMint', 'systemCyan', 'systemBrown', 'systemGray'
 ]
 
 export const resolveSemantic = (token, scheme) =>
@@ -444,8 +454,7 @@ export const CONTROL_SIZES = [
 
 export const TABLE_STYLES = [
   { value: 'automatic', label: 'Automatic' },
-  { value: 'inset',     label: 'Inset' },
-  { value: 'bordered',  label: 'Bordered' }
+  { value: 'inset',     label: 'Inset' }
 ]
 
 // ---- Additional style enums (spec parity, Step 1 foundation) ----
@@ -551,14 +560,10 @@ export const LIST_STYLES = {
   insetGrouped: { label: 'Inset Grouped', rowH: 44, pad: 12, inset: 20, gap: 4,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
   grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
   sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
-  bordered:     { label: 'Bordered',      rowH: 28, pad: 0,  inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 6,  showGroupCard: false, bordered: true },
-  carousel:     { label: 'Carousel',      rowH: 72, pad: 12, inset: 16, gap: 10, showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 16, showGroupCard: false },
-  elliptical:   { label: 'Elliptical',    rowH: 72, pad: 12, inset: 28, gap: 8,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 22, showGroupCard: false, tapered: true }
 }
 
 export const LIST_STYLE_ORDER = [
-  'default', 'plain', 'inset', 'insetGrouped', 'grouped',
-  'sidebar', 'bordered', 'carousel', 'elliptical'
+  'default', 'plain', 'inset', 'insetGrouped', 'grouped', 'sidebar'
 ]
 
 // Auto-height for a List based on its style + row count. Row height is
