@@ -296,6 +296,34 @@ export const MeshIcon = ({ size = 12 }) => (
   </svg>
 )
 
+// ---- Transform tools (Blender-style) ----
+export const MoveToolIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <path d="M8 1.5v4M8 14.5v-4M1.5 8h4M14.5 8h-4" />
+    <path d="M8 1.5l-1.5 1.5M8 1.5l1.5 1.5" />
+    <path d="M8 14.5l-1.5-1.5M8 14.5l1.5-1.5" />
+    <path d="M1.5 8l1.5-1.5M1.5 8l1.5 1.5" />
+    <path d="M14.5 8l-1.5-1.5M14.5 8l-1.5 1.5" />
+  </svg>
+)
+export const RotateToolIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <path d="M3 8a5 5 0 1 0 1.5-3.5" />
+    <path d="M3 3v3h3" />
+  </svg>
+)
+export const ScaleToolIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <rect x="3" y="3" width="6" height="6" />
+    <rect x="9" y="9" width="4" height="4" fill="currentColor" strokeWidth="0" />
+  </svg>
+)
+export const PointerToolIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <path d="M3 2l8 6-3 1 2 4-1.5 1-2-4-2.5 2.5z" fill="currentColor" strokeWidth="0.7" />
+  </svg>
+)
+
 // ---- RealityKit (entity tree) ----
 // RealityView — a "viewport into 3D" mark; small framed cube to suggest a
 // SwiftUI surface containing RealityKit content.

@@ -45,6 +45,7 @@ export default function CommandPalette() {
   const [selected, setSelected] = useState(0)
   const listRef = useRef(null)
 
+  const sceneMode   = useStore((s) => s.scene.sceneMode)
   const addPanel    = useStore((s) => s.addPanel)
   const addStack    = useStore((s) => s.addStack)
   const addWindow   = useStore((s) => s.addWindow)
@@ -55,6 +56,13 @@ export default function CommandPalette() {
   const addAnchorEntity = useStore((s) => s.addAnchorEntity)
   const addModelEntity  = useStore((s) => s.addModelEntity)
   const addGroupEntity  = useStore((s) => s.addGroupEntity)
+  const addCameraEntity = useStore((s) => s.addCameraEntity)
+  const addAttachmentEntity = useStore((s) => s.addAttachmentEntity)
+
+  // Volume mode is a RealityKit-only environment — only entities and
+  // their RealityView bridge make sense to add. Window mode keeps the
+  // full SwiftUI palette plus the RealityKit group for embedded 3D.
+  const isVolume = sceneMode === 'volume'
 
   // Restructured to match SwiftUI's fundamental concepts.
   // Variants (circle vs rectangle, date picker etc.) are configured in Properties.
@@ -122,6 +130,14 @@ export default function CommandPalette() {
     { id: 'modelText',    label: 'Text Entity',    group: 'RealityKit', Icon: Text3DIcon,        run: () => addModelEntity('text') },
     { id: 'modelUsdz',    label: 'USDZ Entity',    group: 'RealityKit', Icon: MeshIcon,          run: () => addModelEntity('usdz') },
     { id: 'groupEntity',  label: 'Empty Entity',   group: 'RealityKit', Icon: EntityGroupIcon,   run: () => addGroupEntity() },
+    { id: 'cameraEntity', label: 'Camera (headset)', group: 'RealityKit', Icon: RealityViewIcon, run: () => addCameraEntity() },
+    // RealityView attachments — embed SwiftUI views in the entity
+    // tree. Maps to `Attachment(id:) { ... }` inside the RealityView
+    // attachments closure on export.
+    { id: 'attText',   label: 'Text Attachment',   group: 'RealityKit', Icon: TextIcon,   run: () => addAttachmentEntity('text') },
+    { id: 'attLabel',  label: 'Label Attachment',  group: 'RealityKit', Icon: LabelIcon,  run: () => addAttachmentEntity('label') },
+    { id: 'attButton', label: 'Button Attachment', group: 'RealityKit', Icon: ButtonIcon, run: () => addAttachmentEntity('button') },
+    { id: 'attImage',  label: 'Image Attachment',  group: 'RealityKit', Icon: ImageIcon,  run: () => addAttachmentEntity('image') },
     // Scene
     { id: 'window',    label: 'Window',    group: 'Windows',      Icon: WindowIcon,    run: () => addWindow() },
     { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
@@ -129,11 +145,30 @@ export default function CommandPalette() {
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => addTabBar() },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => addToolbar() }
   ], [addPanel, addStack, addWindow, addSplitView, addTabBar, addToolbar, addPresentation,
-      addAnchorEntity, addModelEntity, addGroupEntity])
+      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity])
+
+  // Volume-mode allowlist — anything else is hidden because it relies on
+  // SwiftUI primitives that don't exist on a volumetric stage.
+  const VOLUME_ALLOWED_GROUPS = useMemo(() => new Set(['RealityKit', '3D', 'Windows']), [])
+  // Inside Windows we only want the plain "Window" — split views are
+  // SwiftUI-only, not volumetric. Filter that out by id.
+  const VOLUME_ALLOWED_IDS = useMemo(() => new Set([
+    'window', // a plain window can be set to volumetric afterwards
+    // Everything in RealityKit + 3D groups passes via the group filter.
+  ]), [])
+
+  const visibleCommands = useMemo(() => {
+    if (!isVolume) return commands
+    return commands.filter((c) => {
+      if (!VOLUME_ALLOWED_GROUPS.has(c.group)) return false
+      if (c.group === 'Windows' && !VOLUME_ALLOWED_IDS.has(c.id)) return false
+      return true
+    })
+  }, [commands, isVolume, VOLUME_ALLOWED_GROUPS, VOLUME_ALLOWED_IDS])
 
   const filtered = useMemo(
-    () => commands.filter((c) => fuzzyMatch(query, c.label) || fuzzyMatch(query, c.group)),
-    [query, commands]
+    () => visibleCommands.filter((c) => fuzzyMatch(query, c.label) || fuzzyMatch(query, c.group)),
+    [query, visibleCommands]
   )
 
   useEffect(() => { setSelected(0) }, [query])

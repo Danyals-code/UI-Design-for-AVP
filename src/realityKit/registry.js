@@ -36,10 +36,100 @@ export const ENTITY_KINDS = {
     swift: 'Entity',
     canHaveChildren: true,
     description: 'Empty transform node — useful as a parent for grouping.'
+  },
+  camera: {
+    label: 'Camera',
+    swift: 'PerspectiveCamera',
+    canHaveChildren: false,
+    description: 'Stand-in for the wearer\'s viewpoint — designer only, never exported. Use the Camera View button to snap the orbit camera here.'
+  },
+  attachment: {
+    label: 'Attachment',
+    swift: 'Attachment',
+    // Attachments host an embedded SwiftUI panel; they don't accept
+    // entity children (would clash with the panel's layout role).
+    canHaveChildren: false,
+    description: 'Pins a SwiftUI view (Text / Button / Label / Image) to a 3D position. RealityView resolves it via attachments.entity(for:) at runtime.'
   }
 }
 
-export const ENTITY_KIND_ORDER = ['anchor', 'model', 'group']
+export const ENTITY_KIND_ORDER = ['anchor', 'model', 'group', 'camera', 'attachment']
+
+// Attachment kinds — the subset of SwiftUI views that read well when
+// floated in 3D space inside a RealityView. We deliberately keep the
+// list short: long-form content like Lists or Forms is poor in
+// volumetric space, where users tap-target individual elements.
+export const ATTACHMENT_KINDS = {
+  text: {
+    label: 'Text',
+    description: 'A short text label — e.g. captioning a model.',
+    defaults: {
+      attachmentText: 'Hello',
+      attachmentColor: '#ffffff',
+      attachmentBackground: '#1c1c1e',
+      attachmentFontSize: 0.05,
+      attachmentPadding: 0.02,
+      attachmentCornerRadius: 0.02
+    }
+  },
+  label: {
+    label: 'Label',
+    description: 'Text + SF Symbol icon — useful for labelled markers.',
+    defaults: {
+      attachmentText: 'Label',
+      attachmentSymbol: 'info.circle',
+      attachmentColor: '#ffffff',
+      attachmentBackground: '#1c1c1e',
+      attachmentFontSize: 0.05,
+      attachmentPadding: 0.02,
+      attachmentCornerRadius: 0.02
+    }
+  },
+  button: {
+    label: 'Button',
+    description: 'Tappable button — exports as a SwiftUI Button(...) inside the attachments closure.',
+    defaults: {
+      attachmentText: 'Tap',
+      attachmentColor: '#ffffff',
+      attachmentBackground: '#0a84ff',
+      attachmentFontSize: 0.05,
+      attachmentPadding: 0.025,
+      attachmentCornerRadius: 0.04
+    }
+  },
+  image: {
+    label: 'Image',
+    description: 'A square image attachment — e.g. a thumbnail or icon.',
+    defaults: {
+      attachmentImageUrl: '',
+      attachmentColor: '#ffffff',
+      attachmentBackground: '#3a3a3c',
+      attachmentSize: 0.20,
+      attachmentCornerRadius: 0.02
+    }
+  }
+}
+
+export const ATTACHMENT_KIND_ORDER = ['text', 'label', 'button', 'image']
+
+export const ATTACHMENT_DEFAULTS = {
+  attachmentKind: 'text',
+  // Whether the attachment auto-billboards toward the camera. visionOS
+  // RealityViews don't auto-billboard — but for designer preview a
+  // billboarded panel is more useful (the user can read it from any
+  // orbit angle). Toggleable per-attachment.
+  attachmentBillboard: true,
+  ...ATTACHMENT_KINDS.text.defaults
+}
+
+// Default camera fields. Mirrors `PerspectiveCamera`'s public surface
+// — fov, near, far — so the saved data round-trips into RealityKit
+// later if/when we wire camera-entity export.
+export const CAMERA_DEFAULTS = {
+  fovDegrees: 60,
+  near:       0.1,
+  far:        50.0
+}
 
 // ---- ANCHOR TARGETS ---------------------------------------------------
 //

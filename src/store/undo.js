@@ -18,17 +18,25 @@ const snapshot = (s) => ({
   selectedId: s.selectedId,
   activeTabId: s.activeTabId,
   scene: { ...s.scene },
+  // `sceneIsDirty` is captured so that undoing back to a template/seed
+  // state restores the "pristine" flag — switching modes from there can
+  // skip the destructive-action warning dialog.
+  sceneIsDirty: !!s.sceneIsDirty,
   idCounter: getIdCounter()
 })
 
 // Wraps a zustand set() call so it pushes an undo snapshot first.
 // During drags we skip snapshots — drag-start captures one instead.
+//
+// Sets `sceneIsDirty: true` by default; actions that *replace* the scene
+// (applyTemplate, switchSceneMode) override this in their fn() return so
+// the freshly seeded scene starts pristine.
 export const undoable = (set, get, fn) => {
   const s = get()
   if (!s.isDragging) {
     const snap = snapshot(s)
     const past = [...s._past, snap].slice(-MAX_UNDO)
-    set({ _past: past, _future: [] })
+    set({ _past: past, _future: [], sceneIsDirty: true })
   }
   set(fn)
 }
@@ -45,7 +53,8 @@ export const createUndoSlice = (set, get) => ({
       items: prev.items,
       selectedId: prev.selectedId,
       activeTabId: prev.activeTabId,
-      scene: prev.scene
+      scene: prev.scene,
+      sceneIsDirty: !!prev.sceneIsDirty
     }
   }),
 
@@ -60,7 +69,8 @@ export const createUndoSlice = (set, get) => ({
       items: next.items,
       selectedId: next.selectedId,
       activeTabId: next.activeTabId,
-      scene: next.scene
+      scene: next.scene,
+      sceneIsDirty: !!next.sceneIsDirty
     }
   }),
 

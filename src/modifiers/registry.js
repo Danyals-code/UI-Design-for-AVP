@@ -48,6 +48,29 @@ const KIND_3D = new Set(['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d',
 // sense. Hide the stack on those too.
 const KIND_PRESENTATION = new Set(['sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'])
 
+// RealityView is a SwiftUI view that hosts a RealityKit content closure.
+// SwiftUI accepts a *small* subset of modifiers on it — the rest target
+// 2D-text or interactive-control concerns that are no-ops on a 3D
+// container. Restricting the inspector to this list keeps the experience
+// honest about what the SwiftUI compiler will actually accept.
+const REALITYVIEW_MODIFIERS = new Set([
+  // Layout — controls where the view sits in the SwiftUI tree.
+  'frame', 'padding', 'offset', 'position', 'fixedSize', 'aspectRatio',
+  'layoutPriority', 'zIndex',
+  // Visibility / opacity / clipping — apply to the SwiftUI surface, not
+  // the 3D content inside.
+  'opacity', 'hidden', 'clipped', 'clipShape', 'mask', 'blur',
+  'blendMode', 'colorInvert', 'colorMultiply', 'saturation', 'brightness',
+  'contrast', 'grayscale', 'compositingGroup',
+  // Background / overlay containers — usable as decoration around the
+  // RealityView (e.g. a blurred backdrop).
+  'background', 'overlay', 'border',
+  // Animation / transition — work on the SwiftUI view's state changes.
+  'animation', 'transition',
+  // Accessibility (semantic — applies to the RealityView itself).
+  'accessibility'
+])
+
 const KIND_INTERACTIVE = new Set([
   'button', 'link', 'toggle', 'slider', 'stepper', 'picker',
   'datepicker', 'colorpicker', 'segmented', 'menu',
@@ -715,10 +738,19 @@ export const ALL_MODIFIER_TYPES = ORDER
 // Strict allow-list lookup. Returns the modifier definitions a given view
 // kind is allowed to receive, in display order. Empty for 3D / presentation
 // kinds — the inspector hides the section entirely in that case.
+// RealityView gets a tight curated allowlist (REALITYVIEW_MODIFIERS) so
+// the user only sees modifiers that SwiftUI actually accepts on a 3D
+// content host.
 export function getAllowedModifiers(kind) {
   if (!kind) return []
   if (KIND_3D.has(kind)) return []
   if (KIND_PRESENTATION.has(kind)) return []
+  if (kind === 'realityview') {
+    return ORDER
+      .filter((t) => REALITYVIEW_MODIFIERS.has(t))
+      .map((t) => MODIFIERS[t])
+      .filter((def) => def.appliesTo(kind))
+  }
   return ORDER
     .map((t) => MODIFIERS[t])
     .filter((def) => def.appliesTo(kind))
@@ -729,6 +761,7 @@ export function isModifierAllowed(kind, type) {
   if (!def) return false
   if (!kind) return false
   if (KIND_3D.has(kind) || KIND_PRESENTATION.has(kind)) return false
+  if (kind === 'realityview' && !REALITYVIEW_MODIFIERS.has(type)) return false
   return def.appliesTo(kind)
 }
 

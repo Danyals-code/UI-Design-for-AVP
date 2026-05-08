@@ -2,10 +2,25 @@
 // The tool targets Apple Vision Pro exclusively — 2D Window mode and
 // 3D Volume mode — so device presets are vision-specific.
 
-// 1 scene unit == 200 points. A 1000pt window is 5 units wide.
-export const POINTS_PER_UNIT = 200
+// 1 scene unit == 1 metre. visionOS uses points (~1360pt = 1m at default
+// scaling per Apple's spec) for SwiftUI sizes and metres for RealityKit
+// transforms. We unify on metres in canvas space so a 1280pt SwiftUI
+// window and a 0.1m RealityKit sphere render at physically correct
+// relative scale (≈12.8:1 — matching what designers see on device).
+//
+// `POINTS_PER_UNIT` (== `POINTS_PER_METER`) is the conversion factor for
+// SwiftUI pt-based sizes; `ptToUnits(pt)` returns metres.
+// Anything that needs raw metres (RealityKit entities, world positions)
+// uses metres directly.
+export const POINTS_PER_UNIT = 1360
 export const ptToUnits = (pt) => pt / POINTS_PER_UNIT
 export const unitsToPt = (u) => Math.round(u * POINTS_PER_UNIT)
+// Explicit metres helper for code that wants the conversion direction
+// to be obvious. Identity right now (1 unit = 1m) but isolating it as a
+// named function lets us re-tune the canvas scale without touching
+// every call site.
+export const metersToUnits = (m) => m
+export const unitsToMeters = (u) => u
 
 // SwiftUI Font.TextStyle — authoritative set.
 //

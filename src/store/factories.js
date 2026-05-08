@@ -15,6 +15,9 @@ import { panelDefaults } from '../panels/registry'
 import {
   ANCHOR_DEFAULTS,
   TRANSFORM_DEFAULTS,
+  CAMERA_DEFAULTS,
+  ATTACHMENT_DEFAULTS,
+  ATTACHMENT_KINDS,
   buildDefaultComponents,
   meshDefaults,
   materialDefaults,
@@ -103,7 +106,11 @@ export const makeWindow = (overrides = {}) => ({
   collapsed: false,
   size: [ptToUnits(WINDOW_PRESETS.regular.width), ptToUnits(WINDOW_PRESETS.regular.height)],
   cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
-  position: [0, 2.5, -4.5],
+  // Position is in metres now (1 unit = 1m). Default puts the window
+  // at chest height (1.4m above floor) and 1m in front of the wearer's
+  // headset — matches the visionOS default placement for a regular
+  // SwiftUI WindowGroup at launch.
+  position: [0, 1.4, -1.0],
   material: 'regular',
   colorToken: 'designWindow',
   color: '#9ea1a2',
@@ -308,10 +315,42 @@ export const makeGroupEntity = (overrides = {}) => makeEntityBase('group', {
   ...overrides
 })
 
+// Camera entity — designer-only marker for the wearer's viewpoint.
+// Default placement: head height (1.6m), at world origin, looking at
+// the front of a typical volumetric stage.
+export const makeCameraEntity = (overrides = {}) => makeEntityBase('camera', {
+  name: capLabel('camera'),
+  position: [0, 1.6, 1.0],
+  ...CAMERA_DEFAULTS,
+  ...overrides
+})
+
+// Attachment entity — anchors a SwiftUI view to a 3D position. The
+// `attachmentKind` chooses Text / Label / Button / Image; the rest of
+// the fields are kind-specific (text content, color, font size, etc.).
+// Exports as `Attachment(id:) { ... SwiftUI view ... }` inside the
+// RealityView's `attachments:` closure.
+export const makeAttachmentEntity = (attachmentKind = 'text', overrides = {}) => {
+  const kindDefaults = ATTACHMENT_KINDS[attachmentKind]?.defaults || {}
+  const label = ATTACHMENT_KINDS[attachmentKind]?.label || 'Attachment'
+  return makeEntityBase('attachment', {
+    name: label,
+    ...ATTACHMENT_DEFAULTS,
+    attachmentKind,
+    ...kindDefaults,
+    // Attachments float roughly 20cm above their parent's origin by
+    // default — typical "label hovering above the model" placement.
+    position: [0, 0.2, 0],
+    ...overrides
+  })
+}
+
 // Generic dispatcher used by add-actions and the clipboard.
 export const makeEntity = (entityKind, overrides = {}) => {
   if (entityKind === 'anchor') return makeAnchorEntity(overrides)
   if (entityKind === 'model')  return makeModelEntity(overrides.meshType || 'box', overrides)
+  if (entityKind === 'camera') return makeCameraEntity(overrides)
+  if (entityKind === 'attachment') return makeAttachmentEntity(overrides.attachmentKind || 'text', overrides)
   return makeGroupEntity(overrides)
 }
 
@@ -375,10 +414,36 @@ export const DEFAULT_SCENE = {
                                 // primary text, so we match that out-of-box.
   tintColor: '#007aff',
   hdri: null,                   // null | drei Environment preset
-  // Volume mode is still under development — the 3D preview is hidden behind
-  // a "See in 3D" affordance. When `preview3D` is true AND sceneMode==='volume'
-  // we render the Canvas; otherwise we show the placeholder.
+  // Legacy gate from the experimental window-mode 3D preview camera.
+  // Kept for window mode (the 2D / 3D viewport toggle still drives it);
+  // volume mode renders the canvas directly without consulting this.
   preview3D: false,
+  // Toggle a simulator-style demo scene (floor + scattered props) behind
+  // any volumetric content. Off by default so a brand-new project starts
+  // clean; users flip it on from the viewport overlay when they want a
+  // sense of scale.
+  showDemoScene: true,
+  // Lighting — designer-controllable ambient + key light. Defaults are
+  // tuned so a fresh scene reads bright and well-lit without the user
+  // needing to load an HDRI. The Scene → Lighting inspector exposes
+  // these as sliders. Numbers chosen by eye against
+  // MeshStandardMaterial; ACES tone-mapping flattens the top a little
+  // so we can lean a bit hotter than 1.0.
+  ambientLightIntensity: 1.4,
+  keyLightIntensity:     0.9,
+  // Studio HDRI (drei `<Environment preset="...">`) for instant IBL
+  // without the user picking a file. `null` defers to scene.hdri (a
+  // bundled .hdr asset) when present, otherwise no environment.
+  environmentPreset: 'apartment',  // null | 'studio' | 'apartment' | 'city' | 'park' | 'sunset' | 'warehouse' | 'forest' | 'lobby' | 'dawn' | 'night'
+  // Realism toggles. Each is independent so designers can dial the
+  // canvas down on lower-end machines (or up for screenshots).
+  // Defaults are tuned for "looks great on a modern laptop" — turn off
+  // any single one if frame-rate matters.
+  bloom:           true,   // EffectComposer Bloom — emissive glow
+  ssao:            false,  // EffectComposer SSAO — ambient occlusion (heavy)
+  softShadows:     true,   // PCSS shadow softening
+  contactShadows:  true,   // soft shadow disc under window-mode plates
+  rimLights:       true,   // drei <Lightformer> studio rim lights in volume
   // ImmersiveSpace scene options (spec §3.1). Only consulted when
   // sceneMode === 'immersive'.
   //   immersionStyle: .mixed (default), .progressive, .full, .automatic

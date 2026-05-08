@@ -5,7 +5,7 @@
 // whatever's already on screen.
 
 import { useStore } from '../store'
-import { TEMPLATES, TEMPLATE_ORDER } from '../templates'
+import { TEMPLATES, templateOrderForMode } from '../templates'
 import { WindowIcon, VolumeIcon } from './icons'
 
 // Compact wireframe previews — drawn inline so we don't have to ship an
@@ -86,6 +86,66 @@ function TemplateThumb({ kind }) {
           <rect x="72" y="34" width="64" height="4" rx="1" fill={grey} stroke="none" />
         </svg>
       )
+    case 'emptyVolume':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          {/* wireframe cube to suggest a volumetric stage */}
+          <g stroke={grey} strokeWidth="1" fill="none">
+            <path d="M52 24L80 14L108 24L108 56L80 66L52 56Z" />
+            <path d="M52 24L80 34L108 24" />
+            <path d="M80 34L80 66" />
+          </g>
+          <circle cx="80" cy="60" r="2" fill={accent} stroke="none" />
+        </svg>
+      )
+    case 'singleObject':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          <ellipse cx="80" cy="58" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
+          <circle cx="80" cy="42" r="14" fill="#d0a060" stroke="none" />
+          <ellipse cx="80" cy="58" rx="20" ry="3" fill={fill} stroke="none" />
+        </svg>
+      )
+    case 'labelledHero':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          <ellipse cx="80" cy="58" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
+          <circle cx="80" cy="42" r="13" fill="#3a78ff" stroke="none" />
+          {/* Title attachment above */}
+          <rect x="62" y="18" width="36" height="9" rx="2" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="25" fontSize="6" fill="#fff" textAnchor="middle">Sphere</text>
+          {/* Button attachment */}
+          <rect x="68" y="58" width="24" height="7" rx="3" fill={accent} stroke="none" />
+        </svg>
+      )
+    case 'showcase':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          {/* three cubes */}
+          <rect x="40" y="42" width="14" height="14" fill="#e63946" stroke="none" />
+          <rect x="73" y="42" width="14" height="14" fill="#83a87a" stroke="none" />
+          <rect x="106" y="42" width="14" height="14" fill="#e9c46a" stroke="none" />
+          {/* labels */}
+          <rect x="38" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
+          <rect x="71" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
+          <rect x="104" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
+        </svg>
+      )
+    case 'diorama':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          <rect x="40" y="20" width="80" height="32" fill="#7a8aa0" stroke="none" opacity="0.7" />
+          <rect x="50" y="36" width="14" height="16" fill="#e07a5f" stroke="none" />
+          <rect x="74" y="28" width="14" height="24" fill="#81b29a" stroke="none" />
+          <rect x="98" y="20" width="14" height="32" fill="#f2cc8f" stroke="none" />
+          <rect x="36" y="52" width="88" height="3" fill="#3a3a3c" stroke="none" />
+        </svg>
+      )
     default:
       return <svg {...common}><rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" /></svg>
   }
@@ -112,7 +172,7 @@ function SceneTypeCard({ icon: Icon, label, description, active, onClick }) {
 
 export default function Splash({ open, onClose }) {
   const sceneMode = useStore((s) => s.scene.sceneMode)
-  const updateScene = useStore((s) => s.updateScene)
+  const switchSceneMode = useStore((s) => s.switchSceneMode)
   const applyTemplate = useStore((s) => s.applyTemplate)
 
   if (!open) return null
@@ -120,6 +180,13 @@ export default function Splash({ open, onClose }) {
   const onPickTemplate = (key) => {
     applyTemplate(key)
     onClose()
+  }
+  // Picking a Scene Type on the splash seeds the appropriate default scene
+  // so the user lands on a working setup whether or not they go on to pick
+  // a template. switchSceneMode no-ops if the requested mode is already
+  // active, so re-clicking the active card is harmless.
+  const onPickSceneType = (mode) => {
+    if (mode !== sceneMode) switchSceneMode(mode)
   }
 
   return (
@@ -156,14 +223,14 @@ export default function Splash({ open, onClose }) {
                 label="Window"
                 description="A flat 2D scene that floats in space. Best for traditional UI: lists, forms, content pages."
                 active={sceneMode === 'window'}
-                onClick={() => updateScene({ sceneMode: 'window' })}
+                onClick={() => onPickSceneType('window')}
               />
               <SceneTypeCard
                 icon={VolumeIcon}
                 label="Volume"
                 description="A bounded 3D scene with depth. Best for spatial content: models, dioramas, 3D widgets."
                 active={sceneMode === 'volume'}
-                onClick={() => updateScene({ sceneMode: 'volume' })}
+                onClick={() => onPickSceneType('volume')}
               />
             </div>
           </section>
@@ -171,13 +238,12 @@ export default function Splash({ open, onClose }) {
           {/* Templates */}
           <section>
             <div className="flex items-baseline justify-between mb-3">
-              <div className="text-[10px] text-textMute uppercase tracking-wider">Templates</div>
-              {sceneMode === 'volume' && (
-                <div className="text-[10px] text-textMute italic">Window-only for now — switch to Window to use a template.</div>
-              )}
+              <div className="text-[10px] text-textMute uppercase tracking-wider">
+                {sceneMode === 'volume' ? 'Volume Templates' : 'Window Templates'}
+              </div>
             </div>
-            <div className={`grid grid-cols-3 gap-3 ${sceneMode === 'volume' ? 'opacity-40 pointer-events-none' : ''}`}>
-              {TEMPLATE_ORDER.map((key) => {
+            <div className="grid grid-cols-3 gap-3">
+              {templateOrderForMode(sceneMode).map((key) => {
                 const t = TEMPLATES[key]
                 return (
                   <button

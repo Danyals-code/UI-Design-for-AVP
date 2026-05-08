@@ -4,9 +4,9 @@ import LayersPanel from './components/LayersPanel'
 import PropertiesPanel from './components/PropertiesPanel'
 import Canvas3D from './components/Canvas3D'
 import ViewportOverlay from './components/ViewportOverlay'
+import TransformToolbar from './components/TransformToolbar'
 import SceneInfoOverlay from './components/SceneInfoOverlay'
 import CommandPalette from './components/CommandPalette'
-import VolumePlaceholder from './components/VolumePlaceholder'
 import Splash from './components/Splash'
 import { useStore } from './store'
 
@@ -51,9 +51,6 @@ export default function App() {
   const undo = useStore((s) => s.undo)
   const redo = useStore((s) => s.redo)
   const scene = useStore((s) => s.scene)
-  // Volume mode is under development — the 3D scene only shows when the user
-  // opts in via "See in 3D" (preview3D). Otherwise we render the placeholder.
-  const showViewport = scene.sceneMode === 'window' || scene.preview3D
 
   useEffect(() => {
     // Read the current selection + item list fresh on every key so we always
@@ -129,16 +126,13 @@ export default function App() {
         <LayersPanel width={leftWidth} />
         <div onMouseDown={startLeft} className="resize-gutter" title="Drag to resize" />
         <div className="flex-1 relative min-w-0">
-          {showViewport ? <Canvas3D /> : <VolumePlaceholder />}
-          {/* Toolbar renders on top of both the 3D canvas and the placeholder
-              so "See in 3D" can live alongside zoom/grid. */}
+          <Canvas3D />
+          <TransformToolbar />
           <ViewportOverlay />
           <SceneInfoOverlay />
-          {showViewport && (
-            <div className="absolute bottom-3 left-3 text-[9px] text-textMute bg-[#151515]/70 backdrop-blur px-2.5 py-1.5 rounded-md border border-border/60 pointer-events-none tracking-wide">
-              Double-click text to edit · <kbd className="kbd">⌘Z</kbd> undo · <kbd className="kbd">⇧A</kbd> add · arrows to nudge
-            </div>
-          )}
+          <div className="absolute bottom-3 left-3 text-[9px] text-textMute bg-[#151515]/70 backdrop-blur px-2.5 py-1.5 rounded-md border border-border/60 pointer-events-none tracking-wide">
+            Double-click text to edit · <kbd className="kbd">⌘Z</kbd> undo · <kbd className="kbd">⇧A</kbd> add · arrows to nudge
+          </div>
         </div>
         <div onMouseDown={startRight} className="resize-gutter" title="Drag to resize" />
         <PropertiesPanel width={rightWidth} />

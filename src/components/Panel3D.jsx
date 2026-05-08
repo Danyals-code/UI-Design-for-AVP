@@ -116,14 +116,27 @@ function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
 
 // RealityView panel — bridge to the RealityKit entity tree. The panel
 // itself is just a SwiftUI view (a flat frame in the canvas), but its
-// child entities render inside it. We dispatch BEFORE any hooks so the
-// entity-tree branch doesn't have to run the full Panel3D hook chain.
+// child entities render inside it. Drawn invisibly by default so the
+// 3D content reads cleanly; selection bumps it to a soft outline so
+// the user can see the panel's bounds when editing.
 function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
   const scene = useStore((s) => s.scene)
   const items = useStore((s) => s.items)
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
   const isSelected = selectedId === panel.id
+  // The frame also shows when the user has any descendant of this RV
+  // selected — that's when they care about the bounds the most.
+  const isContextActive = useMemo(() => {
+    if (isSelected) return true
+    if (!selectedId) return false
+    let cur = items.find((it) => it.id === selectedId)
+    while (cur && cur.parentId) {
+      if (cur.parentId === panel.id) return true
+      cur = items.find((it) => it.id === cur.parentId)
+    }
+    return false
+  }, [isSelected, selectedId, items, panel.id])
 
   const size = (resolvedSize && Array.isArray(resolvedSize))
     ? resolvedSize
@@ -134,14 +147,14 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
     () => roundedRectShape(w, h, cornerRadius),
     [w, h, cornerRadius]
   )
+  // Outline padding tied to window size — fixed mm-scale halos dwarf
+  // a 1m window at the metres-native canvas scale.
+  const rvOutlinePad = Math.max(w, h) * 0.008
   const outlineShape = useMemo(
-    () => roundedRectShape(w + 0.025, h + 0.025, cornerRadius + 0.012),
-    [w, h, cornerRadius]
+    () => roundedRectShape(w + rvOutlinePad, h + rvOutlinePad, cornerRadius + rvOutlinePad / 2),
+    [w, h, cornerRadius, rvOutlinePad]
   )
   const tint = scene.tintColor || '#007aff'
-  const fillColor = panel.colorToken
-    ? resolveSemantic(panel.colorToken, scene.designScheme || 'light')
-    : (panel.color || '#0a0a0a')
 
   const onPointerDown = (e) => { e.stopPropagation(); select(panel.id) }
 
@@ -154,27 +167,40 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
         </mesh>
       )}
 
-      {/* RealityView backing surface — flat plate so the bounds read in
-          the layout. visionOS RealityViews are typically transparent;
-          a faint dark fill works for both light & dark design schemes. */}
-      <mesh position={[0, 0, -0.005]} onPointerDown={onPointerDown}>
+      {/* Frame outline — only shows when the RV (or one of its
+          descendants) is actively being edited. Dimmed strokes when a
+          descendant is the focus; brighter when the panel itself is
+          selected. The hit target stays full-size + invisible so
+          clicking inside an "empty" RV always works. */}
+      {isContextActive && (
+        <mesh position={[0, 0, -0.004]}>
+          <shapeGeometry args={[fillShape]} />
+          <meshBasicMaterial color={tint} transparent opacity={isSelected ? 0.08 : 0.04} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      {/* Always-on, completely transparent hit target so the panel is
+          still clickable / draggable even when its frame is hidden. */}
+      <mesh position={[0, 0, -0.005]} onPointerDown={onPointerDown} visible={false}>
         <shapeGeometry args={[fillShape]} />
-        <meshBasicMaterial color={fillColor} transparent opacity={0.18} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#000000" transparent opacity={0} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* "RealityView" tag in the corner so designers can identify the
-          frame at a glance. */}
-      <Text
-        position={[-w / 2 + ptToUnits(10), h / 2 - ptToUnits(10), 0.001]}
-        fontSize={ptToUnits(9)}
-        color={tint}
-        anchorX="left"
-        anchorY="middle"
-        font={getInterFont('semibold')}
-        fillOpacity={0.7}
-      >
-        RealityView
-      </Text>
+      {/* "RealityView" tag — only shown while the user is editing this
+          RV (selected or has a descendant selected) so it doesn't
+          permanently overlay the design. */}
+      {isContextActive && (
+        <Text
+          position={[-w / 2 + ptToUnits(10), h / 2 - ptToUnits(10), 0.001]}
+          fontSize={ptToUnits(9)}
+          color={tint}
+          anchorX="left"
+          anchorY="middle"
+          font={getInterFont('semibold')}
+          fillOpacity={0.7}
+        >
+          RealityView
+        </Text>
+      )}
 
       {/* Optional XYZ axes gizmo at the RealityView origin — designer
           aid only; doesn't affect Swift export. */}
