@@ -12,6 +12,14 @@ import {
   ptToUnits
 } from '../appleSystem'
 import { panelDefaults } from '../panels/registry'
+import {
+  ANCHOR_DEFAULTS,
+  TRANSFORM_DEFAULTS,
+  buildDefaultComponents,
+  meshDefaults,
+  materialDefaults,
+  ENTITY_KINDS
+} from '../realityKit/registry'
 
 // ---- id counter ----
 
@@ -222,6 +230,89 @@ export const makePanel = (panelType, overrides = {}) => {
     ...d,
     ...overrides
   }
+}
+
+// ---- entity factories (RealityKit) ----
+//
+// Entities live in the same `items[]` array as everything else (with
+// type 'entity'); they piggy-back on the existing tree, undo, clipboard,
+// and selection plumbing. Subtypes:
+//
+//   anchor — root of an entity sub-tree (AnchorEntity)
+//   model  — mesh + material(s) (ModelEntity)
+//   group  — empty transform node (Entity)
+//
+// Containment is enforced at the move/drop layer via
+// `childKindsAllowedUnder` in src/realityKit/registry.js.
+
+const capLabel = (key) => ENTITY_KINDS[key]?.label || 'Entity'
+
+// Build a fresh material entry. Used by makeModelEntity and by the
+// "Add material" action in the inspector.
+export const makeMaterial = (type = 'simple', overrides = {}) => ({
+  id: nextId('mat'),
+  type,
+  ...materialDefaults(type),
+  ...overrides
+})
+
+// Common base for every entity kind — id + tree wiring + transform +
+// visual components. Kind-specific fields are spliced on top.
+const makeEntityBase = (entityKind, overrides = {}) => ({
+  id: nextId('entity'),
+  type: 'entity',
+  entityKind,
+  name: capLabel(entityKind),
+  parentId: null,
+  visible: true,
+  collapsed: false,
+  // Transform — metres + degrees, RealityKit-native.
+  position: [...TRANSFORM_DEFAULTS.position],
+  rotation: [...TRANSFORM_DEFAULTS.rotation],
+  scale:    [...TRANSFORM_DEFAULTS.scale],
+  // Visual components (all disabled by default — designer enables what
+  // they need via the Components section). Cloning per-entity keeps the
+  // registry's defaults pristine.
+  components: buildDefaultComponents(),
+  ...overrides
+})
+
+// AnchorEntity — pins the sub-tree to world / head / hand / plane / image
+// / object space. Always the root of an entity sub-tree (RealityKit also
+// lets anchors nest, which we permit).
+export const makeAnchorEntity = (overrides = {}) => makeEntityBase('anchor', {
+  name: 'Anchor',
+  ...ANCHOR_DEFAULTS,
+  ...overrides
+})
+
+// ModelEntity — mesh + materials. `meshType` defaults to 'box' so a fresh
+// model entity is visible the moment it's added; the inspector swaps
+// mesh-specific fields when meshType changes.
+export const makeModelEntity = (meshType = 'box', overrides = {}) => makeEntityBase('model', {
+  name: capLabel('model'),
+  meshType,
+  // Splice the picked mesh's parameters in. `meshDefaults` deep-clones,
+  // so editing one entity never bleeds into another.
+  ...meshDefaults(meshType),
+  // RealityKit lets a mesh carry multiple sub-meshes, each with its own
+  // material; we model that as an ordered array so the inspector can
+  // add / remove / reorder material slots.
+  materials: [makeMaterial('simple')],
+  ...overrides
+})
+
+// Empty Entity — pure transform node. Useful as a parent for grouping.
+export const makeGroupEntity = (overrides = {}) => makeEntityBase('group', {
+  name: capLabel('group'),
+  ...overrides
+})
+
+// Generic dispatcher used by add-actions and the clipboard.
+export const makeEntity = (entityKind, overrides = {}) => {
+  if (entityKind === 'anchor') return makeAnchorEntity(overrides)
+  if (entityKind === 'model')  return makeModelEntity(overrides.meshType || 'box', overrides)
+  return makeGroupEntity(overrides)
 }
 
 // ---- initial scene ----

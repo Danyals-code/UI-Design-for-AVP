@@ -10,6 +10,7 @@ import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS } from '../appleSy
 const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
+import { EntityChildren } from './Entity3D'
 
 // ---- Plane fill ----
 // Earlier we layered a six-pass approximation of visionOS Liquid Glass
@@ -340,8 +341,14 @@ function Window3D({ window: win, items }) {
 
   const allChildren = items.filter((c) => c.parentId === win.id && isEffectivelyVisible(items, c.id))
   const presentationTypes = ['sheet', 'popover', 'alert']
+  // Entities can land directly under a window when the window is volumetric
+  // (the window itself acts as a RealityView container). Rendered after
+  // content/ornaments at the window's own origin.
+  const entityChildren = allChildren.filter((c) => c.type === 'entity')
   const contentChildren = allChildren.filter((c) =>
-    !(c.type === 'stack' && c.ornament) && !(c.type === 'panel' && presentationTypes.includes(c.panelType))
+    c.type !== 'entity' &&
+    !(c.type === 'stack' && c.ornament) &&
+    !(c.type === 'panel' && presentationTypes.includes(c.panelType))
   )
   const ornamentChildren = allChildren.filter((c) => c.type === 'stack' && c.ornament)
   const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
@@ -454,6 +461,14 @@ function Window3D({ window: win, items }) {
           />
         )
       })}
+
+      {/* RealityKit entities sitting directly under the window. Volumetric
+          windows are RealityView hosts implicitly; we render the entity
+          tree at the window's local origin so designers see their
+          spatial layout in the canvas. */}
+      {entityChildren.length > 0 && (
+        <EntityChildren hostId={win.id} items={items} scene={scene} />
+      )}
 
       {/* Presentation overlays (sheet / alert / popover) — rendered above
           the window content. In SwiftUI these modals are always *contained*

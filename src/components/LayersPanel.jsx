@@ -20,7 +20,9 @@ import {
   SheetIcon, PopoverIcon, AlertIcon, ContentUnavailableIcon,
   WindowIcon, CloseIcon, PlusIcon,
   TabViewIcon, TabIcon, NavStackIcon,
-  PageTabIcon, SplitViewIcon
+  PageTabIcon, SplitViewIcon,
+  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon,
+  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon
 } from './icons'
 
 // Keep this map in sync with AddDropdown.jsx so the glyph in the layers
@@ -47,7 +49,16 @@ const PANEL_ICONS = {
   slideshow: SlideshowIcon, ticker: TickerIcon,
   // Presentations
   sheet: SheetIcon, popover: PopoverIcon, alert: AlertIcon,
-  contentUnavailable: ContentUnavailableIcon
+  contentUnavailable: ContentUnavailableIcon,
+  // RealityKit bridge
+  realityview: RealityViewIcon
+}
+
+// Per-mesh entity icons. Falls back to ModelEntityIcon when the mesh type
+// is unknown (covers usdz / future additions).
+const MESH_ICONS = {
+  box: BoxIcon, sphere: SphereIcon, cylinder: CylinderIcon, cone: ConeIcon,
+  plane: PlaneIcon, text: Text3DIcon, usdz: MeshIcon
 }
 
 // ---- tree-row icon picker ----
@@ -70,6 +81,14 @@ function rowIcon(item) {
     if (item.stackType === 'tab')      return <TabIcon />
     if (item.stackType === 'navigationStack') return <NavStackIcon />
     return <VStackIcon />
+  }
+  if (item.type === 'entity') {
+    if (item.entityKind === 'anchor') return <AnchorIcon />
+    if (item.entityKind === 'group')  return <EntityGroupIcon />
+    // Model — use mesh-specific glyph when known, fall back to the
+    // generic model entity icon.
+    const MeshGlyph = MESH_ICONS[item.meshType] || ModelEntityIcon
+    return <MeshGlyph />
   }
   const PanelIcon = PANEL_ICONS[item.panelType]
   if (PanelIcon) return <PanelIcon />
@@ -140,7 +159,15 @@ function LayerRow({ item, depth }) {
   const [iconOpen, setIconOpen]   = useState(false)
 
   const isSel = item.id === selectedId
-  const container = item.type === 'window' || item.type === 'stack' || item.type === 'tab'
+  // Containers: anything that holds other items in the layers tree.
+  // Adds entities (which can host child entities under any kind) and
+  // RealityView panels (whose children are the entity tree itself).
+  const container =
+    item.type === 'window' ||
+    item.type === 'stack' ||
+    item.type === 'tab' ||
+    item.type === 'entity' ||
+    (item.type === 'panel' && item.panelType === 'realityview')
   const children = container ? items.filter((it) => it.parentId === item.id) : []
   const isTab = item.type === 'tab'
   const isActiveTab = isTab && item.id === activeTabId
@@ -231,6 +258,8 @@ function LayerRow({ item, depth }) {
             isTab              ? (isActiveTab ? 'text-accent' : 'text-textDim')
             : item.type === 'window' ? 'text-accent'
             : item.type === 'stack'  ? 'text-amber-400'
+            : item.type === 'entity' ? 'text-teal-400'
+            : (item.type === 'panel' && item.panelType === 'realityview') ? 'text-teal-300'
             : 'text-textDim'
           }`}
           title={isTab ? 'Click to change icon' : undefined}
