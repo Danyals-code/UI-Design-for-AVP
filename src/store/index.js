@@ -39,10 +39,31 @@ export const useStore = create((set, get) => ({
   showAxes:     true,    // Overlay → Axes (the 3D-preview gizmo)
   showSceneInfo: false,  // Overlay → Scene Info (Blender-style stats panel)
   scene:        { ...DEFAULT_SCENE },
-  // DEFAULT_DIST (7) is treated as the 100%-zoom reference. Initial 85%
-  // pct → zoomDistance = 7 / 0.85 ≈ 8.235, giving a comfortable framing
-  // where the window takes most of the viewport without crowding the edges.
-  zoomDistance: 7.0 / 0.85,
+  // 1.4m default camera distance — comfortable framing for a 1.2m
+  // window plate or a 1m volumetric stage at the new metres scale.
+  zoomDistance: 1.4,
+  // template apply, or scene-mode switch. Drives whether the
+  // "switching modes resets your scene" warning fires when the viewport
+  // mode toggle is clicked. Marked `true` by `undoable`; reset to
+  // `false` by template/mode-switch actions in their own fn() return.
+  sceneIsDirty: false,
+  // Persistent open/closed state for collapsible inspector sections,
+  // keyed by section title. Without this, every time the user clicks
+  // a different layer the inspector remounts and Sections lose their
+  // local open state — surprising when the user expected the section
+  // they opened to stay open. Non-undoable: it's UI state, not document.
+  inspectorSectionOpen: {},
+  setInspectorSectionOpen: (key, open) => set((s) => ({
+    inspectorSectionOpen: { ...s.inspectorSectionOpen, [key]: open }
+  })),
+  // Transform-gizmo mode for the selected entity. Mirrors Blender's
+  // G / R / S muscle memory — picks which `<TransformControls>` mode
+  // (translate / rotate / scale) is rendered on the canvas. `none`
+  // hides the gizmo (default — the gizmo would otherwise occlude the
+  // mesh when the user is just inspecting). Non-undoable.
+  transformMode: 'none',  // 'none' | 'translate' | 'rotate' | 'scale'
+  setTransformMode: (mode) => set({ transformMode: mode }),
+  // (zoomDistance defined above at metres scale)
 
   // Undo / redo stacks (internal, not rendered directly)
   _past:   [],

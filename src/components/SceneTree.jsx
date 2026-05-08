@@ -31,21 +31,29 @@ function LiquidGlass({
 }) {
   const [w, h] = size
   const fillShape = useMemo(() => roundedRectShape(w, h, cornerRadius), [w, h, cornerRadius])
+  // Halo extension scales with the window size — at the metres-native
+  // canvas scale a 1.2m window with a fixed 4cm halo looks like a heavy
+  // drop shadow. Tying it to ~0.6% of the window's shorter side keeps
+  // the silhouette consistent regardless of window dimensions.
+  const haloPad = Math.max(w, h) * 0.006
   const shadowShape = useMemo(
-    () => roundedRectShape(w + 0.04, h + 0.04, cornerRadius + 0.02),
-    [w, h, cornerRadius]
+    () => roundedRectShape(w + haloPad, h + haloPad, cornerRadius + haloPad / 2),
+    [w, h, cornerRadius, haloPad]
   )
 
   return (
     <>
-      {/* Contact shadow to keep the plane readable against any background */}
-      <mesh position={[0, -0.01, -0.02]}>
+      {/* Faint contact shadow — a couple of millimetres behind the plate
+          so it reads as "hovering" rather than "drawn on a backdrop".
+          Opacity is gentler than the old 22% halo so light viewports
+          aren't dominated by it. */}
+      <mesh position={[0, 0, -0.003]}>
         <shapeGeometry args={[shadowShape]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.22} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.12} />
       </mesh>
 
       {/* Solid fill (drag / click target) */}
-      <mesh position={[0, 0, -0.010]} {...hitEvents}>
+      <mesh position={[0, 0, -0.001]} {...hitEvents}>
         <shapeGeometry args={[fillShape]} />
         <meshBasicMaterial color={color} side={THREE.DoubleSide} />
       </mesh>
@@ -82,9 +90,10 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     ? Math.min(w, h) / 2
     : (stack.cornerRadius != null ? stack.cornerRadius : ptToUnits(12))
 
+  const stackOutlinePad = Math.max(w, h) * 0.008
   const outlineShape = useMemo(
-    () => roundedRectShape(w + 0.025, h + 0.025, bgRadius + 0.012),
-    [w, h, bgRadius]
+    () => roundedRectShape(w + stackOutlinePad, h + stackOutlinePad, bgRadius + stackOutlinePad / 2),
+    [w, h, bgRadius, stackOutlinePad]
   )
 
   const bgColor = (() => {
@@ -302,9 +311,13 @@ function Window3D({ window: win, items }) {
     ? resolveSemantic(win.colorToken, scene.designScheme || 'light')
     : (win.color || '#f2f2f7')
 
+  // Outline padding scales with window size — at the new metres scale a
+  // fixed 25mm halo dwarfs a 1.2m window. Half a percent of the longer
+  // side gives a consistently-thin selection ring.
+  const outlinePad = Math.max(w, h) * 0.008
   const outlineShape = useMemo(
-    () => roundedRectShape(w + 0.025, h + 0.025, cornerR + 0.015),
-    [w, h, cornerR]
+    () => roundedRectShape(w + outlinePad, h + outlinePad, cornerR + outlinePad / 2),
+    [w, h, cornerR, outlinePad]
   )
 
   const onPointerDown = (e) => {
@@ -386,6 +399,14 @@ function Window3D({ window: win, items }) {
     ornSizes.set(orn.id, [ow, oh])
   }
 
+  // Volumetric windows render as transparent containers in real visionOS
+  // — the user sees their RealityKit content, not a glass baseplate. We
+  // mirror that here: hide the plate by default, expose a tag in the
+  // selection halo, and only render the plate at all when the user has
+  // explicitly opted in via `volumeBaseplateVisibility: 'visible'`.
+  const isVolumetric = win.windowStyle === 'volumetric'
+  const showBaseplate = !isVolumetric || win.volumeBaseplateVisibility === 'visible'
+
   return (
     <group position={win.position}>
       {isSelected && (
@@ -395,18 +416,34 @@ function Window3D({ window: win, items }) {
         </mesh>
       )}
 
-      <LiquidGlass
-        size={[w, h]}
-        cornerRadius={cornerR}
-        color={fillColor}
-        material={win.material || 'regular'}
-        schemeDark={scene.designScheme === 'dark'}
-        hitEvents={{
-          onPointerDown,
-          onPointerMove,
-          onPointerUp
-        }}
-      />
+      {showBaseplate ? (
+        <LiquidGlass
+          size={[w, h]}
+          cornerRadius={cornerR}
+          color={fillColor}
+          material={win.material || 'regular'}
+          schemeDark={scene.designScheme === 'dark'}
+          hitEvents={{
+            onPointerDown,
+            onPointerMove,
+            onPointerUp
+          }}
+        />
+      ) : (
+        // Volumetric window with hidden plate — keep an invisible hit
+        // target so the user can still grab + drag the (otherwise
+        // invisible) container.
+        <mesh
+          position={[0, 0, -0.005]}
+          visible={false}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+        >
+          <shapeGeometry args={[outlineShape]} />
+          <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
+        </mesh>
+      )}
 
       {/* Depth layering for the 3D preview (volume mode only). visionOS
           parallaxes three tiers: the window sits at the back, content stacks

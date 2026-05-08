@@ -85,6 +85,12 @@ function rowIcon(item) {
   if (item.type === 'entity') {
     if (item.entityKind === 'anchor') return <AnchorIcon />
     if (item.entityKind === 'group')  return <EntityGroupIcon />
+    if (item.entityKind === 'camera') return (
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="5" width="9" height="7" rx="1" />
+        <path d="M11 7l3-2v6l-3-2z" />
+      </svg>
+    )
     // Model — use mesh-specific glyph when known, fall back to the
     // generic model entity icon.
     const MeshGlyph = MESH_ICONS[item.meshType] || ModelEntityIcon

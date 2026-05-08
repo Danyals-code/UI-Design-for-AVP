@@ -13,13 +13,14 @@
 // requiring designers to think about the conversion. Refining this when
 // volumetric windows render is a future tuning pass.
 
-import { useMemo } from 'react'
+import { useMemo, useRef, Suspense } from 'react'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { Text } from '@react-three/drei'
+import { Text, useGLTF, Billboard } from '@react-three/drei'
 import { useStore, isEffectivelyVisible } from '../store'
 import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
-import { resolveSemantic } from '../appleSystem'
+import { resolveSemantic, SF_SYMBOLS } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
 
 const DEG2RAD = Math.PI / 180
@@ -33,23 +34,45 @@ const DEG2RAD = Math.PI / 180
 // (occlusion, portal, video, shader graph) where the canvas can't fully
 // reproduce the device behaviour.
 
-function materialNode(mat, effectiveOpacity = 1) {
+function materialNode(mat, effectiveOpacity = 1, iblBoost = 0) {
+  // Force `transparent` whenever the entity carries any propagated alpha
+  // — three.js needs the flag set or the meshStandardMaterial silently
+  // ignores `opacity` and the user sees no visual change. The 1e-3
+  // epsilon avoids flipping transparency on for fully opaque materials.
+  const transparent = effectiveOpacity < 1 - 1e-3
+  // Emissive bump from an active ImageBasedLightComponent — see the
+  // entity-level comment for why this exists.
+  const emissiveColor = iblBoost > 0 ? '#ffffff' : '#000000'
+  const emissiveBoost = iblBoost
+
   if (!mat) {
     // ModelEntity always has at least one material slot; this is just a
     // safety fallback for legacy data with no materials list.
-    return <meshStandardMaterial color="#cccccc" roughness={0.5} metalness={0} />
-  }
-  const opaque = effectiveOpacity >= 1 - 1e-3
-  const transparent = !opaque
-
-  if (mat.type === 'simple') {
     return (
       <meshStandardMaterial
+        color="#cccccc" roughness={0.5} metalness={0}
+        opacity={effectiveOpacity} transparent={transparent}
+        emissive={emissiveColor} emissiveIntensity={emissiveBoost}
+      />
+    )
+  }
+
+  if (mat.type === 'simple') {
+    // MeshPhysicalMaterial is a strict superset of MeshStandardMaterial —
+    // same baseColor/roughness/metalness, plus clearcoat / sheen / etc.
+    // for free. Using it everywhere unifies the lighting equation so a
+    // material upgraded from "simple" to "physicallyBased" renders
+    // consistently.
+    return (
+      <meshPhysicalMaterial
         color={mat.baseColor || '#ffffff'}
         roughness={mat.roughness ?? 0.5}
         metalness={mat.isMetallic ? 1 : 0}
         opacity={effectiveOpacity}
         transparent={transparent}
+        emissive={emissiveColor}
+        emissiveIntensity={emissiveBoost}
+        envMapIntensity={1}
       />
     )
   }
@@ -60,16 +83,34 @@ function materialNode(mat, effectiveOpacity = 1) {
     const side = mat.faceCulling === 'none'
       ? THREE.DoubleSide
       : mat.faceCulling === 'front' ? THREE.BackSide : THREE.FrontSide
+    // Combine the material's own emissive with the IBL boost — the
+    // material's emissive intensity is in PBR units and tops out around
+    // 1, so adding `iblBoost` (also bounded to ~2) reads correctly.
+    const matEmissive = mat.emissiveColor || '#000000'
+    const baseEmissiveIntensity = mat.emissiveIntensity ?? 0
+    const finalEmissiveIntensity = baseEmissiveIntensity + emissiveBoost
+    const finalEmissiveColor = emissiveBoost > 0 && baseEmissiveIntensity === 0
+      ? '#ffffff'
+      : matEmissive
+    // MeshPhysicalMaterial unlocks clearcoat + sheen — the two PBR
+    // extensions our material schema already carries data for. Useful
+    // for car-paint / lacquered-wood / fabric finishes that designers
+    // want to preview, not just store on the entity for export.
     return (
-      <meshStandardMaterial
+      <meshPhysicalMaterial
         color={mat.baseColor || '#ffffff'}
         roughness={mat.roughness ?? 0.5}
         metalness={mat.metallic ?? 0}
-        emissive={mat.emissiveColor || '#000000'}
-        emissiveIntensity={mat.emissiveIntensity ?? 0}
+        emissive={finalEmissiveColor}
+        emissiveIntensity={finalEmissiveIntensity}
+        clearcoat={mat.clearcoat ?? 0}
+        clearcoatRoughness={mat.clearcoatRoughness ?? 0}
+        sheen={mat.sheenColor && mat.sheenColor !== '#000000' ? 1 : 0}
+        sheenColor={mat.sheenColor || '#000000'}
         opacity={effectiveOpacity}
         transparent={blendingTransparent}
         side={side}
+        envMapIntensity={1}
       />
     )
   }
@@ -106,7 +147,7 @@ function materialNode(mat, effectiveOpacity = 1) {
       <meshStandardMaterial
         color="#5b3aa8"
         emissive="#9b6dff"
-        emissiveIntensity={0.35}
+        emissiveIntensity={0.35 + emissiveBoost}
         roughness={0.3}
         metalness={0.05}
         transparent
@@ -133,6 +174,8 @@ function materialNode(mat, effectiveOpacity = 1) {
         metalness={0.1}
         opacity={effectiveOpacity}
         transparent={transparent}
+        emissive={emissiveColor}
+        emissiveIntensity={emissiveBoost}
       />
     )
   }
@@ -299,32 +342,39 @@ function AxisLine({ start, end, color }) {
 
 function AnchorGizmo({ entity, isSelected, scene }) {
   const tint = scene.tintColor || '#007aff'
-  const size = 0.08
+  // Anchor sizes in metres — small enough to live inside a 0.1m primitive
+  // without dwarfing it. Hide entirely when nothing's selected (the gizmo
+  // is a designer aid; in a finished scene it would clutter the canvas).
+  // Fades to a tiny dot when not selected.
+  const size = isSelected ? 0.08 : 0.04
   const target = entity.anchorTarget || 'world'
   const meta = ANCHOR_TARGETS[target]
   return (
     <group>
       {/* X (red), Y (green), Z (blue) axes — Blender / RealityKit
-          colour convention. */}
+          colour convention. Dimmed when this anchor isn't selected so
+          it reads as scaffolding rather than scene content. */}
       <AxisLine start={[0, 0, 0]} end={[size, 0, 0]} color="#ff5252" />
       <AxisLine start={[0, 0, 0]} end={[0, size, 0]} color="#7ee787" />
       <AxisLine start={[0, 0, 0]} end={[0, 0, size]} color="#79c0ff" />
-      {/* A subtle dot at the origin so the gizmo is selectable on click. */}
       <mesh>
-        <sphereGeometry args={[0.012, 16, 16]} />
+        <sphereGeometry args={[isSelected ? 0.012 : 0.006, 16, 16]} />
         <meshBasicMaterial color={isSelected ? tint : '#cccccc'} />
       </mesh>
-      {/* Label — anchor target name. */}
-      <Text
-        position={[size + 0.02, 0, 0]}
-        fontSize={0.022}
-        color={isSelected ? tint : '#888888'}
-        anchorX="left"
-        anchorY="middle"
-        font={getInterFont('medium')}
-      >
-        {meta?.label || target}
-      </Text>
+      {/* Target-name label appears only when the user has this anchor
+          selected — keeps the canvas clean for everything else. */}
+      {isSelected && (
+        <Text
+          position={[size + 0.02, 0, 0]}
+          fontSize={0.022}
+          color={tint}
+          anchorX="left"
+          anchorY="middle"
+          font={getInterFont('medium')}
+        >
+          {meta?.label || target}
+        </Text>
+      )}
     </group>
   )
 }
@@ -336,6 +386,112 @@ function GroupGizmo({ isSelected, scene }) {
       <mesh>
         <octahedronGeometry args={[0.018, 0]} />
         <meshBasicMaterial color={isSelected ? tint : '#888888'} wireframe />
+      </mesh>
+    </group>
+  )
+}
+
+// CameraGizmo — wireframe pyramid pointing along -Z (camera look
+// direction). Stand-in for the wearer's headset; the "Camera View"
+// button on the toolbar snaps the orbit camera to this entity's
+// transform when the user wants to preview the scene from here.
+// AttachmentPanel3D — renders a SwiftUI-style panel as a small 3D
+// plane in space. Optionally billboards toward the camera so the user
+// can read it from any orbit angle. Mirrors how `Attachment(id:)
+// { ... }` content reads inside a `RealityView`.
+function AttachmentPanel3D({ entity, isSelected, scene }) {
+  const tint = scene.tintColor || '#007aff'
+  const kind = entity.attachmentKind || 'text'
+  const billboard = entity.attachmentBillboard !== false
+
+  const fontSize    = entity.attachmentFontSize ?? 0.05
+  const padding     = entity.attachmentPadding ?? 0.02
+  const radius      = entity.attachmentCornerRadius ?? 0.02
+  const fg          = entity.attachmentColor || '#ffffff'
+  const bg          = entity.attachmentBackground || '#1c1c1e'
+
+  // Estimate panel size based on text length (rough character width
+  // ratio). For image attachments use the explicit size.
+  const text = entity.attachmentText || ''
+  const symGlyph = entity.attachmentSymbol ? SF_SYMBOLS[entity.attachmentSymbol]?.glyph : null
+  const labelText = symGlyph ? `${symGlyph}  ${text}` : text
+  const charW = fontSize * 0.55
+  const estW = (kind === 'image')
+    ? (entity.attachmentSize ?? 0.2)
+    : Math.max(fontSize * 3, labelText.length * charW + padding * 2)
+  const estH = (kind === 'image')
+    ? (entity.attachmentSize ?? 0.2)
+    : (fontSize * 1.4 + padding * 2)
+
+  const fillShape = useMemo(() => roundedRectShape(estW, estH, radius), [estW, estH, radius])
+
+  const panel = (
+    <group>
+      {isSelected && (
+        <mesh position={[0, 0, -0.001]}>
+          <shapeGeometry args={[roundedRectShape(estW + 0.012, estH + 0.012, radius + 0.006)]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.5} />
+        </mesh>
+      )}
+      <mesh>
+        <shapeGeometry args={[fillShape]} />
+        <meshBasicMaterial color={bg} side={THREE.DoubleSide} />
+      </mesh>
+      {kind !== 'image' && (
+        <Text
+          position={[0, 0, 0.001]}
+          fontSize={fontSize}
+          color={fg}
+          anchorX="center"
+          anchorY="middle"
+          font={getInterFont('semibold')}
+          maxWidth={estW - padding * 2}
+        >
+          {labelText || ' '}
+        </Text>
+      )}
+      {kind === 'image' && (
+        <Text
+          position={[0, 0, 0.001]}
+          fontSize={fontSize * 0.6}
+          color={fg}
+          anchorX="center"
+          anchorY="middle"
+          font={getInterFont('medium')}
+          fillOpacity={0.6}
+        >
+          {entity.attachmentImageUrl ? '🖼' : 'Image'}
+        </Text>
+      )}
+    </group>
+  )
+
+  return billboard ? <Billboard>{panel}</Billboard> : panel
+}
+
+function CameraGizmo({ entity, isSelected, scene }) {
+  const tint = scene.tintColor || '#007aff'
+  // Pyramid dimensions in metres — small enough to live alongside
+  // sub-metre primitives without dominating, but visible from across
+  // a 3m room.
+  const w = 0.10, h = 0.07, d = 0.14
+  return (
+    <group>
+      {/* Body — slim box approximating a headset volume. */}
+      <mesh>
+        <boxGeometry args={[w, h, d * 0.6]} />
+        <meshBasicMaterial color={isSelected ? tint : '#cfcfd1'} wireframe />
+      </mesh>
+      {/* Frustum lens — cone pointing -Z (camera look-direction). */}
+      <mesh position={[0, 0, -d * 0.55]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[w * 0.45, d * 0.5, 16, 1, true]} />
+        <meshBasicMaterial color={isSelected ? tint : '#cfcfd1'} wireframe />
+      </mesh>
+      {/* Direction marker — small filled tip so the user knows which
+          way the camera is "looking" at a glance. */}
+      <mesh position={[0, 0, -d * 0.85]}>
+        <sphereGeometry args={[0.008, 12, 12]} />
+        <meshBasicMaterial color={tint} />
       </mesh>
     </group>
   )
@@ -395,38 +551,82 @@ function Text3DEntity({ entity, mat, opacity }) {
 // place / scale / rotate the entity even though the model is missing
 // from the canvas preview.
 
+// drei's useGLTF caches by URL. We treat any entity.usdzAsset that
+// looks like a URL/path ending in .glb or .gltf as a real asset and
+// load it; otherwise we fall back to the wireframe placeholder so
+// USDZ-named bundle resources still preview the entity's footprint.
+function isLoadableMesh(asset) {
+  if (!asset) return false
+  return /\.(glb|gltf)(\?|#|$)/i.test(asset)
+}
+
+function GltfModel({ url, opacity }) {
+  const { scene: gltfScene } = useGLTF(url)
+  // Clone so multiple entities pointing at the same URL don't share
+  // the same Object3D instance (which would teleport materials around).
+  const cloned = useMemo(() => gltfScene.clone(true), [gltfScene])
+  // Apply opacity propagation to every material in the cloned tree —
+  // matches the OpacityComponent semantics our flat primitives have.
+  useMemo(() => {
+    cloned.traverse((o) => {
+      if (o.isMesh && o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material]
+        for (const m of mats) {
+          m.transparent = opacity < 1
+          m.opacity = opacity
+        }
+      }
+    })
+  }, [cloned, opacity])
+  return <primitive object={cloned} />
+}
+
 function UsdzPlaceholder({ entity, mat, opacity, isSelected, scene }) {
   const tint = scene.tintColor || '#007aff'
   const size = 0.1
+  const loadable = isLoadableMesh(entity.usdzAsset)
   return (
     <group>
-      <mesh>
-        <boxGeometry args={[size, size, size]} />
-        <meshStandardMaterial
-          color={mat?.baseColor || mat?.unlitColor || '#666666'}
-          roughness={0.7}
-          metalness={0}
-          wireframe
-          opacity={opacity}
-          transparent={opacity < 1}
-        />
-      </mesh>
+      {loadable ? (
+        <Suspense fallback={
+          <mesh>
+            <boxGeometry args={[size, size, size]} />
+            <meshBasicMaterial color="#444" transparent opacity={0.3} wireframe />
+          </mesh>
+        }>
+          <GltfModel url={entity.usdzAsset} opacity={opacity} />
+        </Suspense>
+      ) : (
+        <mesh>
+          <boxGeometry args={[size, size, size]} />
+          <meshStandardMaterial
+            color={mat?.baseColor || mat?.unlitColor || '#666666'}
+            roughness={0.7}
+            metalness={0}
+            wireframe
+            opacity={opacity}
+            transparent={opacity < 1}
+          />
+        </mesh>
+      )}
       {isSelected && (
         <mesh>
           <boxGeometry args={[size * 1.06, size * 1.06, size * 1.06]} />
           <meshBasicMaterial color={tint} transparent opacity={0.18} wireframe />
         </mesh>
       )}
-      <Text
-        position={[0, size * 0.7, 0]}
-        fontSize={0.022}
-        color="#888888"
-        anchorX="center"
-        anchorY="middle"
-        font={getInterFont('medium')}
-      >
-        {entity.usdzAsset ? `usdz: ${entity.usdzAsset}` : 'USDZ (no asset)'}
-      </Text>
+      {!loadable && (
+        <Text
+          position={[0, size * 0.7, 0]}
+          fontSize={0.022}
+          color="#888888"
+          anchorX="center"
+          anchorY="middle"
+          font={getInterFont('medium')}
+        >
+          {entity.usdzAsset ? `usdz: ${entity.usdzAsset}` : 'USDZ (no asset)'}
+        </Text>
+      )}
     </group>
   )
 }
@@ -436,16 +636,33 @@ function UsdzPlaceholder({ entity, mat, opacity, isSelected, scene }) {
 // Recurses into entity children — entities can host other entities under
 // any kind (anchor → model, model → group, group → anchor, etc.).
 // Visibility is honoured at every level.
+//
+// `parentOpacity` propagates RealityKit's OpacityComponent semantics:
+// the component multiplies through the entity's descendants. We pass
+// the running product down so a 0.5 opacity on a group dims every child
+// even if those children don't carry an OpacityComponent themselves.
 
-export default function Entity3D({ entity, items, scene }) {
+export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
   const isSelected = selectedId === entity.id
 
   const opComp = entity.components?.opacity
-  const opacity = opComp?.enabled ? (opComp.value ?? 1) : 1
+  const ownOpacity = opComp?.enabled ? (opComp.value ?? 1) : 1
+  const opacity = parentOpacity * ownOpacity
   const showShadow = entity.components?.groundingShadow?.enabled
                   && entity.components?.groundingShadow?.castsShadow !== false
+
+  // ImageBasedLightComponent — RealityKit uses the named cubemap as the
+  // entity's lighting source. The browser preview can't sample that
+  // resource, so we lean on a small emissive boost so the entity reads
+  // as "lit by an IBL" rather than the unloaded asset turning the mesh
+  // dark. Receivers don't need anything special — the parent IBL
+  // already affects them through the standard scene environment.
+  const iblComp = entity.components?.imageBasedLight
+  const iblBoost = iblComp?.enabled
+    ? Math.max(0, Math.min(2, Math.pow(2, iblComp.intensityExponent ?? 0) - 1))
+    : 0
 
   const pos = entity.position || [0, 0, 0]
   const rot = (entity.rotation || [0, 0, 0]).map((d) => d * DEG2RAD)
@@ -463,7 +680,12 @@ export default function Entity3D({ entity, items, scene }) {
   const mat = (entity.materials || [])[0]
 
   return (
-    <group position={pos} rotation={rot} scale={scl}>
+    <group
+      position={pos}
+      rotation={rot}
+      scale={scl}
+      userData={{ entityId: entity.id }}
+    >
       {/* Render mesh / gizmo for the entity's own kind */}
       {entity.entityKind === 'model' && entity.meshType === 'text' && (
         <group onPointerDown={onPointerDown}>
@@ -490,7 +712,7 @@ export default function Entity3D({ entity, items, scene }) {
           {isSelected && <SelectionHalo entity={entity} scene={scene} />}
           <mesh>
             {meshGeometry(entity)}
-            {materialNode(mat, opacity)}
+            {materialNode(mat, opacity, iblBoost)}
           </mesh>
         </group>
       )}
@@ -507,12 +729,26 @@ export default function Entity3D({ entity, items, scene }) {
         </group>
       )}
 
+      {entity.entityKind === 'camera' && (
+        <group onPointerDown={onPointerDown}>
+          <CameraGizmo entity={entity} isSelected={isSelected} scene={scene} />
+        </group>
+      )}
+
+      {entity.entityKind === 'attachment' && (
+        <group onPointerDown={onPointerDown}>
+          <AttachmentPanel3D entity={entity} isSelected={isSelected} scene={scene} />
+        </group>
+      )}
+
       {/* Visual components (artifact-only — physics/audio/input excluded) */}
       {showShadow && entity.entityKind === 'model' && <GroundingShadow entity={entity} />}
 
-      {/* Recurse into children — entities nest freely */}
+      {/* Recurse into children — entities nest freely. Pass the
+          accumulated opacity down so an OpacityComponent on this entity
+          dims its descendants (RealityKit's actual semantics). */}
       {children.map((c) => (
-        <Entity3D key={c.id} entity={c} items={items} scene={scene} />
+        <Entity3D key={c.id} entity={c} items={items} scene={scene} parentOpacity={opacity} />
       ))}
     </group>
   )

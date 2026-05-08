@@ -5,9 +5,26 @@
 // topbar title lets them swap modes without cluttering this panel.
 
 import { useState } from 'react'
-import { Row, Section, ColorRow, Select, NumField } from './primitives'
+import { Row, Section, ColorRow, Select, NumField, Slider } from './primitives'
 import { HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES } from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
+
+// drei <Environment> built-in presets. None of these need an asset
+// download — drei ships pre-baked cubemaps for each. "None" disables
+// the IBL fallback so only the explicit ambient/key lights apply.
+const ENV_PRESETS = [
+  { value: 'none',      label: 'None (lights only)' },
+  { value: 'apartment', label: 'Apartment (default)' },
+  { value: 'studio',    label: 'Studio' },
+  { value: 'city',      label: 'City' },
+  { value: 'park',      label: 'Park' },
+  { value: 'sunset',    label: 'Sunset' },
+  { value: 'dawn',      label: 'Dawn' },
+  { value: 'night',     label: 'Night' },
+  { value: 'warehouse', label: 'Warehouse' },
+  { value: 'forest',    label: 'Forest' },
+  { value: 'lobby',     label: 'Lobby' }
+]
 
 // visionOS spec §3.1 — `.upperLimbVisibility(_:)` and
 // `.preferredSurroundingsEffect(_:)`. The latter accepts `nil`,
@@ -119,6 +136,41 @@ export function SceneProps({ scene, updateScene }) {
         </div>
       </Section>
 
+      <Section title="Lighting" defaultOpen={true}>
+        {/*
+          Designer-controllable scene lighting. The defaults are tuned
+          to read bright on every device, but users sometimes want to
+          turn the scene down for moody dark UIs. Ambient is the
+          flat-fill, Key is the angled directional that gives 3D
+          primitives shading.
+        */}
+        <Row label="Ambient">
+          <Slider
+            value={scene.ambientLightIntensity ?? 1.4}
+            min={0} max={3} step={0.05}
+            onChange={(v) => updateScene({ ambientLightIntensity: v })}
+          />
+        </Row>
+        <Row label="Key">
+          <Slider
+            value={scene.keyLightIntensity ?? 0.9}
+            min={0} max={3} step={0.05}
+            onChange={(v) => updateScene({ keyLightIntensity: v })}
+          />
+        </Row>
+        <Row label="Environment">
+          <Select
+            value={scene.environmentPreset || 'none'}
+            options={ENV_PRESETS}
+            onChange={(v) => updateScene({ environmentPreset: v === 'none' ? null : v })}
+          />
+        </Row>
+        <div className="text-[10px] text-textMute leading-snug mt-1">
+          Environment provides PBR reflections without requiring an HDRI
+          file. An HDRI from <code>Viewport</code> takes precedence when set.
+        </div>
+      </Section>
+
       <Section title="Design">
         <Row label="Scheme">
           <div className="segmented flex-1">
@@ -131,18 +183,25 @@ export function SceneProps({ scene, updateScene }) {
         </Row>
       </Section>
 
-      <Section title="Scene Type">
-        {/*
-          visionOS apps host one of three scene types: WindowGroup
-          (2D plate), volumetric WindowGroup, or ImmersiveSpace. The
-          mode here drives which top-level `Scene` the SwiftUI exporter
-          emits, plus which inspector fields apply.
-        */}
+      {/*
+        Window / Volume picker lives in the viewport overlay (top-right)
+        so it sits next to 2D/3D and Zoom — the controls users reach for
+        in the same workflow. Immersive Space is a less-frequent choice
+        and stays here as an opt-in section.
+      */}
+      <Section title="Immersive Space">
         <Row label="Mode">
           <div className="segmented flex-1">
-            <button className={scene.sceneMode === 'window' ? 'active' : ''} onClick={() => updateScene({ sceneMode: 'window' })}>Window</button>
-            <button className={scene.sceneMode === 'volume' ? 'active' : ''} onClick={() => updateScene({ sceneMode: 'volume' })}>Volume</button>
-            <button className={scene.sceneMode === 'immersive' ? 'active' : ''} onClick={() => updateScene({ sceneMode: 'immersive' })}>Immersive</button>
+            <button
+              className={scene.sceneMode !== 'immersive' ? 'active' : ''}
+              onClick={() => updateScene({ sceneMode: 'window' })}
+              title="Drop back to Window/Volume — set those from the viewport toggle"
+            >Off</button>
+            <button
+              className={scene.sceneMode === 'immersive' ? 'active' : ''}
+              onClick={() => updateScene({ sceneMode: 'immersive' })}
+              title="Export as a top-level ImmersiveSpace scene"
+            >Immersive</button>
           </div>
         </Row>
         {scene.sceneMode === 'immersive' && (

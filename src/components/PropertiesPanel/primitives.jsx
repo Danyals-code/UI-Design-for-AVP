@@ -7,6 +7,7 @@ import {
   STACK_TYPES,
   unitsToPt, ptToUnits
 } from '../../appleSystem'
+import { useStore } from '../../store'
 import { useScrub } from './useScrub'
 
 export function Row({ label, children, labelWidth = 56 }) {
@@ -171,11 +172,19 @@ function SectionChevron({ open }) {
   )
 }
 
+// Section state is persisted in the zustand store keyed by `title` so
+// that collapsing/expanding a section sticks across selection changes
+// — without this every click on a different layer remounts the
+// PropertiesPanel and resets local useState back to defaultOpen,
+// which the user reads as "the inspector lost my place".
 export function Section({ title, children, defaultOpen = false, action }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const stored = useStore((s) => s.inspectorSectionOpen?.[title])
+  const setStored = useStore((s) => s.setInspectorSectionOpen)
+  const open = stored === undefined ? defaultOpen : stored
+  const toggle = () => setStored(title, !open)
   return (
     <div className="border-b border-border">
-      <div className="section-header" onClick={() => setOpen(!open)}>
+      <div className="section-header" onClick={toggle}>
         <span className="text-textMute flex items-center justify-center w-3">
           <SectionChevron open={open} />
         </span>

@@ -24,7 +24,8 @@ import {
   TEXT_ALIGNMENTS, TEXT_LINE_BREAK_MODES,
   MATERIAL_TYPES, MATERIAL_TYPE_ORDER,
   BLENDING_MODES, FACE_CULLING_MODES,
-  COMPONENT_TYPES, COMPONENT_TYPE_ORDER
+  COMPONENT_TYPES, COMPONENT_TYPE_ORDER,
+  ATTACHMENT_KINDS, ATTACHMENT_KIND_ORDER
 } from '../../realityKit/registry'
 
 // ---- numeric input that takes raw metres -----------------------------
@@ -576,6 +577,158 @@ function MaterialSlot({ item, mat, index }) {
   )
 }
 
+// ---- Camera section --------------------------------------------------
+//
+// Camera entities are designer-only — a stand-in for the wearer's
+// headset. Position / rotation come from the shared TransformSection;
+// this section just exposes lens parameters + a "Snap orbit camera
+// here" affordance. Hitting the button is the same as the viewport
+// overlay's "Camera View" button (kept here too for muscle memory).
+
+function CameraSection({ item }) {
+  const updateItem = useStore((s) => s.updateItem)
+  return (
+    <Section title="Camera" defaultOpen={true}>
+      <Row label="FOV">
+        <Slider
+          value={item.fovDegrees ?? 60}
+          min={20} max={120} step={1}
+          suffix="°"
+          onChange={(v) => updateItem(item.id, { fovDegrees: v })}
+        />
+      </Row>
+      <Row label="Near">
+        <NumField
+          value={item.near ?? 0.1} step={0.01}
+          onChange={(v) => updateItem(item.id, { near: Math.max(0.001, v) })}
+        />
+      </Row>
+      <Row label="Far">
+        <NumField
+          value={item.far ?? 50} step={1}
+          onChange={(v) => updateItem(item.id, { far: Math.max(0.5, v) })}
+        />
+      </Row>
+      <button
+        className="btn w-full justify-center mt-2"
+        onClick={() => window.dispatchEvent(new CustomEvent('snap-camera-to-entity', { detail: { entityId: item.id } }))}
+        title="Move the orbit camera to this entity's transform"
+      >Snap orbit camera here</button>
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        Stand-in for the wearer's headset — designer only, never exported.
+      </div>
+    </Section>
+  )
+}
+
+// ---- Attachment section ---------------------------------------------
+//
+// Attachments are SwiftUI views (Text / Label / Button / Image) anchored
+// at a 3D position inside a RealityView. The user picks the kind, then
+// edits the kind-specific fields (text, color, font size, etc.).
+
+function AttachmentSection({ item }) {
+  const updateItem = useStore((s) => s.updateItem)
+  const kind = item.attachmentKind || 'text'
+  const meta = ATTACHMENT_KINDS[kind] || ATTACHMENT_KINDS.text
+  const onChangeKind = (next) => {
+    if (next === kind) return
+    const defaults = ATTACHMENT_KINDS[next]?.defaults || {}
+    updateItem(item.id, { attachmentKind: next, ...defaults })
+  }
+  return (
+    <Section title="Attachment" defaultOpen={true}>
+      <Row label="Kind">
+        <Select
+          value={kind}
+          options={ATTACHMENT_KIND_ORDER.map((k) => ({ value: k, label: ATTACHMENT_KINDS[k].label }))}
+          onChange={onChangeKind}
+        />
+      </Row>
+      <div className="text-[10px] text-textMute leading-snug">{meta.description}</div>
+
+      {(kind === 'text' || kind === 'label' || kind === 'button') && (
+        <Row label="Text">
+          <input
+            value={item.attachmentText || ''}
+            onChange={(e) => updateItem(item.id, { attachmentText: e.target.value })}
+            className="field flex-1"
+          />
+        </Row>
+      )}
+
+      {kind === 'label' && (
+        <Row label="Symbol">
+          <input
+            value={item.attachmentSymbol || ''}
+            onChange={(e) => updateItem(item.id, { attachmentSymbol: e.target.value })}
+            className="field flex-1"
+            placeholder="info.circle"
+          />
+        </Row>
+      )}
+
+      {kind === 'image' && (
+        <Row label="URL">
+          <input
+            value={item.attachmentImageUrl || ''}
+            onChange={(e) => updateItem(item.id, { attachmentImageUrl: e.target.value })}
+            className="field flex-1"
+            placeholder="(bundle name or URL)"
+          />
+        </Row>
+      )}
+
+      <Row label="FG"><ColorRow value={item.attachmentColor || '#ffffff'} onChange={(v) => updateItem(item.id, { attachmentColor: v })} /></Row>
+      <Row label="BG"><ColorRow value={item.attachmentBackground || '#1c1c1e'} onChange={(v) => updateItem(item.id, { attachmentBackground: v })} /></Row>
+
+      {kind !== 'image' && (
+        <Row label="Font">
+          <Slider
+            value={item.attachmentFontSize ?? 0.05}
+            min={0.02} max={0.20} step={0.005}
+            onChange={(v) => updateItem(item.id, { attachmentFontSize: v })}
+          />
+        </Row>
+      )}
+      {kind === 'image' && (
+        <Row label="Size">
+          <Slider
+            value={item.attachmentSize ?? 0.20}
+            min={0.05} max={0.6} step={0.01}
+            onChange={(v) => updateItem(item.id, { attachmentSize: v })}
+          />
+        </Row>
+      )}
+      <Row label="Pad">
+        <Slider
+          value={item.attachmentPadding ?? 0.02}
+          min={0} max={0.10} step={0.005}
+          onChange={(v) => updateItem(item.id, { attachmentPadding: v })}
+        />
+      </Row>
+      <Row label="Radius">
+        <Slider
+          value={item.attachmentCornerRadius ?? 0.02}
+          min={0} max={0.10} step={0.005}
+          onChange={(v) => updateItem(item.id, { attachmentCornerRadius: v })}
+        />
+      </Row>
+      <Row label="Billboard">
+        <div className="segmented flex-1">
+          <button className={item.attachmentBillboard !== false ? 'active' : ''} onClick={() => updateItem(item.id, { attachmentBillboard: true })}>On</button>
+          <button className={item.attachmentBillboard === false ? 'active' : ''} onClick={() => updateItem(item.id, { attachmentBillboard: false })}>Off</button>
+        </div>
+      </Row>
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        Exports as <code>Attachment(id:)</code> inside the RealityView's
+        <code> attachments:</code> closure. <code>attachments.entity(for:)</code>
+        attaches it at this entity's transform.
+      </div>
+    </Section>
+  )
+}
+
 // ---- Materials list --------------------------------------------------
 
 function MaterialsSection({ item }) {
@@ -717,8 +870,22 @@ export function EntityProps({ item }) {
         </>
       )}
 
+      {item.entityKind === 'camera' && <CameraSection item={item} />}
+
+      {item.entityKind === 'attachment' && <AttachmentSection item={item} />}
+
       <TransformSection item={item} />
-      <ComponentsSection item={item} />
+
+      {/* Components only apply to kinds that render geometry — hiding
+          them on Camera (designer-only marker) and Attachment (already
+          a SwiftUI overlay) avoids exposing knobs that can't take
+          effect. Anchor + Group keep them: opacity propagates through
+          the children, GroundingShadow falls onto descendant models. */}
+      {(item.entityKind === 'anchor' ||
+        item.entityKind === 'model' ||
+        item.entityKind === 'group') && (
+        <ComponentsSection item={item} />
+      )}
 
       <div className="text-[9px] text-textMute uppercase tracking-wider px-3 pt-3 pb-1 border-t border-border bg-surface2/30">
         Advanced

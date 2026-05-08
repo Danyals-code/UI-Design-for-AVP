@@ -3,7 +3,14 @@
 
 import { WINDOW_PRESETS, VOLUME_PRESETS, ptToUnits } from '../appleSystem'
 import { undoable } from './undo'
-import { buildTemplate } from '../templates'
+import { buildTemplate, TEMPLATES } from '../templates'
+
+// Default seed used when switchSceneMode lands on a mode without an
+// explicit template choice. Volume → empty stage, window → blank app.
+const DEFAULT_SEED_FOR_MODE = {
+  window: 'blank',
+  volume: 'emptyVolume'
+}
 
 export const createSceneSlice = (set, get) => ({
   setZoomDistance: (d) => set({ zoomDistance: d }),
@@ -13,20 +20,46 @@ export const createSceneSlice = (set, get) => ({
   togglePanMode: () => set((s) => ({ panMode: !s.panMode })),
   toggleAxes:    () => set((s) => ({ showAxes: !s.showAxes })),
   toggleSceneInfo: () => set((s) => ({ showSceneInfo: !s.showSceneInfo })),
+  toggleDemoScene: () => set((s) => ({
+    scene: { ...s.scene, showDemoScene: !s.scene.showDemoScene }
+  })),
 
   // Replace the entire scene with a template's items. Undoable so the user
-  // can recover their previous work by hitting ⌘Z. Always switches to
-  // window mode (templates are window-only for now). Selection + active
-  // tab are reset to point at the template's seed.
+  // can recover their previous work by hitting ⌘Z. The template's `mode`
+  // metadata drives sceneMode — picking a volume template auto-flips the
+  // scene into volume mode. Selection + active tab reset to the seed.
   applyTemplate: (key) => undoable(set, get, (s) => {
     const seed = buildTemplate(key)
+    if (!seed) return s
+    const tplMode = TEMPLATES[key]?.mode || 'window'
+    return {
+      items: seed.items,
+      activeTabId: seed.activeTabId,
+      selectedId: null,
+      editingId: null,
+      scene: { ...s.scene, sceneMode: tplMode, preview3D: false },
+      // Pristine — applying a template explicitly resets the dirty flag
+      // so the user doesn't get prompted on the next mode switch.
+      sceneIsDirty: false
+    }
+  }),
+
+  // Hard-replace the scene with a fresh seed for the requested mode. Used
+  // by the viewport's Window/Volume toggle. Always undoable so ⌘Z can
+  // recover the prior scene; resets the dirty flag the same way template
+  // application does.
+  switchSceneMode: (nextMode) => undoable(set, get, (s) => {
+    if (s.scene.sceneMode === nextMode) return s
+    const seedKey = DEFAULT_SEED_FOR_MODE[nextMode] || 'blank'
+    const seed = buildTemplate(seedKey)
     if (!seed) return s
     return {
       items: seed.items,
       activeTabId: seed.activeTabId,
       selectedId: null,
       editingId: null,
-      scene: { ...s.scene, sceneMode: 'window', preview3D: false }
+      scene: { ...s.scene, sceneMode: nextMode, preview3D: false },
+      sceneIsDirty: false
     }
   }),
 
