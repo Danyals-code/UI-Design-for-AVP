@@ -4,6 +4,7 @@
 
 import { undoable } from './undo'
 import { isDescendantOf } from './helpers'
+import { childKindsAllowedUnder } from '../realityKit/registry'
 
 export const createItemsSlice = (set, get) => ({
   select:        (id) => set({ selectedId: id, editingId: null }),
@@ -109,12 +110,29 @@ export const createItemsSlice = (set, get) => ({
       if (mode !== 'inside' && tgt.type !== 'window') return s
     }
 
+    // An Entity can only land where childKindsAllowedUnder permits its
+    // entityKind. For 'inside' drops we check the target directly; for
+    // 'before'/'after' we check the target's parent (the entity becomes
+    // a sibling of the target).
+    if (src.type === 'entity') {
+      const allowedHost = mode === 'inside'
+        ? tgt
+        : s.items.find((it) => it.id === tgt.parentId) || null
+      const allowed = childKindsAllowedUnder(allowedHost)
+      if (!allowed.includes(src.entityKind)) return s
+    }
+
     const items = s.items.filter((it) => it.id !== sourceId)
     let newParentId
     let insertIdx
-    // Allowed "inside" targets: stack, window, or tab (the latter only for windows).
+    // Allowed "inside" targets: stack, window, or tab (the latter only for
+    // windows). Entity hosts (RealityView panel / volumetric window /
+    // entity) are also valid — childKindsAllowedUnder is the source of
+    // truth and was already checked above for entity sources.
     const canDropInside =
-      (tgt.type === 'stack' || tgt.type === 'window' || tgt.type === 'tab')
+      (tgt.type === 'stack' || tgt.type === 'window' || tgt.type === 'tab' ||
+       tgt.type === 'entity' ||
+       (tgt.type === 'panel' && tgt.panelType === 'realityview'))
     if (mode === 'inside' && canDropInside) {
       newParentId = tgt.id
       let last = items.findIndex((it) => it.id === targetId)

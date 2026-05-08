@@ -21,7 +21,8 @@ import {
   FormIcon, GroupBoxIcon, OutlineGroupIcon,
   EllipseIcon, UnevenRectIcon, PathIcon,
   LinearGradientIcon, RadialGradientIcon, AngularGradientIcon,
-  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon
+  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon,
+  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon
 } from './icons'
 
 // Blender / Raycast / VSCode-style command palette. Shift+A opens it.
@@ -51,6 +52,9 @@ export default function CommandPalette() {
   const addTabBar   = useStore((s) => s.addTabBar)
   const addToolbar  = useStore((s) => s.addToolbar)
   const addPresentation = useStore((s) => s.addPresentation)
+  const addAnchorEntity = useStore((s) => s.addAnchorEntity)
+  const addModelEntity  = useStore((s) => s.addModelEntity)
+  const addGroupEntity  = useStore((s) => s.addGroupEntity)
 
   // Restructured to match SwiftUI's fundamental concepts.
   // Variants (circle vs rectangle, date picker etc.) are configured in Properties.
@@ -105,13 +109,27 @@ export default function CommandPalette() {
     { id: 'cylinder',  label: 'Cylinder',    group: '3D',          Icon: CylinderIcon,  run: () => addPanel('cylinder') },
     { id: 'text3d',    label: '3D Text',     group: '3D',          Icon: Text3DIcon,    run: () => addPanel('text3d') },
     { id: 'mesh',      label: 'Custom Mesh', group: '3D',          Icon: MeshIcon,      run: () => addPanel('mesh') },
+    // RealityKit — RealityView is the SwiftUI bridge; entities live inside
+    // a RealityView (or a volumetric window) and edit in their own
+    // EntityProps inspector.
+    { id: 'realityView',  label: 'Reality View',   group: 'RealityKit', Icon: RealityViewIcon,   run: () => addPanel('realityview') },
+    { id: 'anchorEntity', label: 'Anchor Entity',  group: 'RealityKit', Icon: AnchorIcon,        run: () => addAnchorEntity() },
+    { id: 'modelEntity',  label: 'Model Entity',   group: 'RealityKit', Icon: ModelEntityIcon,   run: () => addModelEntity('box') },
+    { id: 'modelSphere',  label: 'Sphere Entity',  group: 'RealityKit', Icon: SphereIcon,        run: () => addModelEntity('sphere') },
+    { id: 'modelCyl',     label: 'Cylinder Entity',group: 'RealityKit', Icon: CylinderIcon,      run: () => addModelEntity('cylinder') },
+    { id: 'modelCone',    label: 'Cone Entity',    group: 'RealityKit', Icon: ConeIcon,          run: () => addModelEntity('cone') },
+    { id: 'modelPlane',   label: 'Plane Entity',   group: 'RealityKit', Icon: PlaneIcon,         run: () => addModelEntity('plane') },
+    { id: 'modelText',    label: 'Text Entity',    group: 'RealityKit', Icon: Text3DIcon,        run: () => addModelEntity('text') },
+    { id: 'modelUsdz',    label: 'USDZ Entity',    group: 'RealityKit', Icon: MeshIcon,          run: () => addModelEntity('usdz') },
+    { id: 'groupEntity',  label: 'Empty Entity',   group: 'RealityKit', Icon: EntityGroupIcon,   run: () => addGroupEntity() },
     // Scene
     { id: 'window',    label: 'Window',    group: 'Windows',      Icon: WindowIcon,    run: () => addWindow() },
     { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
     // Chrome — ornaments + scene-level tab bar
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => addTabBar() },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => addToolbar() }
-  ], [addPanel, addStack, addWindow, addSplitView, addTabBar, addToolbar, addPresentation])
+  ], [addPanel, addStack, addWindow, addSplitView, addTabBar, addToolbar, addPresentation,
+      addAnchorEntity, addModelEntity, addGroupEntity])
 
   const filtered = useMemo(
     () => commands.filter((c) => fuzzyMatch(query, c.label) || fuzzyMatch(query, c.group)),

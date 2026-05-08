@@ -15,6 +15,7 @@ import { createStacksSlice } from './stacks'
 import { createPanelsSlice } from './panels'
 import { createItemsSlice } from './items'
 import { createClipboardSlice } from './clipboard'
+import { createEntitiesSlice } from './entities'
 
 export { isEffectivelyVisible } from './helpers'
 
@@ -55,5 +56,6 @@ export const useStore = create((set, get) => ({
   ...createStacksSlice(set, get),
   ...createPanelsSlice(set, get),
   ...createItemsSlice(set, get),
-  ...createClipboardSlice(set, get)
+  ...createClipboardSlice(set, get),
+  ...createEntitiesSlice(set, get)
 }))

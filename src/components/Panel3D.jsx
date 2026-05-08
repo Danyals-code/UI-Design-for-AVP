@@ -8,6 +8,7 @@ import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } 
 import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
+import { EntityChildren } from './Entity3D'
 
 const DEG2RAD = Math.PI / 180
 
@@ -113,7 +114,101 @@ function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
   )
 }
 
+// RealityView panel — bridge to the RealityKit entity tree. The panel
+// itself is just a SwiftUI view (a flat frame in the canvas), but its
+// child entities render inside it. We dispatch BEFORE any hooks so the
+// entity-tree branch doesn't have to run the full Panel3D hook chain.
+function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
+  const scene = useStore((s) => s.scene)
+  const items = useStore((s) => s.items)
+  const select = useStore((s) => s.select)
+  const selectedId = useStore((s) => s.selectedId)
+  const isSelected = selectedId === panel.id
+
+  const size = (resolvedSize && Array.isArray(resolvedSize))
+    ? resolvedSize
+    : (Array.isArray(panel.size) ? panel.size : [ptToUnits(360), ptToUnits(360)])
+  const [w, h] = size
+  const cornerRadius = panel.cornerRadius ?? 0
+  const fillShape = useMemo(
+    () => roundedRectShape(w, h, cornerRadius),
+    [w, h, cornerRadius]
+  )
+  const outlineShape = useMemo(
+    () => roundedRectShape(w + 0.025, h + 0.025, cornerRadius + 0.012),
+    [w, h, cornerRadius]
+  )
+  const tint = scene.tintColor || '#007aff'
+  const fillColor = panel.colorToken
+    ? resolveSemantic(panel.colorToken, scene.designScheme || 'light')
+    : (panel.color || '#0a0a0a')
+
+  const onPointerDown = (e) => { e.stopPropagation(); select(panel.id) }
+
+  return (
+    <group position={localPosition || [0, 0, 0]}>
+      {isSelected && (
+        <mesh position={[0, 0, -0.012]}>
+          <shapeGeometry args={[outlineShape]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.45} />
+        </mesh>
+      )}
+
+      {/* RealityView backing surface — flat plate so the bounds read in
+          the layout. visionOS RealityViews are typically transparent;
+          a faint dark fill works for both light & dark design schemes. */}
+      <mesh position={[0, 0, -0.005]} onPointerDown={onPointerDown}>
+        <shapeGeometry args={[fillShape]} />
+        <meshBasicMaterial color={fillColor} transparent opacity={0.18} side={THREE.DoubleSide} />
+      </mesh>
+
+      {/* "RealityView" tag in the corner so designers can identify the
+          frame at a glance. */}
+      <Text
+        position={[-w / 2 + ptToUnits(10), h / 2 - ptToUnits(10), 0.001]}
+        fontSize={ptToUnits(9)}
+        color={tint}
+        anchorX="left"
+        anchorY="middle"
+        font={getInterFont('semibold')}
+        fillOpacity={0.7}
+      >
+        RealityView
+      </Text>
+
+      {/* Optional XYZ axes gizmo at the RealityView origin — designer
+          aid only; doesn't affect Swift export. */}
+      {panel.showAnchorAxes && (
+        <group>
+          <mesh position={[0.04, 0, 0]}>
+            <boxGeometry args={[0.08, 0.001, 0.001]} />
+            <meshBasicMaterial color="#ff5252" />
+          </mesh>
+          <mesh position={[0, 0.04, 0]}>
+            <boxGeometry args={[0.001, 0.08, 0.001]} />
+            <meshBasicMaterial color="#7ee787" />
+          </mesh>
+          <mesh position={[0, 0, 0.04]}>
+            <boxGeometry args={[0.001, 0.001, 0.08]} />
+            <meshBasicMaterial color="#79c0ff" />
+          </mesh>
+        </group>
+      )}
+
+      {/* Entity tree — child entities render at their own metres-native
+          positions in the local space of this RealityView. */}
+      <EntityChildren hostId={panel.id} items={items} scene={scene} />
+    </group>
+  )
+}
+
 export default function Panel3D({ panel, localPosition, resolvedSize }) {
+  // RealityView gets its own renderer — it's a SwiftUI view but its
+  // contents are RealityKit entities rather than panels. Dispatch before
+  // any hooks so the realityview branch has a stable hook count.
+  if (panel.panelType === 'realityview') {
+    return <RealityViewPanel3D panel={panel} localPosition={localPosition} resolvedSize={resolvedSize} />
+  }
   const { id, panelType } = panel
   // SwiftUI modifiers live in `panel.modifiers` as an ordered array. Reduce
   // it to a flat preview struct (last-write-wins per visual prop) so the

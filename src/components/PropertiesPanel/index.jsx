@@ -10,6 +10,7 @@ import { WindowProps } from './WindowProps'
 import { StackProps } from './StackProps'
 import { PanelProps } from './PanelProps'
 import { SceneProps } from './SceneProps'
+import { EntityProps } from './EntityProps'
 
 function Empty() {
   return (
@@ -42,6 +43,7 @@ export default function PropertiesPanel({ width = 280 }) {
           : item.type === 'tab'      ? <TabProps item={item} />
           : item.type === 'window'   ? <WindowProps item={item} />
           : item.type === 'stack'    ? <StackProps item={item} />
+          : item.type === 'entity'   ? <EntityProps item={item} />
           : <PanelProps item={item} scene={scene} />
         : <SceneProps scene={scene} updateScene={updateScene} />}
     </div>

@@ -1460,6 +1460,44 @@ export const PANELS = {
       push(`Model3D(named: "${asset}")`)
       push(`    .frame(depth: ${panel.depth || 200})`)
     }
+  },
+
+  // ---- RealityView ----------------------------------------------------
+  //
+  // The bridge between SwiftUI and RealityKit. A RealityView is itself a
+  // SwiftUI view, so it slots into the same stack/panel hierarchy as any
+  // other panel. Its children in the layers tree are RealityKit entities
+  // (type: 'entity') rather than SwiftUI panels — the inspector and the
+  // RealityKit exporter walk those directly.
+  //
+  // SwiftUI emit is intentionally a stub for now: the body lists the
+  // entity descendants by name as comments, and a TODO line marks where
+  // the future RealityKit exporter will splice in real `content.add(...)`
+  // calls.
+  realityview: {
+    defaults: {
+      // The view itself sits in the SwiftUI tree, so it gets a frame just
+      // like any other panel. visionOS RealityViews default to filling
+      // their parent — we mirror that with a generous default frame.
+      size: [ptToUnits(360), ptToUnits(360)],
+      color: '#000000',          // backing fill (transparent in volumetric)
+      colorToken: null,
+      cornerRadius: 0,
+      // RealityView config (visionOS spec §Reality).
+      cameraMode: 'spatialTracking',  // 'nonAR' | 'spatialTracking' | 'virtualReality'
+      // Visual aid drawn in the designer canvas only (axes gizmo at the
+      // RealityView origin). Doesn't affect emitted Swift.
+      showAnchorAxes: false
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      // RealityKit exporter is out of scope for the visual pass — emit a
+      // stub `RealityView { ... }` so designs round-trip into Xcode and
+      // compile, with a clear TODO marker for the entity body.
+      push(`RealityView { content in`)
+      push(`    // TODO: build entities from this RealityView's child tree (see designer)`)
+      push(`}`)
+    }
   }
 }
 

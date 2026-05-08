@@ -1165,6 +1165,46 @@ export const INSPECTORS = {
       </Section>
       <TransformSection {...ctx} />
     </>
+  ),
+
+  // RealityView — bridge from SwiftUI into the RealityKit entity tree.
+  // Children are entities (anchor / model / group), edited in their own
+  // EntityProps inspector — this section configures the bridge itself.
+  realityview: ({ item, updateItem }) => (
+    <>
+      <Section title="RealityView">
+        <Row label="Camera">
+          <Select
+            value={item.cameraMode || 'spatialTracking'}
+            options={[
+              { value: 'spatialTracking', label: 'Spatial tracking (visionOS)' },
+              { value: 'nonAR',           label: 'Non-AR' },
+              { value: 'virtualReality',  label: 'Virtual reality' }
+            ]}
+            onChange={(v) => updateItem(item.id, { cameraMode: v })}
+          />
+        </Row>
+        <Row label="Axes">
+          <div className="segmented flex-1">
+            <button
+              className={item.showAnchorAxes ? 'active' : ''}
+              onClick={() => updateItem(item.id, { showAnchorAxes: true })}
+              title="Draw an XYZ gizmo at the RealityView origin (designer only)"
+            >On</button>
+            <button
+              className={!item.showAnchorAxes ? 'active' : ''}
+              onClick={() => updateItem(item.id, { showAnchorAxes: false })}
+            >Off</button>
+          </div>
+        </Row>
+        <div className="text-[10px] text-textMute leading-snug mt-1">
+          Add entities to this RealityView from the layers panel — anchors,
+          model entities, and groups become children here. The SwiftUI
+          exporter emits a <code>RealityView</code> shell; the entity body
+          will land with the RealityKit exporter.
+        </div>
+      </Section>
+    </>
   )
 }
 

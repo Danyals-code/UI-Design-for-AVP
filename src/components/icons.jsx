@@ -295,3 +295,50 @@ export const MeshIcon = ({ size = 12 }) => (
     <path d="M2 5l6 3 6-3M8 8v6M2 8l6 3M14 8l-6 3" />
   </svg>
 )
+
+// ---- RealityKit (entity tree) ----
+// RealityView — a "viewport into 3D" mark; small framed cube to suggest a
+// SwiftUI surface containing RealityKit content.
+export const RealityViewIcon = ({ size = 13 }) => (
+  <svg {...s(size)}>
+    <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+    <path d="M5 6.5L8 5l3 1.5v3L8 11l-3-1.5v-3z" />
+    <path d="M5 6.5L8 8l3-1.5M8 8v3" />
+  </svg>
+)
+// AnchorEntity — nautical anchor glyph; reads as "pinned in space".
+export const AnchorIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <circle cx="8" cy="3.5" r="1.5" />
+    <path d="M8 5v9" />
+    <path d="M5 8h6" />
+    <path d="M3 11c1 2 3 3 5 3s4-1 5-3" />
+  </svg>
+)
+// Empty Entity (group) — three small dots in a triangle, evoking a
+// transform node with children.
+export const EntityGroupIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <circle cx="8" cy="3" r="1.5" fill="currentColor" strokeWidth="0" />
+    <circle cx="3" cy="12" r="1.5" fill="currentColor" strokeWidth="0" />
+    <circle cx="13" cy="12" r="1.5" fill="currentColor" strokeWidth="0" />
+    <path d="M8 4.5l-5 7M8 4.5l5 7M3 12h10" />
+  </svg>
+)
+// ModelEntity — reuses BoxIcon visually but is exported as its own name
+// so we can swap the glyph independently in the future.
+export const ModelEntityIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <path d="M2.5 5L8 2.5l5.5 2.5v6L8 13.5 2.5 11V5z" />
+    <path d="M2.5 5L8 7.5l5.5-2.5" />
+    <path d="M8 7.5v6" />
+  </svg>
+)
+// Material — a paint-can / swatch hybrid for material slots inside the
+// model entity inspector.
+export const MaterialIcon = ({ size = 12 }) => (
+  <svg {...s(size)}>
+    <ellipse cx="8" cy="4" rx="5" ry="1.5" />
+    <path d="M3 4v8c0 .8 2.2 1.5 5 1.5s5-.7 5-1.5V4" />
+  </svg>
+)
