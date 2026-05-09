@@ -299,7 +299,10 @@ function Window3D({ window: win, items }) {
   const updateItem = useStore((s) => s.updateItem)
   const setDragging = useStore((s) => s.setDragging)
   const { camera, gl, invalidate } = useThree()
-  const isSelected = selectedId === win.id
+  // Suppress the window's selection halo in preview mode — it's a
+  // designer affordance and would render as a translucent blue panel
+  // hovering inside the volume from the wearer's view.
+  const isSelected = !scene.previewMode && selectedId === win.id
   const dragData = useRef(null)
   const plane = useMemo(() => new THREE.Plane(), [])
   const intersect = useMemo(() => new THREE.Vector3(), [])

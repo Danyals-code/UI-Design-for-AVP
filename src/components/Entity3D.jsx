@@ -5,6 +5,7 @@
 // component walks that subtree, renders the appropriate three.js mesh
 // for each model entity, draws gizmos for anchors / empty groups, and
 // applies the entity's transform / material / visual components.
+
 //
 // Coordinate system: RealityKit is metres-native and the existing
 // canvas uses pt-derived units where roughly 1 unit ≈ 0.2m. We bridge
@@ -285,41 +286,16 @@ function SelectionHalo({ entity, scene }) {
   )
 }
 
-// ---- ground shadow disc ---------------------------------------------
-//
-// RealityKit's GroundingShadowComponent projects a soft shadow onto the
-// detected ground plane. We approximate with a flat disc placed
-// underneath the entity, sized to the entity's footprint.
-
-function GroundingShadow({ entity }) {
-  // Estimate footprint from the mesh so the shadow doesn't look pasted on.
-  const m = entity.meshType || 'box'
-  let r = 0.06
-  if (m === 'box') {
-    const [w, , d] = entity.boxSize || [0.1, 0.1, 0.1]
-    r = Math.max(w, d) * 0.6
-  } else if (m === 'sphere') {
-    r = (entity.sphereRadius ?? 0.05) * 1.1
-  } else if (m === 'cylinder') {
-    r = (entity.cylinderRadius ?? 0.05) * 1.2
-  } else if (m === 'cone') {
-    r = (entity.coneRadius ?? 0.05) * 1.2
-  } else if (m === 'plane') {
-    const w = entity.planeWidth ?? 0.1
-    const d = entity.planeDepth ?? 0.1
-    r = Math.max(w, d) * 0.6
-  }
-  // Position the shadow at the entity's local Y=−bbHalf (below the
-  // mesh) — but since we don't know the precise lower bound for every
-  // mesh, place it slightly below origin and trust the entity's own
-  // position to put it in the right place.
-  return (
-    <mesh position={[0, -0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <circleGeometry args={[r, 32]} />
-      <meshBasicMaterial color="#000000" transparent opacity={0.32} />
-    </mesh>
-  )
-}
+// RealityKit's GroundingShadowComponent projects a soft shadow onto
+// the detected ground plane. Earlier we faked it with a black disc
+// stamped under the entity — looked weird against the rest of the
+// studio (the cyclorama receives a real PCF shadow from the
+// directional key light). Now `castShadow` on the model mesh itself
+// drops the disc and lets the same shadow path that handles the
+// stool / painting handle the user's models too. The toggle still
+// gates on `groundingShadow.enabled` (see `showShadow` below) so the
+// component's semantics stay intact — disabling it in the inspector
+// turns the cast shadow off.
 
 // ---- gizmos ---------------------------------------------------------
 //
@@ -645,7 +621,12 @@ function UsdzPlaceholder({ entity, mat, opacity, isSelected, scene }) {
 export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
-  const isSelected = selectedId === entity.id
+  // Preview mode is the deployed-app simulation: anchor markers,
+  // group/camera/attachment debug gizmos, and selection halos are all
+  // designer-only chrome and would break the illusion. Squash them by
+  // forcing `isSelected` to false for the gizmo branches.
+  const isSelected = !scene.previewMode && selectedId === entity.id
+  const previewMode = !!scene.previewMode
 
   const opComp = entity.components?.opacity
   const ownOpacity = opComp?.enabled ? (opComp.value ?? 1) : 1
@@ -710,26 +691,26 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
         entity.meshType !== 'usdz' && (
         <group onPointerDown={onPointerDown}>
           {isSelected && <SelectionHalo entity={entity} scene={scene} />}
-          <mesh>
+          <mesh castShadow={showShadow} receiveShadow>
             {meshGeometry(entity)}
             {materialNode(mat, opacity, iblBoost)}
           </mesh>
         </group>
       )}
 
-      {entity.entityKind === 'anchor' && (
+      {entity.entityKind === 'anchor' && !previewMode && (
         <group onPointerDown={onPointerDown}>
           <AnchorGizmo entity={entity} isSelected={isSelected} scene={scene} />
         </group>
       )}
 
-      {entity.entityKind === 'group' && (
+      {entity.entityKind === 'group' && !previewMode && (
         <group onPointerDown={onPointerDown}>
           <GroupGizmo isSelected={isSelected} scene={scene} />
         </group>
       )}
 
-      {entity.entityKind === 'camera' && (
+      {entity.entityKind === 'camera' && !previewMode && (
         <group onPointerDown={onPointerDown}>
           <CameraGizmo entity={entity} isSelected={isSelected} scene={scene} />
         </group>
@@ -741,8 +722,10 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
         </group>
       )}
 
-      {/* Visual components (artifact-only — physics/audio/input excluded) */}
-      {showShadow && entity.entityKind === 'model' && <GroundingShadow entity={entity} />}
+      {/* GroundingShadow is now wired through the mesh's `castShadow`
+          flag (see the model branch above) — the directional key
+          light projects a real soft shadow onto whatever floor mesh
+          sits underneath, matching the studio decor's own shadows. */}
 
       {/* Recurse into children — entities nest freely. Pass the
           accumulated opacity down so an OpacityComponent on this entity

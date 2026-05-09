@@ -263,9 +263,13 @@ const volumeWindow = (overrides = {}) => {
     name: 'Volume',
     windowStyle: 'volumetric',
     size: [ptToUnits(p.width), ptToUnits(p.height)],
-    // Position in metres (1 unit = 1m): chest height, 60cm forward —
-    // matches visionOS default for a volumetric WindowGroup.
-    position: [0, 1.0, -0.6],
+    // Volume container sits AT the floor. Its child World Anchor
+    // (added by the seed) inherits this transform and lands on the
+    // demo studio's floor — visible to the designer as a real
+    // anchor pin instead of a marker floating in mid-air. Model
+    // entities default to a chest-height local Y so they still
+    // spawn dead-centre of the wearer's view.
+    position: [0, 0, 0],
     color: '#202024',
     colorToken: null,
     cornerRadius: ptToUnits(24),
@@ -292,7 +296,10 @@ function singleObject() {
     parentId: anchor.id,
     name: 'Hero Sphere',
     sphereRadius: 0.12,
-    position: [0, 0.18, 0]
+    // Hero sphere sits at the wearer's eye-line so it dominates the
+    // VR view from the default spawn pose. The plinth disc floats
+    // just below as a visual grounding cue.
+    position: [0, 1.2, 0]
   })
   // Slightly metallic + warm tint so it reads as "polished hero object"
   // rather than a default white blob.
@@ -307,7 +314,7 @@ function singleObject() {
     name: 'Plinth',
     cylinderRadius: 0.18,
     cylinderHeight: 0.02,
-    position: [0, 0.01, 0]
+    position: [0, 1.03, 0]
   })
   base.materials = [{
     id: 'mat-base-1', type: 'simple',

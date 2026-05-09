@@ -1,6 +1,6 @@
 import { useStore } from '../store'
 
-export default function Topbar({ onTitleClick }) {
+export default function Topbar({ onTitleClick, previewMode = false }) {
   const count = useStore((s) => s.items.length)
   const mode = useStore((s) => s.scene.sceneMode)
   return (
@@ -21,12 +21,18 @@ export default function Topbar({ onTitleClick }) {
 
       <div className="flex-1" />
 
+      {/* "Shift + A to add" hint hides in preview — there's no Add
+          menu on the preview canvas, so the hint would be misleading. */}
+      {!previewMode && (
+        <>
+          <span className="text-[10px] text-textMute uppercase tracking-wider">
+            Shift + A to add
+          </span>
+          <div className="h-4 w-px bg-border mx-1" />
+        </>
+      )}
       <span className="text-[10px] text-textMute uppercase tracking-wider">
-        Shift + A to add
-      </span>
-      <div className="h-4 w-px bg-border mx-1" />
-      <span className="text-[10px] text-textMute uppercase tracking-wider">
-        {mode === 'window' ? 'Window Mode' : 'Volume Mode'} · {count} items
+        {previewMode ? 'Preview' : mode === 'window' ? 'Window Mode' : 'Volume Mode'} · {count} items
       </span>
     </div>
   )

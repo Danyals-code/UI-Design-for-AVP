@@ -62,7 +62,28 @@ export const useStore = create((set, get) => ({
   // hides the gizmo (default — the gizmo would otherwise occlude the
   // mesh when the user is just inspecting). Non-undoable.
   transformMode: 'none',  // 'none' | 'translate' | 'rotate' | 'scale'
-  setTransformMode: (mode) => set({ transformMode: mode }),
+  // 'gizmo'  — clicked the toolbar button: render a drei
+  //            <TransformControls> handle on the entity and let the
+  //            user drag the visible gizmo. Camera orbit stays usable
+  //            because the gizmo eats only the handle pointer events.
+  // 'modal'  — pressed G / R / S on the keyboard: cursor-driven
+  //            Blender-style modal (no visible handle, every cursor
+  //            move updates the transform until click-to-confirm or
+  //            Esc to revert).
+  transformKind: 'gizmo',
+  // Axis constraint while in modal mode (Blender-style chord). Null
+  // means free; 'x' / 'y' / 'z' clamps the modal delta to that axis.
+  // Reset on each modal entry; toggled by pressing the X / Y / Z keys
+  // after picking a tool.
+  transformAxis: null,
+  setTransformMode: (mode, kind = 'gizmo') => set({
+    transformMode: mode,
+    transformKind: kind,
+    // Re-entering a tool clears the prior axis constraint — keeps the
+    // chord stateless across tool switches.
+    transformAxis: null
+  }),
+  setTransformAxis: (axis) => set({ transformAxis: axis }),
   // (zoomDistance defined above at metres scale)
 
   // Undo / redo stacks (internal, not rendered directly)

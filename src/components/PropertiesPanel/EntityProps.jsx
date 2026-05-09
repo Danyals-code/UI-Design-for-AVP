@@ -10,10 +10,12 @@
 // Mirrors the PanelProps pattern: small section components compose, the
 // store action does the data work, the inspector stays declarative.
 
+import { useRef } from 'react'
 import { useStore } from '../../store'
 import {
   Row, Section, NumField, Slider, ColorRow, Select
 } from './primitives'
+import { useScrub } from './useScrub'
 import { InfoSection } from './shared'
 import {
   ENTITY_KINDS, ENTITY_KIND_ORDER,
@@ -32,26 +34,131 @@ import {
 //
 // EntityProps stores positions / sizes in metres (RealityKit's native
 // unit) rather than the SwiftUI-pt internal unit used everywhere else.
-// `MeterField` is the metre-aware counterpart of `PtField`. Step is
-// 0.01m so a single scrub pixel ≈ 1cm.
+// `MeterField` is the metre-aware counterpart of `PtField`. The scrub
+// hook lets the user drag the field horizontally to nudge the value
+// (Blender / Figma style) at sensitivity 0.005 — 1 px ≈ 5 mm, so a
+// 100-px drag covers 0.5 m, comfortable for furniture-scale tweaks.
+// Pointer-down is intercepted so a still click still focuses the input
+// for keyboard editing.
 function MeterField({ value, onChange, step = 0.01, min }) {
   const v = Number.isFinite(value) ? value : 0
+  const apply = (next) => {
+    let n = next
+    if (!Number.isFinite(n)) n = 0
+    if (typeof min === 'number') n = Math.max(min, n)
+    onChange(parseFloat(n.toFixed(4)))
+  }
+  const scrub = useScrub(v, apply, 0.005)
+  const inputRef = useRef(null)
   return (
     <div className="relative flex-1">
       <input
+        ref={inputRef}
         type="number"
         step={step}
         min={min}
         value={v.toFixed(3)}
-        onChange={(e) => {
-          let n = parseFloat(e.target.value)
-          if (!Number.isFinite(n)) n = 0
-          if (typeof min === 'number') n = Math.max(min, n)
-          onChange(n)
+        onChange={(e) => apply(parseFloat(e.target.value))}
+        onPointerDown={(e) => {
+          scrub.onPointerDown(e)
+          e.preventDefault()
+          const listener = () => {
+            if (!scrub.didMove()) inputRef.current?.focus()
+            window.removeEventListener('pointerup', listener)
+          }
+          window.addEventListener('pointerup', listener)
         }}
-        className="field"
+        className="field cursor-ew-resize"
       />
       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-textMute pointer-events-none">m</span>
+    </div>
+  )
+}
+
+// ---- Compact transform block ----------------------------------------
+//
+// Three rows (Position / Rotation / Scale) with all three axes on a
+// single line each — each axis gets a coloured X / Y / Z tag (red /
+// green / blue, the conventional 3D mapping). Replaces the prior
+// stacked-row layout, which used three full Row + label blocks per
+// triplet and ate almost half the inspector height.
+
+const AXIS_COLORS = ['#e35d6a', '#67c97a', '#5b9efb']
+
+function AxisTag({ axis, idx }) {
+  return (
+    <span
+      style={{
+        color: AXIS_COLORS[idx],
+        width: 10,
+        fontSize: 9,
+        fontWeight: 700,
+        textAlign: 'center',
+        flexShrink: 0,
+        userSelect: 'none'
+      }}
+    >{axis}</span>
+  )
+}
+
+function TripletRow({ label, axes, children }) {
+  // children is an array of 3 field renderers
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-textMute text-[9px] uppercase tracking-wider" style={{ width: 28, flexShrink: 0 }}>{label}</span>
+      <div className="flex-1 flex items-center gap-1 min-w-0">
+        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[0]} idx={0} />{children[0]}</div>
+        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[1]} idx={1} />{children[1]}</div>
+        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[2]} idx={2} />{children[2]}</div>
+      </div>
+    </div>
+  )
+}
+
+function CompactTransform({ item }) {
+  const setEntityPosition = useStore((s) => s.setEntityPosition)
+  const setEntityRotation = useStore((s) => s.setEntityRotation)
+  const setEntityScale    = useStore((s) => s.setEntityScale)
+  const setEntityScaleUniform = useStore((s) => s.setEntityScaleUniform)
+  const updateItem = useStore((s) => s.updateItem)
+
+  const pos = item.position || [0, 0, 0]
+  const rot = item.rotation || [0, 0, 0]
+  const scl = item.scale    || [1, 1, 1]
+  const isUniform = scl[0] === scl[1] && scl[1] === scl[2]
+
+  const posFields = [0, 1, 2].map((i) => (
+    <MeterField key={i} value={pos[i]} onChange={(v) => setEntityPosition(item.id, i, v)} />
+  ))
+  const rotFields = [0, 1, 2].map((i) => (
+    <NumField key={i} value={rot[i]} step={1} suffix="°" onChange={(v) => setEntityRotation(item.id, i, v)} />
+  ))
+  const sclFields = isUniform
+    ? [0, 1, 2].map((i) => (
+        <NumField key={i} value={scl[0]} step={0.05} onChange={(v) => setEntityScaleUniform(item.id, v)} />
+      ))
+    : [0, 1, 2].map((i) => (
+        <NumField key={i} value={scl[i]} step={0.05} onChange={(v) => setEntityScale(item.id, i, v)} />
+      ))
+
+  return (
+    <div className="space-y-1.5">
+      <TripletRow label="Pos" axes={['X', 'Y', 'Z']}>{posFields}</TripletRow>
+      <TripletRow label="Rot" axes={['X', 'Y', 'Z']}>{rotFields}</TripletRow>
+      <div className="flex items-center gap-1.5">
+        <span className="text-textMute text-[9px] uppercase tracking-wider" style={{ width: 28, flexShrink: 0 }}>Scl</span>
+        <div className="flex-1 flex items-center gap-1 min-w-0">
+          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="X" idx={0} />{sclFields[0]}</div>
+          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="Y" idx={1} />{sclFields[1]}</div>
+          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="Z" idx={2} />{sclFields[2]}</div>
+        </div>
+        <button
+          className="text-[9px] text-textMute px-1.5 h-5 border border-border rounded hover:bg-surface3"
+          onClick={() => updateItem(item.id, { scale: isUniform ? [...scl] : [scl[0], scl[0], scl[0]] })}
+          title={isUniform ? 'Switch to per-axis scale' : 'Switch to uniform scale'}
+          style={{ flexShrink: 0 }}
+        >{isUniform ? 'U' : 'XYZ'}</button>
+      </div>
     </div>
   )
 }
@@ -82,68 +189,14 @@ function KindSwitch({ item }) {
 
 // ---- Transform section ----------------------------------------------
 //
-// Position / rotation / scale. Position+rotation are vector arrays;
-// scale is editable per-axis OR as a uniform value (most common case),
-// switched with a small toggle.
+// Position / rotation / scale. Wraps the compact triplet widget — one
+// row per channel, drag-to-scrub on every field. The metres / degrees
+// units are implicit from the field suffix (`m`, `°`); the prior
+// help-text footer was removed in the compact pass.
 function TransformSection({ item }) {
-  const setEntityPosition = useStore((s) => s.setEntityPosition)
-  const setEntityRotation = useStore((s) => s.setEntityRotation)
-  const setEntityScale    = useStore((s) => s.setEntityScale)
-  const setEntityScaleUniform = useStore((s) => s.setEntityScaleUniform)
-  const updateItem = useStore((s) => s.updateItem)
-
-  const pos = item.position || [0, 0, 0]
-  const rot = item.rotation || [0, 0, 0]
-  const scl = item.scale    || [1, 1, 1]
-  const isUniform = scl[0] === scl[1] && scl[1] === scl[2]
-
   return (
     <Section title="Transform" defaultOpen={true}>
-      <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">Position (metres)</div>
-      <Row label="X"><MeterField value={pos[0]} onChange={(v) => setEntityPosition(item.id, 0, v)} /></Row>
-      <Row label="Y"><MeterField value={pos[1]} onChange={(v) => setEntityPosition(item.id, 1, v)} /></Row>
-      <Row label="Z"><MeterField value={pos[2]} onChange={(v) => setEntityPosition(item.id, 2, v)} /></Row>
-
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Rotation (degrees)</div>
-      <Row label="Pitch"><NumField value={rot[0]} step={1} onChange={(v) => setEntityRotation(item.id, 0, v)} suffix="°" /></Row>
-      <Row label="Yaw"  ><NumField value={rot[1]} step={1} onChange={(v) => setEntityRotation(item.id, 1, v)} suffix="°" /></Row>
-      <Row label="Roll" ><NumField value={rot[2]} step={1} onChange={(v) => setEntityRotation(item.id, 2, v)} suffix="°" /></Row>
-
-      <div className="flex items-center justify-between mt-3 mb-1">
-        <div className="text-[9px] text-textMute uppercase tracking-wider">Scale</div>
-        <div className="segmented" style={{ minWidth: 90 }}>
-          <button
-            className={isUniform ? 'active' : ''}
-            onClick={() => updateItem(item.id, { scale: [scl[0], scl[0], scl[0]] })}
-            title="One value applied to X / Y / Z"
-          >Uniform</button>
-          <button
-            className={!isUniform ? 'active' : ''}
-            onClick={() => updateItem(item.id, { scale: [...scl] })}
-            title="Edit each axis independently"
-          >Per-axis</button>
-        </div>
-      </div>
-      {isUniform ? (
-        <Row label="Factor">
-          <NumField
-            value={scl[0]}
-            step={0.05}
-            onChange={(v) => setEntityScaleUniform(item.id, v)}
-          />
-        </Row>
-      ) : (
-        <>
-          <Row label="X"><NumField value={scl[0]} step={0.05} onChange={(v) => setEntityScale(item.id, 0, v)} /></Row>
-          <Row label="Y"><NumField value={scl[1]} step={0.05} onChange={(v) => setEntityScale(item.id, 1, v)} /></Row>
-          <Row label="Z"><NumField value={scl[2]} step={0.05} onChange={(v) => setEntityScale(item.id, 2, v)} /></Row>
-        </>
-      )}
-
-      <div className="text-[10px] text-textMute leading-snug mt-2">
-        RealityKit uses metres for position / scale. Rotation maps to a
-        quaternion built from pitch / yaw / roll (Euler) on export.
-      </div>
+      <CompactTransform item={item} />
     </Section>
   )
 }
@@ -277,15 +330,24 @@ function AnchorSection({ item }) {
   )
 }
 
-// ---- Mesh section ----------------------------------------------------
-
+// ---- Model section ---------------------------------------------------
+//
+// For model entities, this consolidates "what is the mesh" + "where /
+// how big is it" into a single section so the user doesn't have to
+// scroll between two related panes. Transform sits at the top (the
+// most-edited triplet) followed by the mesh-type chooser and the
+// type-specific size fields. Other entity kinds (anchor / camera /
+// attachment) keep a standalone TransformSection — they don't have a
+// mesh so the merge wouldn't make sense.
 function MeshSection({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const setMeshType = useStore((s) => s.setMeshType)
   const m = item.meshType || 'box'
   return (
-    <Section title="Mesh" defaultOpen={true}>
-      <Row label="Type">
+    <Section title="Model" defaultOpen={true}>
+      <CompactTransform item={item} />
+      <div className="border-t border-border my-2" />
+      <Row label="Mesh">
         <Select
           value={m}
           options={MESH_TYPE_ORDER.map((k) => ({ value: k, label: MESH_TYPES[k].label }))}
@@ -874,7 +936,10 @@ export function EntityProps({ item }) {
 
       {item.entityKind === 'attachment' && <AttachmentSection item={item} />}
 
-      <TransformSection item={item} />
+      {/* Model entities embed Transform inside their Model section, so
+          we skip the standalone TransformSection for them — otherwise
+          the same XYZ triplet would appear twice in the inspector. */}
+      {item.entityKind !== 'model' && <TransformSection item={item} />}
 
       {/* Components only apply to kinds that render geometry — hiding
           them on Camera (designer-only marker) and Attachment (already

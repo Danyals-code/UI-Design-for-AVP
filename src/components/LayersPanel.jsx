@@ -91,6 +91,17 @@ function rowIcon(item) {
         <path d="M11 7l3-2v6l-3-2z" />
       </svg>
     )
+    if (item.entityKind === 'attachment') return (
+      // Speech-bubble silhouette — RealityView attachments are SwiftUI
+      // views pinned in 3D space, so a "callout" shape reads more
+      // accurately than the generic model glyph it used to share.
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 4.5C2 3.67 2.67 3 3.5 3h9c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H7.5l-2.5 2.5V11H3.5C2.67 11 2 10.33 2 9.5v-5z" />
+        <circle cx="6" cy="7" r="0.6" fill="currentColor" />
+        <circle cx="8.5" cy="7" r="0.6" fill="currentColor" />
+        <circle cx="11" cy="7" r="0.6" fill="currentColor" />
+      </svg>
+    )
     // Model — use mesh-specific glyph when known, fall back to the
     // generic model entity icon.
     const MeshGlyph = MESH_ICONS[item.meshType] || ModelEntityIcon
@@ -246,7 +257,7 @@ function LayerRow({ item, depth }) {
         {dropMode === 'before' && <div className="absolute left-0 right-0 top-0 h-[1.5px] bg-accent pointer-events-none" />}
         {dropMode === 'after'  && <div className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-accent pointer-events-none" />}
 
-        {container ? (
+        {container && children.length > 0 ? (
           <button
             onClick={(e) => { e.stopPropagation(); toggleCollapse(item.id) }}
             className="w-3 h-3 flex items-center justify-center text-textMute hover:text-text flex-shrink-0"
@@ -331,14 +342,11 @@ function LayerRow({ item, depth }) {
       {container && !item.collapsed && children.map((c) => (
         <LayerRow key={c.id} item={c} depth={depth + 1} />
       ))}
-      {container && !item.collapsed && children.length === 0 && (
-        <div
-          className="text-[10px] text-textMute italic py-0.5"
-          style={{ paddingLeft: 8 + (depth + 1) * 12 + 16 }}
-        >
-          empty
-        </div>
-      )}
+      {/* Empty containers used to render an "empty" placeholder line plus
+          a disabled chevron — both wasted space when most containers
+          start out empty. Now: no chevron (handled above), no
+          placeholder, the row reads as a leaf. The user can still drop
+          into the row via drag-and-drop. */}
     </>
   )
 }

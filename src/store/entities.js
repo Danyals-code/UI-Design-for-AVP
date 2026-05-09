@@ -79,9 +79,13 @@ function buildVolumetricWindow(parentId) {
     parentId,
     windowStyle: 'volumetric',
     size: [ptToUnits(p.width), ptToUnits(p.height)],
-    // Volume centred at chest height, 60cm forward — matches visionOS
-    // default placement for a volumetric WindowGroup.
-    position: [0, 1.0, -0.6],
+    // Volume container sits AT the floor (world origin). That way the
+    // World Anchor child — a designer-only floor pin — visibly lands
+    // on the demo scene's floor rather than floating in mid-air. New
+    // entities receive a chest-height offset themselves (see
+    // `makeModelEntity` defaults) so they still spawn dead-centre of
+    // the wearer's view.
+    position: [0, 0, 0],
     color: '#202024',
     colorToken: null,
     cornerRadius: ptToUnits(24)

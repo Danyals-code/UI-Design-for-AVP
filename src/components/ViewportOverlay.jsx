@@ -323,8 +323,10 @@ function VRViewButton() {
       title="Default VR view — wearer's eye-line, looking forward"
       className="vp-btn"
       style={{
+        width: 'auto',
         height: 28,
-        paddingLeft: 10, paddingRight: 10, gap: 6,
+        paddingLeft: 12, paddingRight: 12, gap: 6,
+        whiteSpace: 'nowrap',
         border: '1px solid #2e2e2e',
         background: 'rgba(21, 21, 21, 0.88)',
         backdropFilter: 'blur(8px)',
@@ -336,7 +338,7 @@ function VRViewButton() {
         {/* visionOS goggles silhouette */}
         <path d="M2 6.5c0-1 1-2 2.5-2h7c1.5 0 2.5 1 2.5 2v3c0 1-1 2-2.5 2h-1.5c-.5 0-.8-.2-1-.6l-.5-1c-.2-.4-.5-.6-1-.6h-1c-.5 0-.8.2-1 .6l-.5 1c-.2.4-.5.6-1 .6H4.5C3 11.5 2 10.5 2 9.5v-3z" />
       </svg>
-      VR View
+      VR&nbsp;View
     </button>
   )
 }
