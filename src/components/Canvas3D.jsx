@@ -10,14 +10,19 @@ import { useStore } from '../store'
 import SceneTree from './SceneTree'
 import DemoVolumeScene from './DemoVolumeScene'
 import ModalTransform from './ModalTransform'
+import FirstPersonControls from './FirstPersonControls'
 
-// Camera targets in metres (1 unit = 1m). Window-mode windows default
-// to chest height (1.4m) and 1m in front of the wearer; volumetric
-// content sits 60cm in front at hip-to-chest level. Numbers chosen to
-// land the scene's most-edited region near the camera target so orbit
-// + zoom feel natural.
+// Camera targets in metres (1 unit = 1m). Window mode keeps a 1m-out
+// chest-height target. Volume mode places the wearer at the studio's
+// open +X edge, eye-line height, looking horizontally back toward the
+// painting on the -X cyclorama wall. Target sits at chest height at
+// world centre so the orbit pivot tracks the stool / spawn area, and
+// new entities (which land at the same chest-height centre) appear
+// dead-centre of the wearer's view. View vector is (-3, -0.35, 0) —
+// almost pure -X with a 7° down-tilt, no head-tilt-down feel.
 const TARGET_WINDOW = [0, 1.4, -1.0]
-const TARGET_VOLUME = [0, 0.7, -0.6]
+const VOLUME_VR_POS    = [3, 1.55, 0]
+const VOLUME_VR_TARGET = [0, 1.2, 0]
 
 // Cursor-driven Blender-modal transforms live in ModalTransform.jsx — no
 // drei TransformControls handle. Click a tool (or press G/R/S), move
@@ -68,13 +73,19 @@ function CameraViewBinder() {
       controls?.update?.()
     }
 
-    // Default VR view — wearer's eye-line position. (0, 1.6, 0) is
-    // standing eye height at the world origin; looking toward (0, 1.0,
-    // -1.0) tilts gently down at the volumetric stage where content
-    // typically sits, mirroring how a wearer would actually look at it.
+    // Default VR view — wearer at the open +X edge of the studio,
+    // standing eye-line height, looking horizontally back at the
+    // painting wall via the orbit pivot at chest height. Same pose
+    // ModeHandler uses when entering volume mode, so the "VR View"
+    // pill (editing) and the "Reset Camera" pill (preview) both
+    // round-trip to the same pose. Calling `camera.lookAt` covers the
+    // preview case where OrbitControls is disabled — without it, only
+    // position would update and the FPS rig's pre-existing yaw/pitch
+    // would survive the snap.
     const onSnapToDefault = () => {
-      camera.position.set(0, 1.6, 0)
-      if (controls?.target) controls.target.set(0, 1.0, -1.0)
+      camera.position.set(...VOLUME_VR_POS)
+      camera.lookAt(...VOLUME_VR_TARGET)
+      if (controls?.target) controls.target.set(...VOLUME_VR_TARGET)
       controls?.update?.()
     }
 
@@ -111,25 +122,29 @@ function ModeHandler() {
   const preview3D = useStore((s) => s.scene.preview3D)
   const { camera, controls } = useThree()
   useEffect(() => {
-    if (sceneMode === 'volume') {
-      // ~2m back from the volume on the right, 1.5m up — gives a gentle
-      // down-tilt onto the demo floor / volumetric content without
-      // squashing the perspective.
-      camera.position.set(1.6, 1.5, 1.4)
-      if (controls?.target) controls.target.set(...TARGET_VOLUME)
-    } else if (preview3D) {
-      // Window 3D preview — angled view of the floating plate; the
-      // window is 1.2m wide so 1.8m diagonal back gives full framing.
-      camera.position.set(1.4, 1.7, 0.6)
-      if (controls?.target) controls.target.set(...TARGET_WINDOW)
-    } else {
-      // Window 2D — straight-on, 1.8m in front of the window plate so
-      // a 1.2m wide window fills ~80% of a 45° FOV viewport without
-      // overflowing the canvas edges.
-      camera.position.set(0, 1.4, 0.8)
-      if (controls?.target) controls.target.set(...TARGET_WINDOW)
+    // Apply pose, then re-apply on the next frame. The first apply
+    // catches the case where OrbitControls (and `controls`) is already
+    // mounted; the rAF re-apply catches first-mount, where this effect
+    // runs while controls is still null and the camera/target reset
+    // would silently no-op on `controls.target`. Without it, picking a
+    // template and entering volume mode lands the wearer on the
+    // canvas's default orbit pose, not the VR view.
+    const apply = () => {
+      if (sceneMode === 'volume') {
+        camera.position.set(...VOLUME_VR_POS)
+        if (controls?.target) controls.target.set(...VOLUME_VR_TARGET)
+      } else if (preview3D) {
+        camera.position.set(1.4, 1.7, 0.6)
+        if (controls?.target) controls.target.set(...TARGET_WINDOW)
+      } else {
+        camera.position.set(0, 1.4, 0.8)
+        if (controls?.target) controls.target.set(...TARGET_WINDOW)
+      }
+      controls?.update?.()
     }
-    controls?.update?.()
+    apply()
+    const raf = requestAnimationFrame(apply)
+    return () => cancelAnimationFrame(raf)
   }, [sceneMode, preview3D, camera, controls])
   return null
 }
@@ -262,9 +277,10 @@ function Canvas3D() {
         <Suspense fallback={null}>
           {/* `blur` (alias for backgroundBlurriness) defaulted to 0.15 which
               samples from low mipmaps and makes a 2K HDR look pixelated. 0
-              keeps the source resolution. environmentIntensity stays at 1 so
-              IBL on 3D primitives reads accurately. */}
-          <Environment files={scene.hdri} background backgroundBlurriness={0} environmentIntensity={1} />
+              keeps the source resolution. drei's bundled presets bias
+              bright at unit intensity — 0.18 here keeps reflections
+              legible on metals without blowing out matte surfaces. */}
+          <Environment files={scene.hdri} background backgroundBlurriness={0} environmentIntensity={0.18} />
         </Suspense>
       ) : scene.environmentPreset && scene.environmentPreset !== 'none' ? (
         // drei built-in studio presets — gives every PBR material a
@@ -273,22 +289,31 @@ function Canvas3D() {
         // viewport color/scheme; the environment is invisible but
         // still lights / reflects in the materials.
         <Suspense fallback={null}>
-          <Environment preset={scene.environmentPreset} background={false} environmentIntensity={1} />
+          <Environment preset={scene.environmentPreset} background={false} environmentIntensity={0.18} />
         </Suspense>
       ) : null}
 
-      <ambientLight intensity={scene.ambientLightIntensity ?? 1.4} />
+      <ambientLight intensity={scene.ambientLightIntensity ?? 0.7} />
+      {/* Key light pulled almost straight overhead so its falloff is
+          mostly on the floor (where designers want a real cast shadow
+          under the model) and not on the cyclorama walls (which
+          previously read as a "shadow band across the screen"). The
+          1.5-unit forward bias keeps a hint of front-light so the
+          painting on the back wall doesn't go completely flat. Shadow
+          camera frustum is sized to the studio bbox + a 1 m margin so
+          edge geometry isn't clipped out of the shadow map. */}
       <directionalLight
-        position={[2, 4, 2]}
-        intensity={scene.keyLightIntensity ?? 0.9}
+        position={[0, 6, 1.5]}
+        intensity={scene.keyLightIntensity ?? 0.5}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={0.5}
-        shadow-camera-far={10}
-        shadow-camera-left={-3}
-        shadow-camera-right={3}
-        shadow-camera-top={3}
-        shadow-camera-bottom={-3}
+        shadow-camera-far={14}
+        shadow-camera-left={-4}
+        shadow-camera-right={4}
+        shadow-camera-top={4}
+        shadow-camera-bottom={-4}
+        shadow-bias={-0.0005}
       />
 
       {/* SoftShadows from drei patches the renderer's shadow shaders
@@ -299,11 +324,18 @@ function Canvas3D() {
 
       {/* Studio rim-lights — bright planar emitters that catch on
           metallic / clearcoat materials and make hero objects pop.
-          Only in volume mode (window-mode plates are flat — rim
-          lights would just brighten the background uniformly). */}
+          Only in volume mode. Rendered invisible (`visible={false}`):
+          without an enclosing <Environment>, Lightformers contribute
+          nothing to PBR / IBL lighting, but their MeshBasicMaterial
+          planes still draw — and from the wearer's default VR view
+          they read as flat grey/blue rectangles in front of the
+          painting. Keeping them in the tree (instead of removing the
+          JSX) preserves the `rimLights` toggle for the future case of
+          an Environment-wrapped lighting rig. */}
       {isVolume && scene.rimLights && (
         <group>
           <Lightformer
+            visible={false}
             position={[2.5, 2.0, 1.5]}
             scale={[2, 1.5, 1]}
             intensity={1.2}
@@ -311,6 +343,7 @@ function Canvas3D() {
             target={[0, 0.7, -0.5]}
           />
           <Lightformer
+            visible={false}
             position={[-2.5, 1.5, 1.0]}
             scale={[2, 1, 1]}
             intensity={0.6}
@@ -389,11 +422,11 @@ function Canvas3D() {
 
       <OrbitControls
         makeDefault
-        enabled={!isDragging}
-        enableRotate={enableRotate}
+        enabled={!isDragging && !scene.previewMode}
+        enableRotate={enableRotate && !scene.previewMode}
         enableDamping
         dampingFactor={0.12}
-        target={isVolume ? TARGET_VOLUME : TARGET_WINDOW}
+        target={isVolume ? VOLUME_VR_TARGET : TARGET_WINDOW}
         // Both modes are metres-scale now. Window plates are ~1.2m wide
         // — so 0.3m is "right up against the surface" and 4m gives a
         // wide-shot. Volume rooms are 6m, dolly out to ~5m suffices to
@@ -403,6 +436,15 @@ function Canvas3D() {
         maxDistance={isVolume ? 5 : 4}
         mouseButtons={mouseButtons}
       />
+
+      {/* Preview mode runs a different camera rig: a first-person
+          look-around with mouse-look + pan + walk. OrbitControls is
+          disabled (above) so its `target`-anchored rotation doesn't
+          fight ours. Volume-only — window mode is a flat plate, no
+          benefit from a head-rotation rig. */}
+      {scene.previewMode && isVolume && (
+        <FirstPersonControls enabled={true} />
+      )}
 
       {/* Axis gizmo — overlay-controlled (Overlays \u2192 Axes). Only useful
           while rotating, so we still gate on preview3D — the gizmo would be
@@ -425,7 +467,10 @@ function Canvas3D() {
         </EffectComposer>
       )}
 
-      {showAxes && isOrbit && (
+      {/* Hide the orientation gizmo in preview — it's an editor
+          affordance and would break the "this is what the wearer
+          sees" illusion. */}
+      {showAxes && isOrbit && !scene.previewMode && (
         <GizmoHelper alignment="top-right" margin={[80, 140]}>
           <GizmoViewport axisColors={gizmoAxisColors} labelColor={gizmoLabelColor} />
         </GizmoHelper>

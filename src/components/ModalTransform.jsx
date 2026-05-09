@@ -46,6 +46,7 @@ function entityWorldPosition(items, entity) {
 export default function ModalTransform() {
   const { camera, gl } = useThree()
   const transformMode = useStore((s) => s.transformMode)
+  const transformKind = useStore((s) => s.transformKind)
   const selectedId    = useStore((s) => s.selectedId)
   const items         = useStore((s) => s.items)
   const updateItem    = useStore((s) => s.updateItem)
@@ -128,52 +129,70 @@ export default function ModalTransform() {
       const dx = ndc.x - st.startCursorNDC.x
       const dy = ndc.y - st.startCursorNDC.y
 
+      // Read the axis chord live so a press of X / Y / Z mid-drag
+      // re-clamps the next frame to that axis (Blender behaviour).
+      const axis = useStore.getState().transformAxis  // 'x' | 'y' | 'z' | null
+
       if (st.mode === 'translate') {
         const offsetX = dx * st.worldPerNDC.x
         const offsetY = dy * st.worldPerNDC.y
-        const offset = new THREE.Vector3()
-          .addScaledVector(st.camRight, offsetX)
-          .addScaledVector(st.camUp,    offsetY)
-        updateItem(selected.id, {
-          position: [
-            st.origPos[0] + offset.x,
-            st.origPos[1] + offset.y,
-            st.origPos[2] + offset.z
-          ]
-        })
+        // Free translate projects to camera right/up. With a chord
+        // constraint we instead measure how far the cursor moved along
+        // the chosen world axis projected to screen, and apply that
+        // directly so the entity slides only on X / Y / Z.
+        let nx = st.origPos[0]
+        let ny = st.origPos[1]
+        let nz = st.origPos[2]
+        if (!axis) {
+          const offset = new THREE.Vector3()
+            .addScaledVector(st.camRight, offsetX)
+            .addScaledVector(st.camUp,    offsetY)
+          nx += offset.x; ny += offset.y; nz += offset.z
+        } else {
+          // Project the world-axis basis vector onto the screen and
+          // dot the cursor delta with that 2-D direction to get the
+          // signed delta along the axis.
+          const worldAxis = new THREE.Vector3(
+            axis === 'x' ? 1 : 0,
+            axis === 'y' ? 1 : 0,
+            axis === 'z' ? 1 : 0
+          )
+          const tip = st.worldPos.clone().add(worldAxis).project(camera)
+          const tail = st.worldPos.clone().project(camera)
+          const screenAxis = new THREE.Vector2(tip.x - tail.x, tip.y - tail.y)
+          const len2 = Math.max(1e-6, screenAxis.x * screenAxis.x + screenAxis.y * screenAxis.y)
+          const t = (dx * screenAxis.x + dy * screenAxis.y) / len2
+          if (axis === 'x') nx += t
+          else if (axis === 'y') ny += t
+          else nz += t
+        }
+        updateItem(selected.id, { position: [nx, ny, nz] })
       } else if (st.mode === 'rotate') {
         // Project the entity centre onto NDC and compute the angle the
-        // cursor has swept around it.
+        // cursor has swept around it. Axis constraint picks WHICH world
+        // axis the rotation is applied to; "free" defaults to Y (the
+        // most common visionOS rotation).
         const screen = st.worldPos.clone().project(camera)
         const a0 = Math.atan2(st.startCursorNDC.y - screen.y, st.startCursorNDC.x - screen.x)
         const a1 = Math.atan2(ndc.y - screen.y, ndc.x - screen.x)
         const deltaDeg = (a1 - a0) * RAD2DEG
-        // Rotate around Y by default (visionOS content is usually
-        // upright); Blender uses the view axis but for entity-content
-        // editing Y rotation is what designers actually want most of
-        // the time. Pitch/Roll stay untouched.
-        updateItem(selected.id, {
-          rotation: [
-            st.origRot[0],
-            st.origRot[1] + deltaDeg,
-            st.origRot[2]
-          ]
-        })
+        const axisIdx = axis === 'x' ? 0 : axis === 'z' ? 2 : 1  // default Y
+        const next = [...st.origRot]
+        next[axisIdx] = st.origRot[axisIdx] + deltaDeg
+        updateItem(selected.id, { rotation: next })
       } else if (st.mode === 'scale') {
         // Uniform scale based on the cursor's distance ratio from the
         // entity centre. Threshold at 0.01 to avoid division blow-up
-        // near the centre.
+        // near the centre. Axis chord scales only that axis (Blender
+        // `S X` etc.); free `S` scales all three uniformly.
         const screen = st.worldPos.clone().project(camera)
         const d0 = Math.hypot(st.startCursorNDC.x - screen.x, st.startCursorNDC.y - screen.y)
         const d1 = Math.hypot(ndc.x - screen.x, ndc.y - screen.y)
         const ratio = d1 / Math.max(0.01, d0)
-        updateItem(selected.id, {
-          scale: [
-            Math.max(0.001, st.origScale[0] * ratio),
-            Math.max(0.001, st.origScale[1] * ratio),
-            Math.max(0.001, st.origScale[2] * ratio)
-          ]
-        })
+        const sx = axis && axis !== 'x' ? st.origScale[0] : Math.max(0.001, st.origScale[0] * ratio)
+        const sy = axis && axis !== 'y' ? st.origScale[1] : Math.max(0.001, st.origScale[1] * ratio)
+        const sz = axis && axis !== 'z' ? st.origScale[2] : Math.max(0.001, st.origScale[2] * ratio)
+        updateItem(selected.id, { scale: [sx, sy, sz] })
       }
     }
 

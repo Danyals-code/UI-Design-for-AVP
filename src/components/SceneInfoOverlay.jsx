@@ -40,9 +40,14 @@ export default function SceneInfoOverlay() {
     : '— none —'
 
   return (
+    // Tucked just to the right of the Transform Toolbar so the two
+    // overlays don't stack on top of each other in the top-left corner.
+    // The 48 px offset matches the toolbar's outer width (28 px button +
+    // 8 px padding + 1 px border on each side ≈ 46 px) plus a small gap.
     <div
-      className="absolute top-3 left-3 z-10 pointer-events-none rounded px-2.5 py-1.5"
+      className="absolute top-3 z-10 pointer-events-none rounded px-2.5 py-1.5"
       style={{
+        left: 48,
         background: 'rgba(21, 21, 21, 0.88)',
         border: '1px solid #2e2e2e',
         backdropFilter: 'blur(8px)',

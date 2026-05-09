@@ -296,12 +296,18 @@ export const makeAnchorEntity = (overrides = {}) => makeEntityBase('anchor', {
 // ModelEntity — mesh + materials. `meshType` defaults to 'box' so a fresh
 // model entity is visible the moment it's added; the inspector swaps
 // mesh-specific fields when meshType changes.
+//
+// Default position is 1.2 m above the entity's parent — typical chest
+// height for a wearer in a volumetric scene. With the seed anchor
+// pinned to the floor, this drops a fresh sphere / box / etc. dead in
+// front of the wearer at eye-line, not on the floor.
 export const makeModelEntity = (meshType = 'box', overrides = {}) => makeEntityBase('model', {
   name: capLabel('model'),
   meshType,
   // Splice the picked mesh's parameters in. `meshDefaults` deep-clones,
   // so editing one entity never bleeds into another.
   ...meshDefaults(meshType),
+  position: [0, 1.2, 0],
   // RealityKit lets a mesh carry multiple sub-meshes, each with its own
   // material; we model that as an ordered array so the inspector can
   // add / remove / reorder material slots.
@@ -423,14 +429,20 @@ export const DEFAULT_SCENE = {
   // clean; users flip it on from the viewport overlay when they want a
   // sense of scale.
   showDemoScene: true,
+  // Preview mode — the canvas runs as if it were the deployed app.
+  // Editing chrome (layers panel, properties panel, transform toolbar,
+  // selection outlines) is hidden; the user interacts with their
+  // panels and entities via mouse the same way a wearer would via
+  // gaze + pinch. Toggled from the viewport's bottom Preview button.
+  previewMode: false,
   // Lighting — designer-controllable ambient + key light. Defaults are
   // tuned so a fresh scene reads bright and well-lit without the user
   // needing to load an HDRI. The Scene → Lighting inspector exposes
   // these as sliders. Numbers chosen by eye against
   // MeshStandardMaterial; ACES tone-mapping flattens the top a little
   // so we can lean a bit hotter than 1.0.
-  ambientLightIntensity: 1.4,
-  keyLightIntensity:     0.9,
+  ambientLightIntensity: 0.7,
+  keyLightIntensity:     0.5,
   // Studio HDRI (drei `<Environment preset="...">`) for instant IBL
   // without the user picking a file. `null` defers to scene.hdri (a
   // bundled .hdr asset) when present, otherwise no environment.
