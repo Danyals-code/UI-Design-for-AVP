@@ -1,7 +1,7 @@
 // Low-level inspector primitives — fields, sliders, color picker, segmented
 // containers, section accordions. Reused across every per-domain inspector.
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   SEMANTIC_COLOR_ORDER,
   STACK_TYPES,
@@ -19,58 +19,119 @@ export function Row({ label, children, labelWidth = 56 }) {
   )
 }
 
-export function NumField({ value, step = 0.05, onChange, suffix }) {
-  const scrub = useScrub(value, (v) => onChange(parseFloat(v.toFixed(4))), step)
+// ---- Scrub-or-type input shell --------------------------------------
+//
+// Common shell for the numeric field types. Replaces the old pattern
+// of `e.preventDefault()` on pointer-down, which blocked the input
+// from focusing on click and made keyboard editing impossible. We now:
+//
+//   - Keep the input as a normal text field (not number) so partially-
+//     typed values like "1.", "-", or "0.0" don't get clobbered by
+//     the toFixed format string while the user is mid-typing.
+//   - Track a local `draft` while the field is focused; render `draft`
+//     instead of the formatted store value during that window so the
+//     cursor doesn't jump on every keystroke.
+//   - On blur (or Enter), parse the draft, validate, and commit. Esc
+//     drops the draft.
+//   - Pointer-down still hands off to `useScrub`. The hook itself only
+//     fires onChange once the cursor has moved >3 px, so a still
+//     click falls through to native focus + edit. No preventDefault
+//     means the click reaches the underlying <input> normally.
+function NumericShell({
+  formatted,           // string the input shows when not being edited
+  parse,               // (string) -> number | null   (null = invalid)
+  apply,               // (number) -> void            (commit to store)
+  scrubValue,          // number used as scrub start
+  scrubStep,           // px-to-units sensitivity
+  onScrub,             // (next) -> void
+  flexClass = 'flex-1',
+  suffix,
+  inputType = 'text',
+  inputProps = {}
+}) {
   const inputRef = useRef(null)
+  const [draft, setDraft] = useState(null)
+  const focusedRef = useRef(false)
+  const scrub = useScrub(scrubValue, onScrub, scrubStep)
+
+  // External value changes (undo, gizmo drag, scrub) shouldn't fight a
+  // user typing. While focused, we hold the draft. When focus leaves
+  // we fall back to the formatted store value.
+  const display = focusedRef.current && draft !== null ? draft : formatted
+
   return (
-    <div className="relative flex-1">
+    <div className={`relative ${flexClass}`}>
       <input
         ref={inputRef}
-        type="number"
-        step={step}
-        value={Number(value).toFixed(2)}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        onPointerDown={(e) => {
-          scrub.onPointerDown(e)
-          e.preventDefault()
-          const listener = () => {
-            if (!scrub.didMove()) inputRef.current?.focus()
-            window.removeEventListener('pointerup', listener)
+        type={inputType}
+        value={display}
+        inputMode="decimal"
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => {
+          focusedRef.current = true
+          setDraft(formatted)
+          // Select all so the user can replace the value with one keystroke.
+          requestAnimationFrame(() => inputRef.current?.select?.())
+        }}
+        onBlur={() => {
+          focusedRef.current = false
+          if (draft !== null) {
+            const n = parse(draft)
+            if (n !== null) apply(n)
           }
-          window.addEventListener('pointerup', listener)
+          setDraft(null)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.target.blur() }
+          else if (e.key === 'Escape') { setDraft(null); e.target.blur() }
+        }}
+        onPointerDown={(e) => {
+          // Hand the gesture to the scrub hook; if the cursor moves,
+          // it takes over. If not, the native click flow focuses the
+          // input and the user can type.
+          scrub.onPointerDown(e)
         }}
         className="field cursor-ew-resize"
+        {...inputProps}
       />
       {suffix && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-textMute pointer-events-none">{suffix}</span>}
     </div>
   )
 }
 
+export function NumField({ value, step = 0.05, onChange, suffix }) {
+  const v = Number.isFinite(value) ? value : 0
+  return (
+    <NumericShell
+      formatted={v.toFixed(2)}
+      parse={(raw) => {
+        const n = parseFloat(raw)
+        return Number.isFinite(n) ? n : null
+      }}
+      apply={(n) => onChange(parseFloat(n.toFixed(4)))}
+      scrubValue={v}
+      scrubStep={step}
+      onScrub={(next) => onChange(parseFloat(Number(next).toFixed(4)))}
+      suffix={suffix}
+    />
+  )
+}
+
 export function PtField({ value, onChange }) {
   const displayed = unitsToPt(value)
-  const scrub = useScrub(displayed, (v) => onChange(ptToUnits(Math.round(v))), 1)
-  const inputRef = useRef(null)
   return (
-    <div className="relative flex-1">
-      <input
-        ref={inputRef}
-        type="number"
-        step={1}
-        value={displayed}
-        onChange={(e) => onChange(ptToUnits(parseFloat(e.target.value) || 0))}
-        onPointerDown={(e) => {
-          scrub.onPointerDown(e)
-          e.preventDefault()
-          const listener = () => {
-            if (!scrub.didMove()) inputRef.current?.focus()
-            window.removeEventListener('pointerup', listener)
-          }
-          window.addEventListener('pointerup', listener)
-        }}
-        className="field cursor-ew-resize"
-      />
-      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-textMute pointer-events-none">pt</span>
-    </div>
+    <NumericShell
+      formatted={String(displayed)}
+      parse={(raw) => {
+        const n = parseFloat(raw)
+        return Number.isFinite(n) ? Math.round(n) : null
+      }}
+      apply={(n) => onChange(ptToUnits(n))}
+      scrubValue={displayed}
+      scrubStep={1}
+      onScrub={(next) => onChange(ptToUnits(Math.round(next)))}
+      suffix="pt"
+    />
   )
 }
 
@@ -81,27 +142,19 @@ export function IntField({ value, min, max, onChange }) {
     if (max != null) n = Math.min(max, n)
     onChange(n)
   }, [onChange, min, max])
-  const scrub = useScrub(value, clamped, 1)
-  const inputRef = useRef(null)
   return (
-    <input
-      ref={inputRef}
-      type="number"
-      step={1}
-      min={min}
-      max={max}
-      value={value}
-      onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-      onPointerDown={(e) => {
-        scrub.onPointerDown(e)
-        e.preventDefault()
-        const listener = () => {
-          if (!scrub.didMove()) inputRef.current?.focus()
-          window.removeEventListener('pointerup', listener)
-        }
-        window.addEventListener('pointerup', listener)
+    <NumericShell
+      flexClass="flex-1"
+      formatted={String(value)}
+      parse={(raw) => {
+        const n = parseInt(raw, 10)
+        return Number.isFinite(n) ? n : null
       }}
-      className="field flex-1 cursor-ew-resize"
+      apply={clamped}
+      scrubValue={value}
+      scrubStep={1}
+      onScrub={clamped}
+      inputProps={{ min, max }}
     />
   )
 }

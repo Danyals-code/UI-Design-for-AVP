@@ -21,6 +21,7 @@
 // `add*` actions so the inspector shows it immediately.
 
 import { undoable } from './undo'
+import { findOwningTab, uniqueNameInTab } from './helpers'
 import {
   makeEntity, makeMaterial, makeAnchorEntity, makePanel,
   makeWindow, makeTab
@@ -230,6 +231,8 @@ export const createEntitiesSlice = (set, get) => ({
     // creation — the caller knows where they want the entity.
     if (opts.parentId) {
       const ent = makeEntity(entityKind, { parentId: opts.parentId, ...opts.overrides })
+      const tab = findOwningTab(s.items, opts.parentId)
+      if (tab) ent.name = uniqueNameInTab(s.items, tab.id, ent.name)
       return { items: [...s.items, ent], selectedId: ent.id }
     }
     // Cold-click path: ensure RealityView + Anchor exist, then drop the
@@ -238,6 +241,8 @@ export const createEntitiesSlice = (set, get) => ({
     const { items: working, parentId, activeTabId } = ensureEntityHost(s, entityKind)
     if (!parentId) return s
     const ent = makeEntity(entityKind, { parentId, ...opts.overrides })
+    const tab = findOwningTab(working, parentId)
+    if (tab) ent.name = uniqueNameInTab(working, tab.id, ent.name)
     return {
       items: [...working, ent],
       selectedId: ent.id,

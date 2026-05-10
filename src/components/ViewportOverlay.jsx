@@ -96,38 +96,22 @@ function OverlaysDropdown() {
           className="popover absolute right-0 top-full mt-1 rounded z-50 py-2 px-2.5 w-52"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* Volume mode shows a "demo scene" with a floor + props for
-              scale reference (same idea as visionOS simulator's room). */}
           {isVolume && (
             <>
               <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Volume</div>
               <OverlayRow label="Demo Scene" on={showDemoScene} toggle={toggleDemoScene} />
-              <div className="text-[10px] text-textMute leading-relaxed mt-2 px-1 pb-2 border-b border-border">
-                Floor + scale-reference props behind your volumetric content.
-              </div>
+              <div className="border-b border-border my-2" />
             </>
           )}
 
-          {/* Per-axis grid toggles. Each row toggles one grid plane —
-              Blender's "Floor / X / Y" overlay options. The plane is named
-              by its perpendicular axis (Y = floor / horizontal). */}
-          {/* X (side) and Y (floor) grids only make sense when the camera
-              is in an orbit mode (volume or window-3D); in 2D head-on they
-              project edge-on or face-camera and read as noise. */}
-          <div className="text-[9px] text-textMute uppercase tracking-wider mt-2 mb-2 px-1">Grid</div>
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Grid</div>
           <OverlayRow label="X (side)"   on={gridAxes.x} toggle={() => toggleGridAxis('x')} disabled={!orbitActive} disabledHint="3D only" />
           <OverlayRow label="Y (floor)"  on={gridAxes.y} toggle={() => toggleGridAxis('y')} disabled={!orbitActive} disabledHint="3D only" />
           <OverlayRow label="Z (back)"   on={gridAxes.z} toggle={() => toggleGridAxis('z')} />
 
           <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-2 px-1">Guides</div>
-          {/* Axes Gizmo only renders in orbit mode (it shows orbit
-              orientation). In 2D it would be visually inert. */}
           <OverlayRow label="Axes Gizmo" on={showAxes}      toggle={toggleAxes} disabled={!orbitActive} disabledHint="3D only" />
           <OverlayRow label="Scene Info" on={showSceneInfo} toggle={toggleSceneInfo} />
-
-          <div className="text-[9px] text-textMute leading-relaxed mt-2 pt-2 border-t border-border px-1">
-            Scene Info shows item counts + selection — like Blender's stats panel.
-          </div>
         </div>
       )}
     </div>
