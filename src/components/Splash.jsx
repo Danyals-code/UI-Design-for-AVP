@@ -169,6 +169,113 @@ function TemplateThumb({ kind }) {
           <rect x="36" y="52" width="88" height="3" fill="#3a3a3c" stroke="none" />
         </svg>
       )
+    case 'gallery':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          <rect x="20" y="14" width="120" height="44" fill="#e9e6dd" stroke="none" />
+          {/* three frames + matching colour pictures */}
+          <rect x="28" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
+          <rect x="30" y="22" width="24" height="18" fill="#f4a261" stroke="none" />
+          <rect x="66" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
+          <rect x="68" y="22" width="24" height="18" fill="#2a9d8f" stroke="none" />
+          <rect x="104" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
+          <rect x="106" y="22" width="24" height="18" fill="#5a4fcf" stroke="none" />
+          {/* captions */}
+          <rect x="32" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
+          <rect x="70" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
+          <rect x="108" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
+        </svg>
+      )
+    case 'cardStack':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          {/* three flat cards in a row */}
+          <rect x="22" y="18" width="32" height="44" rx="3" fill="#0a84ff" stroke="none" />
+          <rect x="64" y="18" width="32" height="44" rx="3" fill="#5e5ce6" stroke="none" />
+          <rect x="106" y="18" width="32" height="44" rx="3" fill="#ff9f0a" stroke="none" />
+          {/* card labels */}
+          <rect x="26" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
+          <rect x="68" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
+          <rect x="110" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
+        </svg>
+      )
+    case 'filesApp':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* sidebar */}
+          <rect x="6" y="6" width="46" height="68" fill="#1a1a1c" stroke="none" />
+          <rect x="10" y="11" width="20" height="6" rx="1" fill="#ffffff" stroke="none" />
+          {/* sidebar pinned rows */}
+          <rect x="10" y="22" width="38" height="5" rx="1" fill={accent} stroke="none" />
+          <rect x="10" y="30" width="34" height="5" rx="1" fill={grey} stroke="none" />
+          {/* "Locations" header + rows */}
+          <rect x="10" y="40" width="22" height="3" rx="0.5" fill={grey} stroke="none" />
+          <rect x="10" y="46" width="36" height="4" rx="1" fill={grey} stroke="none" />
+          <rect x="10" y="52" width="36" height="4" rx="1" fill={grey} stroke="none" />
+          <rect x="10" y="58" width="30" height="4" rx="1" fill={grey} stroke="none" />
+          {/* main: title + empty state */}
+          <rect x="56" y="11" width="50" height="6" rx="1" fill={stroke} stroke="none" />
+          <circle cx="100" cy="48" r="6" fill="none" stroke={grey} strokeWidth="1.4" />
+          <path d="M100 45 V48 L102 50" stroke={grey} strokeWidth="1.2" />
+          <rect x="86" y="58" width="28" height="4" rx="1" fill={stroke} stroke="none" />
+          <rect x="80" y="64" width="40" height="3" rx="0.5" fill={grey} stroke="none" />
+        </svg>
+      )
+    case 'moodLamps':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0c0c0e" />
+          {/* dark console slab */}
+          <rect x="32" y="58" width="96" height="6" rx="1" fill="#1a1a1c" stroke="none" />
+          {/* three lamps with stems and glowing bulbs */}
+          {[
+            { x: 50,  color: '#ff9a3c' },
+            { x: 80,  color: '#3a78ff' },
+            { x: 110, color: '#7be39c' }
+          ].map((l, i) => (
+            <g key={i}>
+              <line x1={l.x} y1="46" x2={l.x} y2="58" stroke="#3a3a3c" strokeWidth="0.8" />
+              <circle cx={l.x} cy="40" r="8" fill={l.color} opacity="0.18" stroke="none" />
+              <circle cx={l.x} cy="40" r="5" fill={l.color} stroke="none" />
+            </g>
+          ))}
+        </svg>
+      )
+    case 'spinningShowcase':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
+          {/* turntable orbit indicator */}
+          <ellipse cx="80" cy="46" rx="34" ry="10" fill="none" stroke={grey} strokeWidth="0.8" strokeDasharray="2 3" />
+          {/* three cubes on the turntable */}
+          <rect x="48" y="42" width="12" height="12" fill="#e94e62" stroke="none" transform="rotate(-12 54 48)" />
+          <rect x="74" y="48" width="12" height="12" fill="#3aab7a" stroke="none" />
+          <rect x="100" y="42" width="12" height="12" fill="#3a78ff" stroke="none" transform="rotate(12 106 48)" />
+          {/* arrows hinting rotation */}
+          <path d="M120 28 q 8 -4 14 4" stroke={accent} strokeWidth="1" fill="none" markerEnd="" />
+          <path d="M40 64 q -8 4 -14 -4" stroke={accent} strokeWidth="1" fill="none" />
+        </svg>
+      )
+    case 'reactiveLights':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0a0a14" />
+          {/* master orb up top */}
+          <circle cx="80" cy="22" r="6" fill="#ffffff" stroke="none" />
+          <circle cx="80" cy="22" r="9" fill="#ffffff" opacity="0.18" stroke="none" />
+          {/* five pucks rolling a wave (heights vary to imply motion) */}
+          <ellipse cx="28" cy="56" rx="8" ry="3" fill="#e94e62" stroke="none" />
+          <ellipse cx="54" cy="50" rx="8" ry="3" fill="#f5b14a" stroke="none" />
+          <ellipse cx="80" cy="46" rx="8" ry="3" fill="#7be39c" stroke="none" />
+          <ellipse cx="106" cy="50" rx="8" ry="3" fill="#3a78ff" stroke="none" />
+          <ellipse cx="132" cy="56" rx="8" ry="3" fill="#a05dff" stroke="none" />
+          {/* dotted line connecting master orb to pucks */}
+          <path d="M80 32 V 42" stroke="#ffffff" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.4" />
+        </svg>
+      )
     default:
       return <svg {...common}><rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" /></svg>
   }

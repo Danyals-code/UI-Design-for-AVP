@@ -16,6 +16,7 @@ import { createPanelsSlice } from './panels'
 import { createItemsSlice } from './items'
 import { createClipboardSlice } from './clipboard'
 import { createEntitiesSlice } from './entities'
+import { createAssetsSlice, ASSETS_INITIAL_STATE } from './assets'
 
 export { isEffectivelyVisible } from './helpers'
 
@@ -90,6 +91,10 @@ export const useStore = create((set, get) => ({
   _past:   [],
   _future: [],
 
+  // User-imported assets (3D meshes + images) and their folder tree.
+  // See `src/store/assets.js` for the record shape.
+  ...ASSETS_INITIAL_STATE,
+
   // ---- actions (composed from slices) ----
   ...createUndoSlice(set, get),
   ...createSceneSlice(set, get),
@@ -99,5 +104,6 @@ export const useStore = create((set, get) => ({
   ...createPanelsSlice(set, get),
   ...createItemsSlice(set, get),
   ...createClipboardSlice(set, get),
-  ...createEntitiesSlice(set, get)
+  ...createEntitiesSlice(set, get),
+  ...createAssetsSlice(set, get)
 }))

@@ -1,17 +1,18 @@
 // Panel inspector — registry-driven scaffold.
 //
-// Renders shared scaffolding (Name, Frame, Appearance, Modifiers, Styles,
-// Symbol, Animation, Accessibility, Info) plus the per-type inspector from
-// `src/panels/inspectors.jsx`. Knowing nothing about specific panel types is
-// the whole point — adding a new panel means adding one entry to the
-// inspectors registry, not editing this file.
+// Mirrors the 3D entity inspector's "compact and structured" feel:
+// one Object section up top with name + the per-type fields rolled
+// in, then Modifiers, then optional Styles, then Hover (interactive
+// panels only), and finally a Behaviors placeholder so designers can
+// see where window-level interactions will land. The old Advanced
+// header (Animation / Accessibility / Info) is gone — those were
+// rarely opened and made the panel feel cluttered.
 
 import { useStore } from '../../store'
 import { Row, Section, Select } from './primitives'
 import {
   FigmaFrameSection, LayoutSection,
-  StylesSection, SymbolSection,
-  AnimationSection, AccessibilitySection, InfoSection
+  StylesSection, SymbolSection
 } from './shared'
 import { ModifierStack } from './ModifierStack'
 import { INSPECTORS, getPanelMeta } from '../../panels/inspectors'
@@ -27,6 +28,44 @@ const HOVER_EFFECT_OPTIONS = [
   { value: 'lift',      label: 'Lift' },
   { value: 'none',      label: 'None' }
 ]
+
+// Placeholder triggers / actions for Window-level behaviours. The 3D
+// inspector has the live runtime; for windows we expose the same shape
+// as a stub so the editor reads consistent across types. Wiring up the
+// real interpreter is a follow-up.
+const WINDOW_TRIGGER_STUBS = [
+  { value: 'tap',     label: 'Tap' },
+  { value: 'hover',   label: 'Hover' },
+  { value: 'appear',  label: 'On appear' },
+  { value: 'disappear', label: 'On disappear' }
+]
+const WINDOW_ACTION_STUBS = [
+  { value: 'show',     label: 'Show window' },
+  { value: 'hide',     label: 'Hide window' },
+  { value: 'navigate', label: 'Navigate to tab' },
+  { value: 'open',     label: 'Open URL' },
+  { value: 'message',  label: 'Send message' }
+]
+
+function WindowBehaviorsPlaceholder() {
+  return (
+    <Section title="Behaviors" defaultOpen={false}>
+      <div className="space-y-1.5">
+        <div className="text-[9px] text-textMute leading-snug">
+          Window behaviours are <span className="text-textBase">coming soon</span>.
+          Pick a trigger and action below to sketch the intent — the export
+          will pick them up once the runtime is wired.
+        </div>
+        <Row label="Trigger">
+          <Select value="tap" options={WINDOW_TRIGGER_STUBS} onChange={() => {}} />
+        </Row>
+        <Row label="Action">
+          <Select value="navigate" options={WINDOW_ACTION_STUBS} onChange={() => {}} />
+        </Row>
+      </div>
+    </Section>
+  )
+}
 
 export function PanelProps({ item, scene }) {
   const updateItem      = useStore((s) => s.updateItem)
@@ -49,20 +88,24 @@ export function PanelProps({ item, scene }) {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title={titleCase}>
+      {/* Object — the everyday "what is this" header. Name lives here
+          alongside the figma / fixed frame picker, mirroring the 3D
+          entity inspector where Object holds name + kind + transform
+          in one place. The per-type Inspector continues to render as
+          its own section below since each type has 5–10 fields and
+          packing them into Object too would make this header heavy. */}
+      <Section title={titleCase} defaultOpen={true}>
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
+        {meta.frameMode === 'figma'
+          ? <FigmaFrameSection item={item} updateItem={updateItem} embedded />
+          : meta.frameMode === 'none'
+            ? null
+            : <LayoutSection item={item} updateItem={updateItem} scene={scene}
+                             lockHeight={meta.lockHeight} lockHeightHint={meta.lockHeightHint}
+                             embedded />}
       </Section>
-
-      {/* Layout = frame + appearance. Text/Link keep the figma-style frame
-          picker (fit/fixed/fill) since their frame semantics differ from a
-          regular 2D panel. */}
-      {meta.frameMode === 'figma'
-        ? <FigmaFrameSection item={item} updateItem={updateItem} />
-        : meta.frameMode === 'none'
-          ? null
-          : <LayoutSection item={item} updateItem={updateItem} scene={scene} lockHeight={meta.lockHeight} lockHeightHint={meta.lockHeightHint} />}
 
       {Inspector && <Inspector {...ctx} />}
 
@@ -70,14 +113,12 @@ export function PanelProps({ item, scene }) {
 
       {showStyles && <StylesSection item={item} updateItem={updateItem} />}
 
-      {/* Spec §3.5 — visionOS hover modifier family. Only meaningful on
-          interactive controls (visionOS auto-applies hover affordances to
-          Button/Toggle/Picker/etc. and ignores them elsewhere). Hidden for
-          non-interactive panels so the inspector doesn't suggest knobs
-          that are no-ops in SwiftUI. */}
+      {/* visionOS hover modifier family — only meaningful on interactive
+          controls. Renamed from "Interaction" to "Hover" so it doesn't
+          collide with the new "Behaviors" placeholder below. */}
       {interactive && (
-        <Section title="Interaction" defaultOpen={false}>
-          <Row label="Hover">
+        <Section title="Hover" defaultOpen={false}>
+          <Row label="Effect">
             <Select
               value={item.hoverEffect || 'inherit'}
               options={HOVER_EFFECT_OPTIONS}
@@ -114,15 +155,11 @@ export function PanelProps({ item, scene }) {
 
       {meta.useSymbol && <SymbolSection item={item} updateItem={updateItem} />}
 
-      {/* Advanced — Animation / Accessibility / Info live behind a single
-          divider so the everyday inspector reads short. The user clicks
-          into each sub-section when they need it. */}
-      <div className="text-[9px] text-textMute uppercase tracking-wider px-3 pt-3 pb-1 border-t border-border bg-surface2/30">
-        Advanced
-      </div>
-      <AnimationSection item={item} updateItem={updateItem} />
-      <AccessibilitySection item={item} updateItem={updateItem} />
-      <InfoSection item={item} />
+      {/* Behaviors — placeholder mirroring the 3D inspector. Real
+          window-level interactions will fill these in later; for now
+          the section is a visual seam so designers can see where
+          they'll go and the editor reads consistent across types. */}
+      <WindowBehaviorsPlaceholder />
     </div>
   )
 }

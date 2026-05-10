@@ -247,8 +247,10 @@ export const SYSTEM_COLORS = {
     glassThin:                 '#ffffff',
     glassThick:                '#e5e5ea',
     // Design scheme — the colours a finished Vision Pro layout uses.
-    // Light scheme: white windows, black text, pill buttons stay neutral grey.
-    designWindow:              '#ffffff',
+    // Light scheme: a near-white translucent plate. The 92% alpha
+    // stamped onto the plate by `LiquidGlass` lets the room peek
+    // through the way real visionOS glass does.
+    designWindow:              '#ecedef',
     designButton:              '#b7b6b1',
     designButtonText:          '#000000'
   },
@@ -278,8 +280,11 @@ export const SYSTEM_COLORS = {
     glassRegular:              '#39393c',
     glassThin:                 '#45454a',
     glassThick:                '#2c2c2f',
-    // Design scheme — dark visionOS reference values from Apple's layout.
-    designWindow:              '#9ea1a2',
+    // Design scheme — even in dark mode, visionOS plates are not
+    // opaque grey. They're a translucent light plate that picks up
+    // the environment. The 92% fill opacity gives a glassy lift over
+    // the studio decor / room behind.
+    designWindow:              '#ecedef',
     designButton:              '#b7b6b1',
     designButtonText:          '#ffffff'
   }

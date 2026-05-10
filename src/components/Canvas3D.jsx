@@ -14,14 +14,15 @@ import FirstPersonControls from './FirstPersonControls'
 
 // Camera targets in metres (1 unit = 1m). Window mode keeps a 1m-out
 // chest-height target. Volume mode places the wearer at the studio's
-// open +X edge, eye-line height, looking horizontally back toward the
-// painting on the -X cyclorama wall. Target sits at chest height at
-// world centre so the orbit pivot tracks the stool / spawn area, and
-// new entities (which land at the same chest-height centre) appear
-// dead-centre of the wearer's view. View vector is (-3, -0.35, 0) —
-// almost pure -X with a 7° down-tilt, no head-tilt-down feel.
+// open +Z edge, eye-line height, looking back toward world centre
+// along -Z — the conventional three.js / RealityKit forward axis.
+// This way default-rotated planes, text and USDZ models (which all
+// use +Z forward) face the wearer correctly without a per-entity
+// 90° rotation hack. The studio decor GLB is rotated 90° in
+// `<DemoVolumeScene>` so the painting wall stays behind the spawn
+// area instead of off to the right.
 const TARGET_WINDOW = [0, 1.4, -1.0]
-const VOLUME_VR_POS    = [3, 1.55, 0]
+const VOLUME_VR_POS    = [0, 1.55, 3]
 const VOLUME_VR_TARGET = [0, 1.2, 0]
 
 // Cursor-driven Blender-modal transforms live in ModalTransform.jsx — no
@@ -134,7 +135,11 @@ function ModeHandler() {
         camera.position.set(...VOLUME_VR_POS)
         if (controls?.target) controls.target.set(...VOLUME_VR_TARGET)
       } else if (preview3D) {
-        camera.position.set(1.4, 1.7, 0.6)
+        // Window VR view: park the wearer slightly in front of the
+        // window plate (which sits at z = −1), eye-line height, so
+        // the studio decor frames the plate the way a visionOS
+        // window appears in someone's living room.
+        camera.position.set(0, 1.55, 1.4)
         if (controls?.target) controls.target.set(...TARGET_WINDOW)
       } else {
         camera.position.set(0, 1.4, 0.8)
@@ -382,7 +387,7 @@ function Canvas3D() {
           fadeDistance={8} fadeStrength={1.4} infiniteGrid
         />
       )}
-      {!scene.hdri && gridAxes.y && isOrbit && !(isVolume && scene.showDemoScene) && (
+      {!scene.hdri && gridAxes.y && isOrbit && !((isVolume || scene.preview3D) && scene.showDemoScene) && (
         <Grid
           args={[10, 10]}
           position={[0, 0, isVolume ? 0 : -1.0]}
@@ -404,10 +409,13 @@ function Canvas3D() {
 
       <SceneTree />
 
-      {/* Simulator-style demo scene — only renders in volume mode and
-          only when the user has it enabled in the overlays popover.
-          Sits at the world origin / floor below the volumetric content. */}
-      {isVolume && scene.showDemoScene && <DemoVolumeScene />}
+      {/* Simulator-style demo scene — renders in volume mode AND in
+          window+preview3D mode when the user has it enabled in the
+          overlays popover. The studio decor frames the window plate
+          the way a visionOS window appears in someone's living room
+          on the device. Sits at the world origin / floor below the
+          content. */}
+      {scene.showDemoScene && (isVolume || scene.preview3D) && <DemoVolumeScene />}
 
       {/* Modal transform handler. When the user picks Move / Rotate /
           Scale (toolbar or G/R/S), the cursor drives the entity's

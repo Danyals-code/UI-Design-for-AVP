@@ -28,9 +28,14 @@ import SymbolPicker from '../SymbolPicker'
 
 // Text & Link use a Figma-style fit/fixed/fill picker that maps onto SwiftUI
 // frame semantics. Everything else uses the explicit width/height fields.
-export function FigmaFrameSection({ item, updateItem }) {
+export function FigmaFrameSection({ item, updateItem, embedded = false }) {
+  // When `embedded`, render rows inside a Fragment so the parent
+  // section header carries the heading. Standalone usage keeps the
+  // dedicated "Frame" section so non-Object call-sites still read
+  // correctly.
+  const Wrap = embedded ? FrameInline : FrameStandalone
   return (
-    <Section title="Frame">
+    <Wrap>
       <Row label="Width">
         <div className="segmented flex-1">
           <button
@@ -72,9 +77,14 @@ export function FigmaFrameSection({ item, updateItem }) {
           ? 'Uses the explicit size below. Content that overflows is truncated by .lineLimit.'
           : 'Hugs the content \u2014 the native SwiftUI Text behaviour.'}
       </div>
-    </Section>
+    </Wrap>
   )
 }
+
+// Helpers: pick a Section header or a Fragment depending on whether
+// the parent already supplies a heading.
+function FrameStandalone({ children }) { return <Section title="Frame">{children}</Section> }
+function FrameInline({ children })     { return <>{children}</> }
 
 export function ExplicitFrameSection({ item, updateItem, lockHeight = false, lockHeightHint = null }) {
   if (!item.size) {
@@ -106,11 +116,12 @@ export function ExplicitFrameSection({ item, updateItem, lockHeight = false, loc
 // almost never resizes a frame without also touching its fill or radius.
 // Merging them into one "Layout" section halves the inspector's scroll
 // distance for the most common case.
-export function LayoutSection({ item, updateItem, scene, lockHeight = false, lockHeightHint = null }) {
+export function LayoutSection({ item, updateItem, scene, lockHeight = false, lockHeightHint = null, embedded = false }) {
   const scheme = scene?.designScheme || 'light'
   const hasSize = !!item.size
+  const Wrap = embedded ? LayoutInline : LayoutStandalone
   return (
-    <Section title="Layout" defaultOpen={true}>
+    <Wrap>
       {hasSize ? (
         <>
           <Row label="Width"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1]] })} /></Row>
@@ -144,9 +155,12 @@ export function LayoutSection({ item, updateItem, scene, lockHeight = false, loc
       <Row label="Radius">
         <PtField value={item.cornerRadius ?? 0} onChange={(v) => updateItem(item.id, { cornerRadius: Math.max(0, v) })} />
       </Row>
-    </Section>
+    </Wrap>
   )
 }
+
+function LayoutStandalone({ children }) { return <Section title="Layout" defaultOpen={true}>{children}</Section> }
+function LayoutInline({ children })     { return <>{children}</> }
 
 // ---- Appearance --------------------------------------------------------
 

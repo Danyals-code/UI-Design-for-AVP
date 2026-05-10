@@ -112,8 +112,15 @@ export const makeWindow = (overrides = {}) => ({
   // SwiftUI WindowGroup at launch.
   position: [0, 1.4, -1.0],
   material: 'regular',
+  // Solid plate, neutral cool-white. Earlier we tried a 92%-alpha
+  // glass approximation but every R3F render-order edge case made
+  // it look glitchy in the studio scene. Solid reads as "shipping
+  // visionOS plate" cleanly and stays stable when orbited. The
+  // colour itself is the visionOS Glass Regular fill that Apple uses
+  // on default windows.
   colorToken: 'designWindow',
-  color: '#9ea1a2',
+  color: '#ecedef',
+  fillOpacity: 1.0,
   padding: 14,             // pt — default inner padding for the window content
   spatial: {
     immersionStyle: 'mixed',
@@ -281,6 +288,11 @@ const makeEntityBase = (entityKind, overrides = {}) => ({
   // they need via the Components section). Cloning per-entity keeps the
   // registry's defaults pristine.
   components: buildDefaultComponents(),
+  // Behaviors — array of { id, trigger:{type,params}, actions:[{id,type,params}] }
+  // entries that fire only in Preview mode. The dummy `interaction`
+  // single-trigger / single-action object that used to live here was
+  // a UI placeholder; the real per-entity wiring lives in this array.
+  behaviors: [],
   ...overrides
 })
 
