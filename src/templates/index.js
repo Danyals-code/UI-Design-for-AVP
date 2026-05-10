@@ -3,9 +3,10 @@
 // factories.seedScene — and the store's `applyTemplate` action replaces the
 // current scene with whatever the template produces.
 //
-// Templates are window-mode only for now; the splash hides them when the
-// user picks Volume mode. Each one stays small and focused so the user can
-// scan it in one read and tweak it from there.
+// The set is intentionally lopsided toward "real-app" shapes: a Blank
+// starter for users who'd rather build from scratch, then templates that
+// each demonstrate a different production-grade pattern (NavigationSplit,
+// volumetric scenes with attachments, dashboards, settings, etc.).
 
 import { ptToUnits, VOLUME_PRESETS } from '../appleSystem'
 import {
@@ -15,8 +16,9 @@ import {
   textStyleToFontSize
 } from '../store/factories'
 
-// ---- Blank ------------------------------------------------------------
+// ---- Blank -----------------------------------------------------------
 // Minimum viable scene: one tab, one window, one fill-and-fit VStack.
+// Useful for users who want to start from a blank canvas.
 function blank() {
   const tab = makeTab({ name: 'Main', icon: 'folder' })
   const w   = makeWindow({ name: 'Main Window', parentId: tab.id })
@@ -28,160 +30,335 @@ function blank() {
   return { items: [tab, w, stk], activeTabId: tab.id }
 }
 
-// ---- Welcome ----------------------------------------------------------
-// The current default seed (kept as a template so users can come back to
-// it after picking something else).
-function welcome() {
-  const tab = makeTab({ name: 'Main', icon: 'folder' })
-  const w   = makeWindow({ name: 'Main Window', parentId: tab.id })
-  const stk = makeStack({
+// ---- Music Player ----------------------------------------------------
+// Now Playing card: hero artwork plate, track + artist labels, transport
+// controls (prev / play / next), and a queue list below. Demonstrates
+// stacked layout with mixed widths, SF symbols on buttons, and an
+// inset-grouped list driven from data.
+function musicPlayer() {
+  const tab = makeTab({ name: 'Music', icon: 'music.note' })
+  const w   = makeWindow({ name: 'Now Playing', parentId: tab.id })
+  const root = makeStack({
     parentId: w.id, name: 'Content',
-    stackType: 'vstack', alignment: 'center', spacing: 16, padding: 14,
+    stackType: 'vstack', alignment: 'center', spacing: 18, padding: 24,
     widthMode: 'fill', heightMode: 'fill'
   })
-  const title = makePanel('text', {
-    parentId: stk.id, name: 'Title', text: 'Welcome to Vision',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
-    widthMode: 'fill', textAlign: 'center'
-  })
-  const sub = makePanel('text', {
-    parentId: stk.id, name: 'Subtitle',
-    text: 'Design spatial interfaces for Apple Vision Pro',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    widthMode: 'fill', textAlign: 'center',
-    colorToken: null, color: '#3a3a3c'
-  })
-  const btn = makePanel('button', {
-    parentId: stk.id, name: 'Primary Button', text: 'Get Started'
-  })
-  return { items: [tab, w, stk, title, sub, btn], activeTabId: tab.id }
-}
 
-// ---- Settings ---------------------------------------------------------
-// Inset-grouped list with a couple of toggles + a slider — the canonical
-// "settings sheet" shape Apple uses across system apps.
-function settings() {
-  const tab = makeTab({ name: 'Settings', icon: 'gearshape' })
-  const w   = makeWindow({ name: 'Settings', parentId: tab.id })
-  const stk = makeStack({
-    parentId: w.id, name: 'Content',
-    stackType: 'vstack', alignment: 'leading', spacing: 12, padding: 24,
-    widthMode: 'fill', heightMode: 'fill'
+  // Hero artwork — square image plate at the top.
+  const artwork = makePanel('image', {
+    parentId: root.id, name: 'Artwork',
+    size: [ptToUnits(220), ptToUnits(220)],
+    cornerRadius: ptToUnits(16),
+    color: '#5b3aa8', colorToken: null
   })
-  const title = makePanel('text', {
-    parentId: stk.id, name: 'Title', text: 'Settings',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
-    fontWeight: 'bold', widthMode: 'fill'
-  })
-  const list = makePanel('list', {
-    parentId: stk.id, name: 'General',
-    listStyle: 'insetGrouped',
-    rows: [
-      { title: 'Account',       subtitle: 'Signed in as you@example.com' },
-      { title: 'Notifications', subtitle: 'Allowed' },
-      { title: 'Appearance',    subtitle: 'Automatic' },
-      { title: 'Privacy',       subtitle: '' }
-    ]
-  })
-  const toggle = makePanel('toggle', {
-    parentId: stk.id, name: 'Wi-Fi', text: 'Wi-Fi', toggleOn: true
-  })
-  const slider = makePanel('slider', {
-    parentId: stk.id, name: 'Volume', sliderValue: 0.65
-  })
-  return { items: [tab, w, stk, title, list, toggle, slider], activeTabId: tab.id }
-}
 
-// ---- Onboarding -------------------------------------------------------
-// Hero image + title + body + CTA — the standard first-run pattern.
-function onboarding() {
-  const tab = makeTab({ name: 'Welcome', icon: 'sparkles' })
-  const w   = makeWindow({ name: 'Welcome', parentId: tab.id })
-  const stk = makeStack({
-    parentId: w.id, name: 'Content',
-    stackType: 'vstack', alignment: 'center', spacing: 24, padding: 40,
-    widthMode: 'fill', heightMode: 'fill'
+  // Track / artist text block.
+  const trackInfo = makeStack({
+    parentId: root.id, name: 'Track Info',
+    stackType: 'vstack', alignment: 'center', spacing: 4, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
   })
-  const hero = makePanel('image', {
-    parentId: stk.id, name: 'Hero',
-    size: [ptToUnits(420), ptToUnits(260)]
+  const trackTitle = makePanel('text', {
+    parentId: trackInfo.id, name: 'Track Title', text: 'Midnight City',
+    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    fontWeight: 'semibold', textAlign: 'center', widthMode: 'fill'
   })
-  const title = makePanel('text', {
-    parentId: stk.id, name: 'Title', text: 'A new way to see your work',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
-    fontWeight: 'bold', textAlign: 'center', widthMode: 'fill'
-  })
-  const body = makePanel('text', {
-    parentId: stk.id, name: 'Body',
-    text: 'Sign in with your Apple Account to sync across all your devices.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    textAlign: 'center', widthMode: 'fill',
-    colorToken: 'secondary'
-  })
-  const btn = makePanel('button', {
-    parentId: stk.id, name: 'Continue', text: 'Continue',
-    buttonStyle: 'borderedProminent'
-  })
-  return { items: [tab, w, stk, hero, title, body, btn], activeTabId: tab.id }
-}
-
-// ---- Tab Bar App ------------------------------------------------------
-// Bottom-anchored Tab Bar ornament + content stub. The tab bar pattern is
-// SwiftUI's `TabView { Tab(...) ... }`, but we set it up as a window with
-// an ornament so the canvas shows the chrome the user expects.
-function tabBarApp() {
-  const tab = makeTab({ name: 'App', icon: 'square.stack' })
-  const w   = makeWindow({ name: 'App', parentId: tab.id })
-  // Inner content
-  const stk = makeStack({
-    parentId: w.id, name: 'Content',
-    stackType: 'vstack', alignment: 'center', spacing: 16, padding: 24,
-    widthMode: 'fill', heightMode: 'fill'
-  })
-  const title = makePanel('text', {
-    parentId: stk.id, name: 'Title', text: 'Home',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
-    fontWeight: 'bold', textAlign: 'center', widthMode: 'fill'
-  })
-  const body = makePanel('text', {
-    parentId: stk.id, name: 'Body',
-    text: 'The active tab\u2019s content lives here. Switch tabs in the bar below.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+  const trackArtist = makePanel('text', {
+    parentId: trackInfo.id, name: 'Artist', text: 'M83',
+    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
-  // Bottom tab-bar ornament with 4 pages
-  const bar = makeStack({
-    parentId: w.id, stackType: 'hstack',
-    ornament: 'bottom', name: 'Tab Bar',
-    background: 'glassThick',
-    fixedHeight: 64, padding: 10, spacing: 22, alignment: 'center',
-    widthMode: 'fit', heightMode: 'fixed'
+
+  // Scrubber.
+  const scrubber = makePanel('slider', {
+    parentId: root.id, name: 'Scrubber', sliderValue: 0.42,
+    widthMode: 'fill'
   })
-  const tabLabels = ['Home', 'Search', 'Library', 'Profile']
-  const tabIcons  = ['house', 'magnifyingglass', 'books.vertical', 'person.crop.circle']
-  const tabs = tabLabels.map((label, i) => makePanel('button', {
-    parentId: bar.id, name: label, text: label,
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
-    fontWeight: 'medium',
-    size: [ptToUnits(76), ptToUnits(44)],
-    cornerRadius: ptToUnits(22),
+
+  // Transport controls — Prev / Play / Next as a horizontal row.
+  const transport = makeStack({
+    parentId: root.id, name: 'Transport',
+    stackType: 'hstack', alignment: 'center', spacing: 28, padding: 6,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const prev = makePanel('button', {
+    parentId: transport.id, name: 'Prev', text: '',
+    size: [ptToUnits(52), ptToUnits(52)],
+    cornerRadius: ptToUnits(26),
     buttonStyle: 'plain',
     color: '#ffffff', colorToken: null,
-    textColor: '#000000', textColorToken: 'primary',
-    symbolName: tabIcons[i] || null
-  }))
+    symbolName: 'backward.fill'
+  })
+  const play = makePanel('button', {
+    parentId: transport.id, name: 'Play', text: '',
+    size: [ptToUnits(64), ptToUnits(64)],
+    cornerRadius: ptToUnits(32),
+    buttonStyle: 'borderedProminent',
+    symbolName: 'play.fill'
+  })
+  const next = makePanel('button', {
+    parentId: transport.id, name: 'Next', text: '',
+    size: [ptToUnits(52), ptToUnits(52)],
+    cornerRadius: ptToUnits(26),
+    buttonStyle: 'plain',
+    color: '#ffffff', colorToken: null,
+    symbolName: 'forward.fill'
+  })
+
+  // Up Next list.
+  const queueHeader = makePanel('text', {
+    parentId: root.id, name: 'Up Next', text: 'Up Next',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const queue = makePanel('list', {
+    parentId: root.id, name: 'Queue',
+    listStyle: 'insetGrouped',
+    rows: [
+      { title: 'Reckoner',         subtitle: 'Radiohead' },
+      { title: 'Strawberry Swing', subtitle: 'Coldplay' },
+      { title: 'Heartbeats',       subtitle: 'The Knife' },
+      { title: 'Holocene',         subtitle: 'Bon Iver' }
+    ]
+  })
+
   return {
-    items: [tab, w, stk, title, body, bar, ...tabs],
+    items: [
+      tab, w, root,
+      artwork,
+      trackInfo, trackTitle, trackArtist,
+      scrubber,
+      transport, prev, play, next,
+      queueHeader, queue
+    ],
     activeTabId: tab.id
   }
 }
 
-// ---- Sidebar App ------------------------------------------------------
-// In-window NavigationSplitView (joined). The store's `addSplitView`
-// helper produces this same shape — we duplicate it inline so the
-// template stays self-contained and doesn't depend on store actions.
-function sidebarApp() {
-  const tab = makeTab({ name: 'Mail', icon: 'envelope' })
+// ---- Smart Home Dashboard --------------------------------------------
+// Header + horizontal row of room cards + scenes ZStack + a status toggle.
+// Covers nested HStacks, sized cards, and mixed control types.
+function smartHome() {
+  const tab = makeTab({ name: 'Home', icon: 'house.fill' })
+  const w   = makeWindow({ name: 'Smart Home', parentId: tab.id })
+  const root = makeStack({
+    parentId: w.id, name: 'Content',
+    stackType: 'vstack', alignment: 'leading', spacing: 18, padding: 24,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+
+  const greeting = makePanel('text', {
+    parentId: root.id, name: 'Greeting', text: 'Good evening',
+    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    fontWeight: 'bold', widthMode: 'fill'
+  })
+  const status = makePanel('text', {
+    parentId: root.id, name: 'Status',
+    text: '4 lights on · 2 devices charging · climate set to 21°',
+    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    widthMode: 'fill', colorToken: 'secondary'
+  })
+
+  // Room cards row.
+  const sectionLabel = makePanel('text', {
+    parentId: root.id, name: 'Rooms Header', text: 'ROOMS',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const rooms = makeStack({
+    parentId: root.id, name: 'Rooms',
+    stackType: 'hstack', alignment: 'center', spacing: 12, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const roomData = [
+    { name: 'Living Room', icon: 'sofa', summary: '3 lights' },
+    { name: 'Kitchen',     icon: 'fork.knife', summary: '2 devices' },
+    { name: 'Bedroom',     icon: 'bed.double', summary: 'Climate 20°' },
+    { name: 'Studio',      icon: 'music.mic', summary: 'Idle' }
+  ]
+  const roomItems = []
+  for (const r of roomData) {
+    const card = makeStack({
+      parentId: rooms.id, name: r.name,
+      stackType: 'vstack', alignment: 'leading', spacing: 6, padding: 14,
+      widthMode: 'fill', heightMode: 'fixed', fixedHeight: 110,
+      background: 'glassRegular',
+      cornerRadius: ptToUnits(18)
+    })
+    const icon = makePanel('label', {
+      parentId: card.id, name: `${r.name} Icon`, text: '',
+      symbolName: r.icon, textStyle: 'title2',
+      fontSize: textStyleToFontSize('title2'),
+      colorToken: 'primary'
+    })
+    const title = makePanel('text', {
+      parentId: card.id, name: `${r.name} Title`, text: r.name,
+      textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+      fontWeight: 'semibold', widthMode: 'fill'
+    })
+    const sub = makePanel('text', {
+      parentId: card.id, name: `${r.name} Sub`, text: r.summary,
+      textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+      widthMode: 'fill', colorToken: 'secondary'
+    })
+    roomItems.push(card, icon, title, sub)
+  }
+
+  // Scenes row of pill buttons.
+  const scenesLabel = makePanel('text', {
+    parentId: root.id, name: 'Scenes Header', text: 'SCENES',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const scenes = makeStack({
+    parentId: root.id, name: 'Scenes',
+    stackType: 'hstack', alignment: 'center', spacing: 10, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const sceneData = ['Movie Night', 'Bright', 'Focus', 'Sleep']
+  const sceneItems = sceneData.map((label) => makePanel('button', {
+    parentId: scenes.id, name: label, text: label,
+    textStyle: 'subheadline',
+    fontSize: textStyleToFontSize('subheadline'),
+    size: [ptToUnits(120), ptToUnits(40)],
+    cornerRadius: ptToUnits(20),
+    buttonStyle: 'plain',
+    color: '#ffffff', colorToken: null,
+    textColor: '#000000', textColorToken: 'primary'
+  }))
+
+  // Quick toggle row.
+  const quickToggle = makePanel('toggle', {
+    parentId: root.id, name: 'Away Mode', text: 'Away Mode', toggleOn: false
+  })
+
+  return {
+    items: [
+      tab, w, root,
+      greeting, status,
+      sectionLabel, rooms, ...roomItems,
+      scenesLabel, scenes, ...sceneItems,
+      quickToggle
+    ],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Settings (rich) -------------------------------------------------
+// Multi-section settings page — search bar, account header, feature
+// toggles, sliders, and a "danger zone" group. Mirrors the depth of an
+// actual visionOS Settings sheet.
+function settings() {
+  const tab = makeTab({ name: 'Settings', icon: 'gearshape.fill' })
+  const w   = makeWindow({ name: 'Settings', parentId: tab.id })
+  const root = makeStack({
+    parentId: w.id, name: 'Content',
+    stackType: 'vstack', alignment: 'leading', spacing: 14, padding: 24,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const title = makePanel('text', {
+    parentId: root.id, name: 'Title', text: 'Settings',
+    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    fontWeight: 'bold', widthMode: 'fill'
+  })
+  const search = makePanel('search', {
+    parentId: root.id, name: 'Search', text: 'Search settings',
+    widthMode: 'fill',
+    size: [ptToUnits(360), ptToUnits(36)]
+  })
+
+  // Account header card.
+  const accountCard = makeStack({
+    parentId: root.id, name: 'Account',
+    stackType: 'hstack', alignment: 'center', spacing: 12, padding: 14,
+    widthMode: 'fill', heightMode: 'fit',
+    background: 'glassRegular',
+    cornerRadius: ptToUnits(14)
+  })
+  const avatar = makePanel('image', {
+    parentId: accountCard.id, name: 'Avatar',
+    size: [ptToUnits(48), ptToUnits(48)],
+    cornerRadius: ptToUnits(24),
+    color: '#0a84ff', colorToken: null
+  })
+  const acctLabels = makeStack({
+    parentId: accountCard.id, name: 'Account Labels',
+    stackType: 'vstack', alignment: 'leading', spacing: 2, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const acctName = makePanel('text', {
+    parentId: acctLabels.id, name: 'Account Name', text: 'Danyal Sarfraz',
+    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    fontWeight: 'semibold', widthMode: 'fill'
+  })
+  const acctMail = makePanel('text', {
+    parentId: acctLabels.id, name: 'Account Mail',
+    text: 'you@icloud.com',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    widthMode: 'fill', colorToken: 'secondary'
+  })
+
+  // General list.
+  const general = makePanel('list', {
+    parentId: root.id, name: 'General',
+    listStyle: 'insetGrouped',
+    rows: [
+      { title: 'About',         subtitle: 'visionOS 2.0 (build 22N130)' },
+      { title: 'Software Update', subtitle: 'Up to date' },
+      { title: 'Storage',       subtitle: '128 GB used of 256 GB' },
+      { title: 'Privacy',       subtitle: 'On-device processing' }
+    ]
+  })
+
+  // Display group.
+  const displayHeader = makePanel('text', {
+    parentId: root.id, name: 'Display Header', text: 'DISPLAY',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const brightness = makePanel('slider', {
+    parentId: root.id, name: 'Brightness', sliderValue: 0.78
+  })
+  const nightShift = makePanel('toggle', {
+    parentId: root.id, name: 'Night Shift', text: 'Night Shift',
+    toggleOn: true
+  })
+  const trueTone = makePanel('toggle', {
+    parentId: root.id, name: 'True Tone', text: 'True Tone',
+    toggleOn: true
+  })
+
+  // Connectivity group.
+  const connectHeader = makePanel('text', {
+    parentId: root.id, name: 'Connect Header', text: 'CONNECTIVITY',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const wifi = makePanel('toggle', {
+    parentId: root.id, name: 'Wi-Fi', text: 'Wi-Fi', toggleOn: true
+  })
+  const bluetooth = makePanel('toggle', {
+    parentId: root.id, name: 'Bluetooth', text: 'Bluetooth', toggleOn: true
+  })
+
+  return {
+    items: [
+      tab, w, root, title, search,
+      accountCard, avatar, acctLabels, acctName, acctMail,
+      general,
+      displayHeader, brightness, nightShift, trueTone,
+      connectHeader, wifi, bluetooth
+    ],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Mail (NavigationSplitView) --------------------------------------
+// Joined NavigationSplitView with a search bar, account header, mailbox
+// rows, and a detail pane showing a sample message. Mirrors the actual
+// Mail app shape on visionOS.
+function mailApp() {
+  const tab = makeTab({ name: 'Mail', icon: 'envelope.fill' })
   const w   = makeWindow({ name: 'Mail', parentId: tab.id })
   const root = makeStack({
     parentId: w.id, stackType: 'hstack',
@@ -194,68 +371,155 @@ function sidebarApp() {
   const sidebar = makeStack({
     parentId: root.id, stackType: 'vstack', name: 'Sidebar',
     spacing: 4, padding: 16,
-    widthMode: 'fixed', heightMode: 'fill', fixedWidth: 320,
+    widthMode: 'fixed', heightMode: 'fill', fixedWidth: 280,
     alignment: 'leading',
-    background: '#6b6e70', material: 'thin'
+    background: 'glassThin'
   })
   const detail = makeStack({
     parentId: root.id, stackType: 'vstack', name: 'Detail',
-    spacing: 16, padding: 48,
-    widthMode: 'fill', heightMode: 'fill', alignment: 'center'
+    spacing: 14, padding: 32,
+    widthMode: 'fill', heightMode: 'fill', alignment: 'leading'
   })
-  const search = makePanel('search', {
-    parentId: sidebar.id, name: 'Search', text: 'Search',
-    widthMode: 'fill',
-    size: [ptToUnits(288), ptToUnits(36)]
-  })
+
+  // Sidebar — header + nav rows + counts.
   const sidebarHeader = makePanel('text', {
-    parentId: sidebar.id, name: 'Sidebar Header', text: 'Mailboxes',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
-    fontWeight: 'bold', textAlign: 'left', widthMode: 'fill',
-    colorToken: 'primary', color: '#000000'
+    parentId: sidebar.id, name: 'Mail Header', text: 'Mail',
+    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    fontWeight: 'bold', widthMode: 'fill', colorToken: 'primary',
+    color: '#000000'
   })
-  const navLabels = ['Inbox', 'Starred', 'Drafts', 'Sent', 'Archive']
-  const navIcons  = ['tray', 'star', 'doc', 'paperplane', 'archivebox']
-  const navRows = navLabels.map((label, i) => makePanel('button', {
-    parentId: sidebar.id, name: label, text: label,
+  const navData = [
+    { label: 'All Inboxes', icon: 'tray.full',  badge: '128' },
+    { label: 'Inbox',       icon: 'tray',       badge: '32'  },
+    { label: 'VIP',         icon: 'star',       badge: '4'   },
+    { label: 'Flagged',     icon: 'flag',       badge: '12'  },
+    { label: 'Drafts',      icon: 'doc',        badge: ''    },
+    { label: 'Sent',        icon: 'paperplane', badge: ''    },
+    { label: 'Archive',     icon: 'archivebox', badge: ''    }
+  ]
+  const navRows = navData.map((n) => makePanel('button', {
+    parentId: sidebar.id, name: n.label, text: n.label,
     textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    size: [ptToUnits(288), ptToUnits(40)],
+    size: [ptToUnits(248), ptToUnits(40)],
     cornerRadius: ptToUnits(10),
     buttonStyle: 'plain',
     color: '#ffffff', colorToken: null,
     textColor: '#000000', textColorToken: 'primary',
     textAlign: 'left',
-    symbolName: navIcons[i] || null
+    symbolName: n.icon
   }))
-  const detailTitle = makePanel('text', {
-    parentId: detail.id, name: 'Title', text: 'Inbox',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
-    fontWeight: 'bold', textAlign: 'center', widthMode: 'fill'
+
+  // Detail — message list header + message reading pane.
+  const detailHeader = makeStack({
+    parentId: detail.id, name: 'Detail Header',
+    stackType: 'hstack', alignment: 'center', spacing: 12, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
   })
-  const detailBody = makePanel('text', {
+  const senderLabels = makeStack({
+    parentId: detailHeader.id, name: 'Sender',
+    stackType: 'vstack', alignment: 'leading', spacing: 2, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const senderName = makePanel('text', {
+    parentId: senderLabels.id, name: 'Sender Name',
+    text: 'Apple Developer',
+    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    fontWeight: 'semibold', widthMode: 'fill'
+  })
+  const senderTime = makePanel('text', {
+    parentId: senderLabels.id, name: 'Sender Time',
+    text: 'Today at 10:23 AM',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    widthMode: 'fill', colorToken: 'secondary'
+  })
+  const reply = makePanel('button', {
+    parentId: detailHeader.id, name: 'Reply', text: 'Reply',
+    buttonStyle: 'borderedProminent',
+    symbolName: 'arrowshape.turn.up.left'
+  })
+  const subject = makePanel('text', {
+    parentId: detail.id, name: 'Subject',
+    text: 'Your visionOS submission has been approved',
+    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    fontWeight: 'semibold', widthMode: 'fill'
+  })
+  const body = makePanel('text', {
     parentId: detail.id, name: 'Body',
-    text: 'Pick a message to read it here.',
+    text: 'Hi,\n\nThanks for your patience while we reviewed your app. We\'re happy to let you know that your submission is approved and ready for distribution on the App Store for visionOS.\n\nThe Apple Developer team',
     textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    colorToken: 'secondary', textAlign: 'center', widthMode: 'fill'
+    widthMode: 'fill'
   })
+
   return {
     items: [
       tab, w,
       root, sidebar, detail,
-      search, sidebarHeader, ...navRows,
-      detailTitle, detailBody
+      sidebarHeader, ...navRows,
+      detailHeader, senderLabels, senderName, senderTime, reply,
+      subject, body
     ],
     activeTabId: tab.id
   }
 }
 
-// ---- Volume templates -------------------------------------------------
-//
-// Volumetric scene seeds. Each starts with a volumetric `WindowGroup` (the
-// "stage" the user sees in the simulator) plus an `AnchorEntity` so the
-// inspector has a sensible default selection. Sizes default to the medium
-// volume preset (≈1m on a side) — a comfortable scale for desk-sized
-// content in the visionOS simulator.
+// ---- Tab Bar App -----------------------------------------------------
+// Bottom-anchored Tab Bar ornament + a Home content stub. Lives at the
+// system chrome layer the way SwiftUI's `TabView { Tab(...) }` does, so
+// the canvas matches what the user sees in the visionOS simulator.
+function tabBarApp() {
+  const tab = makeTab({ name: 'App', icon: 'square.stack.fill' })
+  const w   = makeWindow({ name: 'App', parentId: tab.id })
+  const stk = makeStack({
+    parentId: w.id, name: 'Content',
+    stackType: 'vstack', alignment: 'center', spacing: 16, padding: 32,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const heroIcon = makePanel('label', {
+    parentId: stk.id, name: 'Hero Icon', text: '',
+    symbolName: 'sparkles', textStyle: 'largeTitle',
+    fontSize: ptToUnits(48), colorToken: 'primary'
+  })
+  const title = makePanel('text', {
+    parentId: stk.id, name: 'Title', text: 'Home',
+    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    fontWeight: 'bold', textAlign: 'center', widthMode: 'fill'
+  })
+  const body = makePanel('text', {
+    parentId: stk.id, name: 'Body',
+    text: 'The active tab’s content lives here. Switch tabs in the bar below.',
+    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
+  })
+
+  // Bottom tab-bar ornament.
+  const bar = makeStack({
+    parentId: w.id, stackType: 'hstack',
+    ornament: 'bottom', name: 'Tab Bar',
+    background: 'glassThick',
+    fixedHeight: 64, padding: 10, spacing: 22, alignment: 'center',
+    widthMode: 'fit', heightMode: 'fixed'
+  })
+  const tabLabels = ['Home', 'Browse', 'Library', 'Profile']
+  const tabIcons  = ['house', 'magnifyingglass', 'books.vertical', 'person.crop.circle']
+  const tabs = tabLabels.map((label, i) => makePanel('button', {
+    parentId: bar.id, name: label, text: label,
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'medium',
+    size: [ptToUnits(76), ptToUnits(44)],
+    cornerRadius: ptToUnits(22),
+    buttonStyle: 'plain',
+    color: '#ffffff', colorToken: null,
+    textColor: '#000000', textColorToken: 'primary',
+    symbolName: tabIcons[i] || null
+  }))
+
+  return {
+    items: [tab, w, stk, heroIcon, title, body, bar, ...tabs],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Volume templates ------------------------------------------------
 
 const volumeWindow = (overrides = {}) => {
   const p = VOLUME_PRESETS.medium
@@ -277,8 +541,8 @@ const volumeWindow = (overrides = {}) => {
   })
 }
 
-// Empty volumetric stage with a single anchor at world origin. Smallest
-// volume seed — gives the user a clean canvas to add entities into.
+// Empty volumetric stage with a single anchor on the floor — the
+// minimal volume seed for users who'd rather build their own scene.
 function emptyVolume() {
   const tab = makeTab({ name: 'Volume', icon: 'cube' })
   const w   = volumeWindow({ parentId: tab.id, name: 'Volume' })
@@ -286,60 +550,23 @@ function emptyVolume() {
   return { items: [tab, w, anchor], activeTabId: tab.id }
 }
 
-// Single hero object — a sphere on a base. The most common visionOS volume
-// pattern (think the Earth widget, or a single 3D model showcase).
-function singleObject() {
-  const tab = makeTab({ name: 'Volume', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Hero Object' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-  const sphere = makeModelEntity('sphere', {
-    parentId: anchor.id,
-    name: 'Hero Sphere',
-    sphereRadius: 0.12,
-    // Hero sphere sits at the wearer's eye-line so it dominates the
-    // VR view from the default spawn pose. The plinth disc floats
-    // just below as a visual grounding cue.
-    position: [0, 1.2, 0]
-  })
-  // Slightly metallic + warm tint so it reads as "polished hero object"
-  // rather than a default white blob.
-  sphere.materials = [{
-    id: 'mat-hero-1', type: 'simple',
-    baseColor: '#d0a060', baseColorTextureName: null,
-    roughness: 0.32, isMetallic: true
-  }]
-  // A flat plinth disc underneath for visual grounding.
-  const base = makeModelEntity('cylinder', {
-    parentId: anchor.id,
-    name: 'Plinth',
-    cylinderRadius: 0.18,
-    cylinderHeight: 0.02,
-    position: [0, 1.03, 0]
-  })
-  base.materials = [{
-    id: 'mat-base-1', type: 'simple',
-    baseColor: '#3a3a3c', baseColorTextureName: null,
-    roughness: 0.7, isMetallic: false
-  }]
-  return { items: [tab, w, anchor, sphere, base], activeTabId: tab.id }
-}
-
-// Labelled hero — single object on a plinth with a Text + Button
-// attachment hovering above. Demonstrates the most common visionOS
-// volume pattern: a 3D model with floating SwiftUI labels.
-function labelledHero() {
-  const tab = makeTab({ name: 'Volume', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Labelled Hero' })
+// ---- Product Showcase (volume) ---------------------------------------
+// A polished product hero: 3D model on a rotating plinth, floating
+// title + subtitle, and a Buy attachment at the side. Demonstrates
+// real-app-grade RealityView attachment composition.
+function productShowcase() {
+  const tab = makeTab({ name: 'Product', icon: 'cube' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Showcase' })
   const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
 
-  // Glossy hero sphere on a flat plinth.
+  // Hero sphere on a plinth — physically-based metal.
   const sphere = makeModelEntity('sphere', {
-    parentId: anchor.id, name: 'Hero Sphere',
+    parentId: anchor.id, name: 'Hero Object',
     sphereRadius: 0.14,
-    position: [0, 0.20, 0]
+    position: [0, 1.18, 0]
   })
   sphere.materials = [{
-    id: 'mat-hero-1', type: 'physicallyBased',
+    id: 'mat-product-1', type: 'physicallyBased',
     baseColor: '#3a78ff', baseColorTextureName: null,
     roughness: 0.18, roughnessTextureName: null,
     metallic: 0.85, metallicTextureName: null,
@@ -352,111 +579,151 @@ function labelledHero() {
     faceCulling: 'back',
     textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
   }]
-  const base = makeModelEntity('cylinder', {
+  const plinth = makeModelEntity('cylinder', {
     parentId: anchor.id, name: 'Plinth',
-    cylinderRadius: 0.20, cylinderHeight: 0.025,
-    position: [0, 0.012, 0]
+    cylinderRadius: 0.22, cylinderHeight: 0.04,
+    position: [0, 1.0, 0]
   })
-  base.materials = [{
-    id: 'mat-base-2', type: 'simple',
-    baseColor: '#1c1c1e', baseColorTextureName: null,
-    roughness: 0.7, isMetallic: false
+  plinth.materials = [{
+    id: 'mat-product-base', type: 'simple',
+    baseColor: '#1a1a1c', roughness: 0.4, isMetallic: false
   }]
 
-  // Floating title attachment above the sphere.
+  // Title / subtitle attachments above the sphere.
   const title = makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Title Label',
-    position: [0, 0.55, 0],
-    attachmentText: 'Sphere',
-    attachmentFontSize: 0.06,
+    parentId: anchor.id, name: 'Title',
+    position: [0, 1.55, 0],
+    attachmentText: 'Globe Pro',
+    attachmentFontSize: 0.07,
     attachmentBackground: '#0c0c0e',
     attachmentColor: '#ffffff',
     attachmentBillboard: true
   })
+  const tagline = makeAttachmentEntity('text', {
+    parentId: anchor.id, name: 'Tagline',
+    position: [0, 1.46, 0],
+    attachmentText: 'New finish · Gen 2',
+    attachmentFontSize: 0.035,
+    attachmentBackground: '#1c1c1e',
+    attachmentColor: '#a0a0a4',
+    attachmentBillboard: true
+  })
 
-  // Tap-to-rotate button below the sphere.
-  const cta = makeAttachmentEntity('button', {
-    parentId: anchor.id, name: 'Action Button',
-    position: [0, 0.45, 0.22],
-    attachmentText: 'Rotate',
-    attachmentFontSize: 0.04,
+  // Buy CTA off to the right + spec callout off to the left.
+  const buy = makeAttachmentEntity('button', {
+    parentId: anchor.id, name: 'Buy',
+    position: [0.32, 1.18, 0],
+    attachmentText: 'Buy · $199',
+    attachmentFontSize: 0.045,
     attachmentBackground: '#0a84ff',
     attachmentColor: '#ffffff',
     attachmentBillboard: true
   })
+  const spec = makeAttachmentEntity('text', {
+    parentId: anchor.id, name: 'Spec',
+    position: [-0.32, 1.18, 0],
+    attachmentText: '78 mm · 320 g\nAnodized · 4-axis',
+    attachmentFontSize: 0.028,
+    attachmentBackground: '#1c1c1e',
+    attachmentColor: '#cfcfcf',
+    attachmentBillboard: true
+  })
 
   return {
-    items: [tab, w, anchor, sphere, base, title, cta],
+    items: [tab, w, anchor, sphere, plinth, title, tagline, buy, spec],
     activeTabId: tab.id
   }
 }
 
-// Multi-anchor showcase — three colour swatches each with a label
-// attachment, arranged in a row. Demonstrates managing several
-// attachments + entities together (e.g. a product configurator).
-function showcase() {
-  const tab = makeTab({ name: 'Volume', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Showcase' })
+// ---- Solar System (volume) -------------------------------------------
+// Sun + four planets in a row at chest height, each with a label
+// attachment. Demonstrates batch entity creation, mixed materials
+// (emissive sun, matte planets), and per-entity attachments.
+function solarSystem() {
+  const tab = makeTab({ name: 'Cosmos', icon: 'sparkles' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Solar System' })
   const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
 
   const items = [tab, w, anchor]
-  const swatches = [
-    { label: 'Crimson', color: '#e63946', x: -0.32 },
-    { label: 'Sage',    color: '#83a87a', x:  0.00 },
-    { label: 'Sand',    color: '#e9c46a', x:  0.32 }
+
+  // Sun — large emissive sphere on the left.
+  const sun = makeModelEntity('sphere', {
+    parentId: anchor.id, name: 'Sun',
+    sphereRadius: 0.10,
+    position: [-0.50, 1.20, 0]
+  })
+  sun.materials = [{
+    id: 'mat-sun', type: 'simple',
+    baseColor: '#ffb84a', roughness: 0.4, isMetallic: false
+  }]
+  items.push(sun)
+  items.push(makeAttachmentEntity('text', {
+    parentId: anchor.id, name: 'Sun Label',
+    position: [-0.50, 1.36, 0],
+    attachmentText: 'Sun',
+    attachmentFontSize: 0.030,
+    attachmentBackground: '#1c1c1e',
+    attachmentColor: '#ffffff',
+    attachmentBillboard: true
+  }))
+
+  // Inner four planets — Mercury, Venus, Earth, Mars.
+  const planets = [
+    { name: 'Mercury', x: -0.22, r: 0.022, color: '#a0a0a0' },
+    { name: 'Venus',   x: -0.05, r: 0.034, color: '#e0c47a' },
+    { name: 'Earth',   x:  0.14, r: 0.036, color: '#3a78ff' },
+    { name: 'Mars',    x:  0.34, r: 0.028, color: '#cf5530' }
   ]
-  for (const s of swatches) {
-    const cube = makeModelEntity('box', {
-      parentId: anchor.id, name: s.label,
-      boxSize: [0.14, 0.14, 0.14],
-      boxCornerRadius: 0.015,
-      position: [s.x, 0.20, 0]
+  for (const p of planets) {
+    const sphere = makeModelEntity('sphere', {
+      parentId: anchor.id, name: p.name,
+      sphereRadius: p.r,
+      position: [p.x, 1.20, 0]
     })
-    cube.materials = [{
-      id: `mat-show-${s.label}`, type: 'simple',
-      baseColor: s.color, baseColorTextureName: null,
-      roughness: 0.45, isMetallic: false
+    sphere.materials = [{
+      id: `mat-${p.name.toLowerCase()}`, type: 'simple',
+      baseColor: p.color, roughness: 0.6, isMetallic: false
     }]
-    items.push(cube)
-    const lbl = makeAttachmentEntity('text', {
-      parentId: anchor.id, name: `${s.label} Label`,
-      position: [s.x, 0.42, 0],
-      attachmentText: s.label,
-      attachmentFontSize: 0.038,
+    items.push(sphere)
+    items.push(makeAttachmentEntity('text', {
+      parentId: anchor.id, name: `${p.name} Label`,
+      position: [p.x, 1.20 + p.r + 0.05, 0],
+      attachmentText: p.name,
+      attachmentFontSize: 0.025,
       attachmentBackground: '#0c0c0e',
       attachmentColor: '#ffffff',
       attachmentBillboard: true
-    })
-    items.push(lbl)
+    }))
   }
+
   return { items, activeTabId: tab.id }
 }
 
-// Diorama — a small grouped scene with a couple of primitives arranged
-// like a tiny tableau. Demonstrates entity grouping + multi-material.
+// ---- Diorama (volume) ------------------------------------------------
+// Grouped tableau — a backing wall + three towers in primary colours.
+// The simplest "look at this scene" volume; demonstrates entity
+// grouping for organised hierarchies.
 function diorama() {
   const tab = makeTab({ name: 'Volume', icon: 'cube' })
   const w   = volumeWindow({ parentId: tab.id, name: 'Diorama' })
   const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
   const stage = makeGroupEntity({ parentId: anchor.id, name: 'Stage' })
-  // Backing wall — flat upright plane behind the props.
   const wall = makeModelEntity('plane', {
     parentId: stage.id, name: 'Wall',
-    planeWidth: 0.8, planeDepth: 0.5,
-    position: [0, 0.25, -0.15],
+    planeWidth: 0.9, planeDepth: 0.55,
+    position: [0, 1.30, -0.18],
     rotation: [90, 0, 0]
   })
   wall.materials = [{
     id: 'mat-wall-1', type: 'simple',
     baseColor: '#7a8aa0', roughness: 0.85, isMetallic: false
   }]
-  // Three towers of varying heights — classic diorama silhouette.
   const towerColors = ['#e07a5f', '#81b29a', '#f2cc8f']
   const towers = towerColors.map((c, i) => {
     const tower = makeModelEntity('box', {
       parentId: stage.id, name: `Tower ${i + 1}`,
-      boxSize: [0.08, 0.10 + i * 0.06, 0.08],
-      position: [-0.18 + i * 0.18, (0.10 + i * 0.06) / 2, 0]
+      boxSize: [0.09, 0.12 + i * 0.07, 0.09],
+      position: [-0.20 + i * 0.20, 1.06 + (0.12 + i * 0.07) / 2, 0]
     })
     tower.materials = [{
       id: `mat-tower-${i}`, type: 'simple',
@@ -474,25 +741,24 @@ function diorama() {
 
 export const TEMPLATES = {
   // Window-mode
-  blank:        { mode: 'window', label: 'Blank',         description: 'Empty window with a single fill stack.',                    build: blank },
-  welcome:      { mode: 'window', label: 'Welcome',       description: 'Title, subtitle, and a primary action.',                    build: welcome },
-  settings:     { mode: 'window', label: 'Settings',      description: 'Inset-grouped list with toggles and a slider.',             build: settings },
-  onboarding:   { mode: 'window', label: 'Onboarding',    description: 'Hero image, title, body, and a continue button.',           build: onboarding },
-  tabBar:       { mode: 'window', label: 'Tab Bar App',   description: 'Window with a bottom Tab Bar ornament (4 pages).',          build: tabBarApp },
-  sidebar:      { mode: 'window', label: 'Sidebar App',   description: 'NavigationSplitView (joined) with a sidebar + detail.',     build: sidebarApp },
+  blank:        { mode: 'window', label: 'Blank',          description: 'Empty window with a single fill stack — start from scratch.',                build: blank },
+  musicPlayer:  { mode: 'window', label: 'Music Player',   description: 'Now Playing card with artwork, transport controls, and a queue list.',     build: musicPlayer },
+  smartHome:    { mode: 'window', label: 'Smart Home',     description: 'Dashboard with greeting, room cards, scenes, and quick controls.',         build: smartHome },
+  settings:     { mode: 'window', label: 'Settings',       description: 'Multi-section settings page with search, account header, and toggles.',    build: settings },
+  mailApp:      { mode: 'window', label: 'Mail',           description: 'NavigationSplitView (joined) with sidebar mailboxes and a reading pane.',  build: mailApp },
+  tabBar:       { mode: 'window', label: 'Tab Bar App',    description: 'Bottom Tab Bar ornament with a Home content stub.',                        build: tabBarApp },
   // Volume-mode
-  emptyVolume:   { mode: 'volume', label: 'Empty Volume',   description: 'Volumetric stage with a single world anchor.',              build: emptyVolume },
-  singleObject:  { mode: 'volume', label: 'Single Object',  description: 'A polished sphere on a plinth — the Earth-widget pattern.', build: singleObject },
-  labelledHero:  { mode: 'volume', label: 'Hero + Labels',  description: 'Glossy sphere with floating SwiftUI title + Tap action — RealityView attachments.', build: labelledHero },
-  showcase:      { mode: 'volume', label: 'Showcase',       description: 'Three colour swatches with floating labels — product configurator pattern.', build: showcase },
-  diorama:       { mode: 'volume', label: 'Diorama',        description: 'Grouped scene: backing wall + three towers in primary colours.', build: diorama }
+  emptyVolume:     { mode: 'volume', label: 'Empty Volume',     description: 'Volumetric stage with a single world anchor — start from scratch.',      build: emptyVolume },
+  productShowcase: { mode: 'volume', label: 'Product Showcase', description: 'Hero object on a plinth with floating title, tagline, spec, and Buy CTA.', build: productShowcase },
+  solarSystem:     { mode: 'volume', label: 'Solar System',     description: 'Emissive sun + four inner planets in a row, each with a label attachment.', build: solarSystem },
+  diorama:         { mode: 'volume', label: 'Diorama',          description: 'Grouped scene: backing wall + three towers in primary colours.',         build: diorama }
 }
 
 export const TEMPLATE_ORDER_WINDOW = [
-  'blank', 'welcome', 'settings', 'onboarding', 'tabBar', 'sidebar'
+  'blank', 'musicPlayer', 'smartHome', 'settings', 'mailApp', 'tabBar'
 ]
 export const TEMPLATE_ORDER_VOLUME = [
-  'emptyVolume', 'singleObject', 'labelledHero', 'showcase', 'diorama'
+  'emptyVolume', 'productShowcase', 'solarSystem', 'diorama'
 ]
 // Backwards compatibility — older imports refer to a flat order list.
 export const TEMPLATE_ORDER = [...TEMPLATE_ORDER_WINDOW, ...TEMPLATE_ORDER_VOLUME]

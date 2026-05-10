@@ -4,6 +4,7 @@
 
 import { undoable } from './undo'
 import { nextId } from './factories'
+import { findOwningTab, uniqueNameInTab } from './helpers'
 
 export const createClipboardSlice = (set, get) => ({
   // Stash a deep subtree snapshot on the clipboard so paste can reproduce the
@@ -52,9 +53,23 @@ export const createClipboardSlice = (set, get) => ({
       parentId: it.id === rootId
         ? newRootParent
         : idMap.get(it.parentId) ?? it.parentId,
-      name: it.id === rootId ? `${it.name} copy` : it.name
+      name: it.name
     }))
+    // Run the new subtree through `uniqueNameInTab` so a paste into
+    // the same tab (or one that already has a same-named layer)
+    // suffixes `.copy`, `.copy2`, etc. — same scheme as user renames.
     const newRootId = idMap.get(rootId)
+    const tabId = findOwningTab([...s.items, ...cloned], newRootId)?.id
+    if (tabId) {
+      // Build the unique-name set incrementally so multiple new
+      // siblings with the same name each get their own suffix.
+      const working = [...s.items]
+      for (const c of cloned) {
+        const next = uniqueNameInTab(working, tabId, c.name)
+        c.name = next
+        working.push(c)
+      }
+    }
     return {
       items: [...s.items, ...cloned],
       selectedId: newRootId

@@ -18,7 +18,7 @@ import { makeWindow, makeStack, makePanel, textStyleToFontSize } from './factori
 import { findTargetWindow } from './helpers'
 
 export const createWindowsSlice = (set, get) => ({
-  addWindow: () => undoable(set, get, (s) => {
+  addWindow: (overrides = {}) => undoable(set, get, (s) => {
     // Windows belong to a Tab. Parent new windows to the active tab so they
     // appear on the page the user is editing. Positioning is relative to
     // other windows already on that tab.
@@ -41,8 +41,20 @@ export const createWindowsSlice = (set, get) => ({
       y = rightmost.position[1]
       z = rightmost.position[2]
     }
-    const w = makeWindow({ parentId: parentTabId, position: [x, y, z] })
+    const w = makeWindow({ parentId: parentTabId, position: [x, y, z], ...overrides })
     return { items: [...s.items, w], selectedId: w.id }
+  }),
+
+  // Convenience wrapper — in volume mode the Shift+A "Window" entry is
+  // surfaced as "Volume" and routes here so the new shell is volumetric
+  // out of the gate (instead of the user having to flip windowStyle in
+  // the inspector after adding a flat plate).
+  addVolume: () => get().addWindow({
+    name: 'Volume',
+    windowStyle: 'volumetric',
+    position: [0, 0, 0],
+    color: '#202024',
+    colorToken: null
   }),
 
   // Add a Tab Bar ornament with N page buttons.

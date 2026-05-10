@@ -10,13 +10,12 @@
 // Mirrors the PanelProps pattern: small section components compose, the
 // store action does the data work, the inspector stays declarative.
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useStore } from '../../store'
 import {
   Row, Section, NumField, Slider, ColorRow, Select
 } from './primitives'
 import { useScrub } from './useScrub'
-import { InfoSection } from './shared'
 import {
   ENTITY_KINDS, ENTITY_KIND_ORDER,
   ANCHOR_TARGETS, ANCHOR_TARGET_ORDER,
@@ -42,31 +41,50 @@ import {
 // for keyboard editing.
 function MeterField({ value, onChange, step = 0.01, min }) {
   const v = Number.isFinite(value) ? value : 0
-  const apply = (next) => {
-    let n = next
-    if (!Number.isFinite(n)) n = 0
-    if (typeof min === 'number') n = Math.max(min, n)
-    onChange(parseFloat(n.toFixed(4)))
+  const apply = (n) => {
+    let next = n
+    if (!Number.isFinite(next)) next = 0
+    if (typeof min === 'number') next = Math.max(min, next)
+    onChange(parseFloat(next.toFixed(4)))
   }
-  const scrub = useScrub(v, apply, 0.005)
   const inputRef = useRef(null)
+  const [draft, setDraft] = useState(null)
+  const focusedRef = useRef(false)
+  const scrub = useScrub(v, apply, 0.005)
+
+  const formatted = v.toFixed(3)
+  const display = focusedRef.current && draft !== null ? draft : formatted
+
   return (
     <div className="relative flex-1">
       <input
         ref={inputRef}
-        type="number"
-        step={step}
-        min={min}
-        value={v.toFixed(3)}
-        onChange={(e) => apply(parseFloat(e.target.value))}
-        onPointerDown={(e) => {
-          scrub.onPointerDown(e)
-          e.preventDefault()
-          const listener = () => {
-            if (!scrub.didMove()) inputRef.current?.focus()
-            window.removeEventListener('pointerup', listener)
+        type="text"
+        inputMode="decimal"
+        value={display}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => {
+          focusedRef.current = true
+          setDraft(formatted)
+          requestAnimationFrame(() => inputRef.current?.select?.())
+        }}
+        onBlur={() => {
+          focusedRef.current = false
+          if (draft !== null) {
+            const n = parseFloat(draft)
+            if (Number.isFinite(n)) apply(n)
           }
-          window.addEventListener('pointerup', listener)
+          setDraft(null)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.target.blur() }
+          else if (e.key === 'Escape') { setDraft(null); e.target.blur() }
+        }}
+        onPointerDown={(e) => {
+          // Defer to the scrub hook; native click flow still reaches
+          // the input and focuses it for keyboard editing if the
+          // cursor doesn't move.
+          scrub.onPointerDown(e)
         }}
         className="field cursor-ew-resize"
       />
@@ -79,9 +97,10 @@ function MeterField({ value, onChange, step = 0.01, min }) {
 //
 // Three rows (Position / Rotation / Scale) with all three axes on a
 // single line each — each axis gets a coloured X / Y / Z tag (red /
-// green / blue, the conventional 3D mapping). Replaces the prior
-// stacked-row layout, which used three full Row + label blocks per
-// triplet and ate almost half the inspector height.
+// green / blue, the conventional 3D mapping). Layout is a strict
+// 3-column CSS grid so every input box is the same width across all
+// three rows. The Uniform / Per-axis toggle lives at the row label
+// (a small lock icon) so the row's input area stays unchanged.
 
 const AXIS_COLORS = ['#e35d6a', '#67c97a', '#5b9efb']
 
@@ -90,7 +109,7 @@ function AxisTag({ axis, idx }) {
     <span
       style={{
         color: AXIS_COLORS[idx],
-        width: 10,
+        width: 11,
         fontSize: 9,
         fontWeight: 700,
         textAlign: 'center',
@@ -101,17 +120,49 @@ function AxisTag({ axis, idx }) {
   )
 }
 
-function TripletRow({ label, axes, children }) {
-  // children is an array of 3 field renderers
+function TripletRow({ label, action, children }) {
+  // children is exactly 3 field renderers — laid out in a 3-column grid
+  // so each cell is mathematically identical, regardless of which row.
+  // `action` is an optional tiny icon button shown in place of the
+  // label text (used by the Scale row for the Uniform toggle).
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-textMute text-[9px] uppercase tracking-wider" style={{ width: 28, flexShrink: 0 }}>{label}</span>
-      <div className="flex-1 flex items-center gap-1 min-w-0">
-        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[0]} idx={0} />{children[0]}</div>
-        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[1]} idx={1} />{children[1]}</div>
-        <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis={axes[2]} idx={2} />{children[2]}</div>
+      <div
+        className="flex items-center justify-between text-textMute text-[9px] uppercase tracking-wider"
+        style={{ width: 32, flexShrink: 0 }}
+      >
+        <span>{label}</span>
+        {action}
+      </div>
+      <div
+        className="flex-1 min-w-0 grid gap-1"
+        style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+      >
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-center gap-0.5 min-w-0">
+            <AxisTag axis={['X', 'Y', 'Z'][i]} idx={i} />
+            {children[i]}
+          </div>
+        ))}
       </div>
     </div>
+  )
+}
+
+// Tiny chain / link glyph for the uniform-scale toggle. Filled when
+// uniform is on, broken when per-axis.
+function ChainIcon({ linked }) {
+  return linked ? (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M5 4.5h-1.2A1.8 1.8 0 0 0 2 6.3v0a1.8 1.8 0 0 0 1.8 1.8H5" />
+      <path d="M7 4.5h1.2A1.8 1.8 0 0 1 10 6.3v0a1.8 1.8 0 0 1-1.8 1.8H7" />
+      <path d="M4.5 6.3h3" />
+    </svg>
+  ) : (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <path d="M5 4.5h-1.2A1.8 1.8 0 0 0 2 6.3v0a1.8 1.8 0 0 0 1.8 1.8H5" />
+      <path d="M7 4.5h1.2A1.8 1.8 0 0 1 10 6.3v0a1.8 1.8 0 0 1-1.8 1.8H7" />
+    </svg>
   )
 }
 
@@ -141,24 +192,22 @@ function CompactTransform({ item }) {
         <NumField key={i} value={scl[i]} step={0.05} onChange={(v) => setEntityScale(item.id, i, v)} />
       ))
 
+  const uniformToggle = (
+    <button
+      onClick={() => updateItem(item.id, { scale: isUniform ? [...scl] : [scl[0], scl[0], scl[0]] })}
+      title={isUniform ? 'Linked — drag any axis to scale uniformly. Click to unlink.' : 'Per-axis. Click to link all axes.'}
+      className={`w-3 h-3 flex items-center justify-center hover:text-text ${isUniform ? 'text-accent' : 'text-textMute'}`}
+      style={{ flexShrink: 0 }}
+    >
+      <ChainIcon linked={isUniform} />
+    </button>
+  )
+
   return (
     <div className="space-y-1.5">
-      <TripletRow label="Pos" axes={['X', 'Y', 'Z']}>{posFields}</TripletRow>
-      <TripletRow label="Rot" axes={['X', 'Y', 'Z']}>{rotFields}</TripletRow>
-      <div className="flex items-center gap-1.5">
-        <span className="text-textMute text-[9px] uppercase tracking-wider" style={{ width: 28, flexShrink: 0 }}>Scl</span>
-        <div className="flex-1 flex items-center gap-1 min-w-0">
-          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="X" idx={0} />{sclFields[0]}</div>
-          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="Y" idx={1} />{sclFields[1]}</div>
-          <div className="flex items-center gap-0.5 flex-1 min-w-0"><AxisTag axis="Z" idx={2} />{sclFields[2]}</div>
-        </div>
-        <button
-          className="text-[9px] text-textMute px-1.5 h-5 border border-border rounded hover:bg-surface3"
-          onClick={() => updateItem(item.id, { scale: isUniform ? [...scl] : [scl[0], scl[0], scl[0]] })}
-          title={isUniform ? 'Switch to per-axis scale' : 'Switch to uniform scale'}
-          style={{ flexShrink: 0 }}
-        >{isUniform ? 'U' : 'XYZ'}</button>
-      </div>
+      <TripletRow label="Pos">{posFields}</TripletRow>
+      <TripletRow label="Rot">{rotFields}</TripletRow>
+      <TripletRow label="Scl" action={uniformToggle}>{sclFields}</TripletRow>
     </div>
   )
 }
@@ -187,29 +236,19 @@ function KindSwitch({ item }) {
   )
 }
 
-// ---- Transform section ----------------------------------------------
+// ---- Anchor fields ---------------------------------------------------
 //
-// Position / rotation / scale. Wraps the compact triplet widget — one
-// row per channel, drag-to-scrub on every field. The metres / degrees
-// units are implicit from the field suffix (`m`, `°`); the prior
-// help-text footer was removed in the compact pass.
-function TransformSection({ item }) {
-  return (
-    <Section title="Transform" defaultOpen={true}>
-      <CompactTransform item={item} />
-    </Section>
-  )
-}
+// Body of the Anchor inspector — target picker + per-target sub-fields.
+// Returned as a fragment (no Section wrapper) so the new combined
+// `ObjectSection` can compose it alongside the kind header + transform.
 
-// ---- Anchor section --------------------------------------------------
-
-function AnchorSection({ item }) {
+function AnchorFields({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const setAnchorTarget = useStore((s) => s.setAnchorTarget)
   const target = item.anchorTarget || 'world'
   const meta = ANCHOR_TARGETS[target]
   return (
-    <Section title="Anchor" defaultOpen={true}>
+    <>
       <Row label="Target">
         <Select
           value={target}
@@ -326,27 +365,21 @@ function AnchorSection({ item }) {
           </Row>
         </>
       )}
-    </Section>
+    </>
   )
 }
 
-// ---- Model section ---------------------------------------------------
+// ---- Mesh fields -----------------------------------------------------
 //
-// For model entities, this consolidates "what is the mesh" + "where /
-// how big is it" into a single section so the user doesn't have to
-// scroll between two related panes. Transform sits at the top (the
-// most-edited triplet) followed by the mesh-type chooser and the
-// type-specific size fields. Other entity kinds (anchor / camera /
-// attachment) keep a standalone TransformSection — they don't have a
-// mesh so the merge wouldn't make sense.
-function MeshSection({ item }) {
+// Body of the Model inspector — mesh type chooser + per-type
+// dimensions. Returned as a fragment so the combined ObjectSection can
+// compose it alongside the kind header + transform.
+function MeshFields({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const setMeshType = useStore((s) => s.setMeshType)
   const m = item.meshType || 'box'
   return (
-    <Section title="Model" defaultOpen={true}>
-      <CompactTransform item={item} />
-      <div className="border-t border-border my-2" />
+    <>
       <Row label="Mesh">
         <Select
           value={m}
@@ -453,7 +486,7 @@ function MeshSection({ item }) {
           </div>
         </>
       )}
-    </Section>
+    </>
   )
 }
 
@@ -647,10 +680,10 @@ function MaterialSlot({ item, mat, index }) {
 // here" affordance. Hitting the button is the same as the viewport
 // overlay's "Camera View" button (kept here too for muscle memory).
 
-function CameraSection({ item }) {
+function CameraFields({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   return (
-    <Section title="Camera" defaultOpen={true}>
+    <>
       <Row label="FOV">
         <Slider
           value={item.fovDegrees ?? 60}
@@ -679,17 +712,17 @@ function CameraSection({ item }) {
       <div className="text-[10px] text-textMute leading-snug mt-1">
         Stand-in for the wearer's headset — designer only, never exported.
       </div>
-    </Section>
+    </>
   )
 }
 
-// ---- Attachment section ---------------------------------------------
+// ---- Attachment fields ----------------------------------------------
 //
 // Attachments are SwiftUI views (Text / Label / Button / Image) anchored
 // at a 3D position inside a RealityView. The user picks the kind, then
 // edits the kind-specific fields (text, color, font size, etc.).
 
-function AttachmentSection({ item }) {
+function AttachmentFields({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const kind = item.attachmentKind || 'text'
   const meta = ATTACHMENT_KINDS[kind] || ATTACHMENT_KINDS.text
@@ -699,8 +732,8 @@ function AttachmentSection({ item }) {
     updateItem(item.id, { attachmentKind: next, ...defaults })
   }
   return (
-    <Section title="Attachment" defaultOpen={true}>
-      <Row label="Kind">
+    <>
+      <Row label="Subkind">
         <Select
           value={kind}
           options={ATTACHMENT_KIND_ORDER.map((k) => ({ value: k, label: ATTACHMENT_KINDS[k].label }))}
@@ -787,7 +820,7 @@ function AttachmentSection({ item }) {
         <code> attachments:</code> closure. <code>attachments.entity(for:)</code>
         attaches it at this entity's transform.
       </div>
-    </Section>
+    </>
   )
 }
 
@@ -799,7 +832,7 @@ function MaterialsSection({ item }) {
   return (
     <Section
       title={`Materials (${list.length})`}
-      defaultOpen={true}
+      defaultOpen={false}
       action={
         <button
           onClick={() => addMaterial(item.id, 'simple')}
@@ -902,44 +935,112 @@ function ComponentsSection({ item }) {
   )
 }
 
-// ---- root ------------------------------------------------------------
-
-export function EntityProps({ item }) {
+// ---- Object section --------------------------------------------------
+//
+// One section to rule them all — the entity's identity (name + kind),
+// kind-specific fields (anchor target, mesh + dimensions, camera FOV,
+// attachment kind + content), and the transform triplet, in that
+// order. Replaces the old per-kind sections + standalone Transform
+// section. Materials, Components, and Interaction get their own
+// collapsible sections below.
+function ObjectSection({ item }) {
   const renameItem = useStore((s) => s.renameItem)
   const meta = ENTITY_KINDS[item.entityKind] || ENTITY_KINDS.group
   return (
+    <Section title="Object" defaultOpen={true}>
+      <Row label="Name">
+        <input
+          value={item.name}
+          onChange={(e) => renameItem(item.id, e.target.value)}
+          className="field flex-1"
+        />
+      </Row>
+      <KindSwitch item={item} />
+
+      {item.entityKind === 'anchor'     && <AnchorFields item={item} />}
+      {item.entityKind === 'model'      && <MeshFields item={item} />}
+      {item.entityKind === 'camera'     && <CameraFields item={item} />}
+      {item.entityKind === 'attachment' && <AttachmentFields item={item} />}
+
+      {/* Transform sits at the bottom of the section — most-edited
+          triplet stays in the same place across every entity kind. */}
+      <div className="border-t border-border my-2" />
+      <CompactTransform item={item} />
+
+      <div className="text-[10px] text-textMute leading-snug mt-2">
+        {meta.description} <code className="text-textDim">{meta.swift}</code>
+      </div>
+    </Section>
+  )
+}
+
+// ---- Interaction section --------------------------------------------
+//
+// Trigger → Action wiring. Currently both dropdowns hold placeholder
+// option lists; the real options will be derived from the selected
+// entity's kind, the panels in scope, and the cross-tab namespace
+// once the interaction graph backend lands. Storing the picks under
+// `item.interaction` so they survive selection changes and exports.
+const TRIGGER_OPTIONS = [
+  { value: 'none',    label: '— None —' },
+  { value: 'tap',     label: 'Tap' },
+  { value: 'longTap', label: 'Long tap' },
+  { value: 'hover',   label: 'Hover' },
+  { value: 'gaze',    label: 'Gaze' },
+  { value: 'pinch',   label: 'Pinch' },
+  { value: 'drag',    label: 'Drag' },
+  { value: 'onAppear', label: 'On appear' }
+]
+const ACTION_OPTIONS = [
+  { value: 'none',        label: '— None —' },
+  { value: 'showWindow',  label: 'Open window' },
+  { value: 'closeWindow', label: 'Close window' },
+  { value: 'navigate',    label: 'Navigate to tab' },
+  { value: 'play',        label: 'Play animation' },
+  { value: 'toggle',      label: 'Toggle visibility' },
+  { value: 'highlight',   label: 'Highlight entity' },
+  { value: 'message',     label: 'Send message' }
+]
+
+function InteractionSection({ item }) {
+  const updateItem = useStore((s) => s.updateItem)
+  const interaction = item.interaction || {}
+  const trigger = interaction.trigger || 'none'
+  const action  = interaction.action  || 'none'
+  const setField = (patch) =>
+    updateItem(item.id, { interaction: { ...interaction, ...patch } })
+  return (
+    <Section title="Interaction" defaultOpen={false}>
+      <Row label="Trigger">
+        <Select
+          value={trigger}
+          options={TRIGGER_OPTIONS}
+          onChange={(v) => setField({ trigger: v })}
+        />
+      </Row>
+      <Row label="Action">
+        <Select
+          value={action}
+          options={ACTION_OPTIONS}
+          onChange={(v) => setField({ action: v })}
+        />
+      </Row>
+      <div className="text-[10px] text-textMute leading-snug mt-2">
+        Stub options — the real list will be derived from your scene's
+        entities and tabs once interactions are wired up.
+      </div>
+    </Section>
+  )
+}
+
+// ---- root ------------------------------------------------------------
+
+export function EntityProps({ item }) {
+  return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title={meta.label} defaultOpen={true}>
-        <Row label="Name">
-          <input
-            value={item.name}
-            onChange={(e) => renameItem(item.id, e.target.value)}
-            className="field flex-1"
-          />
-        </Row>
-        <KindSwitch item={item} />
-        <div className="text-[10px] text-textMute leading-snug mt-1">
-          {meta.description} <code className="text-textDim">{meta.swift}</code>
-        </div>
-      </Section>
+      <ObjectSection item={item} />
 
-      {item.entityKind === 'anchor' && <AnchorSection item={item} />}
-
-      {item.entityKind === 'model' && (
-        <>
-          <MeshSection item={item} />
-          <MaterialsSection item={item} />
-        </>
-      )}
-
-      {item.entityKind === 'camera' && <CameraSection item={item} />}
-
-      {item.entityKind === 'attachment' && <AttachmentSection item={item} />}
-
-      {/* Model entities embed Transform inside their Model section, so
-          we skip the standalone TransformSection for them — otherwise
-          the same XYZ triplet would appear twice in the inspector. */}
-      {item.entityKind !== 'model' && <TransformSection item={item} />}
+      {item.entityKind === 'model' && <MaterialsSection item={item} />}
 
       {/* Components only apply to kinds that render geometry — hiding
           them on Camera (designer-only marker) and Attachment (already
@@ -952,10 +1053,7 @@ export function EntityProps({ item }) {
         <ComponentsSection item={item} />
       )}
 
-      <div className="text-[9px] text-textMute uppercase tracking-wider px-3 pt-3 pb-1 border-t border-border bg-surface2/30">
-        Advanced
-      </div>
-      <InfoSection item={item} />
+      <InteractionSection item={item} />
     </div>
   )
 }

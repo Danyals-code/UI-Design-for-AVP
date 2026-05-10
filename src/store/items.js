@@ -3,7 +3,7 @@
 // stack wizards) lives in their respective slices.
 
 import { undoable } from './undo'
-import { isDescendantOf } from './helpers'
+import { isDescendantOf, findOwningTab, uniqueNameInTab } from './helpers'
 import { childKindsAllowedUnder } from '../realityKit/registry'
 
 export const createItemsSlice = (set, get) => ({
@@ -15,9 +15,20 @@ export const createItemsSlice = (set, get) => ({
     items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it))
   })),
 
-  renameItem: (id, name) => undoable(set, get, (s) => ({
-    items: s.items.map((it) => (it.id === id ? { ...it, name } : it))
-  })),
+  renameItem: (id, name) => undoable(set, get, (s) => {
+    // Tabs are top-level namespaces — they don't get the .copy
+    // suffixing because tab names ARE the namespace.
+    const target = s.items.find((it) => it.id === id)
+    if (!target) return s
+    let next = name
+    if (target.type !== 'tab') {
+      const tab = findOwningTab(s.items, id)
+      if (tab) next = uniqueNameInTab(s.items, tab.id, name, id)
+    }
+    return {
+      items: s.items.map((it) => (it.id === id ? { ...it, name: next } : it))
+    }
+  }),
 
   toggleVisibility: (id) => undoable(set, get, (s) => ({
     items: s.items.map((it) => (it.id === id ? { ...it, visible: !it.visible } : it))

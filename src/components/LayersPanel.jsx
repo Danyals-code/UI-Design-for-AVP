@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store'
 import AddDropdown from './AddDropdown'
 import { SF_SYMBOLS, SF_SYMBOL_ORDER } from '../appleSystem'
@@ -18,7 +18,7 @@ import {
   ListIcon, TableIcon, MenuIcon, FormIcon, GroupBoxIcon, OutlineGroupIcon,
   SlideshowIcon, TickerIcon, SearchIcon, SegmentedIcon,
   SheetIcon, PopoverIcon, AlertIcon, ContentUnavailableIcon,
-  WindowIcon, CloseIcon, PlusIcon,
+  WindowIcon, VolumeIcon, CloseIcon, PlusIcon,
   TabViewIcon, TabIcon, NavStackIcon,
   PageTabIcon, SplitViewIcon,
   RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon,
@@ -70,7 +70,7 @@ function rowIcon(item) {
     if (glyph) return <span className="inline-block w-[13px] h-[13px] text-[12px] leading-none text-center">{glyph}</span>
     return <PageTabIcon />
   }
-  if (item.type === 'window') return <WindowIcon />
+  if (item.type === 'window') return item.windowStyle === 'volumetric' ? <VolumeIcon /> : <WindowIcon />
   if (item.type === 'stack') {
     // NavigationSplitView is a special compound layout — not a plain stack —
     // so it gets its own icon regardless of the underlying stackType.
@@ -149,7 +149,7 @@ function IconPickerPopover({ tab, onClose }) {
 
 // ---- single layer row (recursive) ----
 
-function LayerRow({ item, depth }) {
+function LayerRow({ item, depth, visibleIds, query }) {
   const items          = useStore((s) => s.items)
   const selectedId     = useStore((s) => s.selectedId)
   const activeTabId    = useStore((s) => s.activeTabId)
@@ -195,6 +195,15 @@ function LayerRow({ item, depth }) {
     else setNameVal(item.name)
     setEditing(false)
   }
+
+  // Search filtering — when a query is active, only render rows on the
+  // path of a matching item. The header may have collected `visibleIds`
+  // bottom-up (matches + ancestors); a row not in that set hides
+  // entirely. The chevron also force-opens during search so matches
+  // deep inside collapsed branches surface.
+  const filtered = !!visibleIds
+  if (filtered && !visibleIds.has(item.id)) return null
+  const forceExpand = filtered
 
   const onClick = () => {
     // Clicking a tab row both selects it AND switches the active page —
@@ -262,7 +271,7 @@ function LayerRow({ item, depth }) {
             onClick={(e) => { e.stopPropagation(); toggleCollapse(item.id) }}
             className="w-3 h-3 flex items-center justify-center text-textMute hover:text-text flex-shrink-0"
           >
-            {item.collapsed ? <ChevronRight /> : <ChevronDown />}
+            {(item.collapsed && !forceExpand) ? <ChevronRight /> : <ChevronDown />}
           </button>
         ) : (
           <span className="w-3 flex-shrink-0" />
@@ -339,8 +348,8 @@ function LayerRow({ item, depth }) {
         {isTab && iconOpen && <IconPickerPopover tab={item} onClose={() => setIconOpen(false)} />}
       </div>
 
-      {container && !item.collapsed && children.map((c) => (
-        <LayerRow key={c.id} item={c} depth={depth + 1} />
+      {container && (!item.collapsed || forceExpand) && children.map((c) => (
+        <LayerRow key={c.id} item={c} depth={depth + 1} visibleIds={visibleIds} query={query} />
       ))}
       {/* Empty containers used to render an "empty" placeholder line plus
           a disabled chevron — both wasted space when most containers
@@ -363,6 +372,40 @@ export default function LayersPanel({ width = 240 }) {
   // tab is highlighted — click any tab row to switch pages.
   const tabs = items.filter((it) => it.type === 'tab')
 
+  // Search box is hidden by default — clicking the search icon expands a
+  // single-line filter under the toolbar. Filter matches against the
+  // layer's `name`, case-insensitive. When a filter is active, every
+  // ancestor of a matching item is expanded so the row is visible; rows
+  // that don't match (and don't have a matching descendant) hide.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const searchInputRef = useRef(null)
+  useEffect(() => {
+    if (searchOpen) requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [searchOpen])
+
+  const q = query.trim().toLowerCase()
+  // Set of ids that should remain visible while a filter is active.
+  // Built bottom-up: any matching item, plus all its ancestors so the
+  // tree path stays intact.
+  const visibleIds = useMemo(() => {
+    if (!q) return null
+    const matches = new Set()
+    for (const it of items) {
+      if ((it.name || '').toLowerCase().includes(q)) matches.add(it.id)
+    }
+    const out = new Set(matches)
+    const byId = new Map(items.map((it) => [it.id, it]))
+    for (const id of matches) {
+      let cur = byId.get(id)
+      while (cur && cur.parentId) {
+        out.add(cur.parentId)
+        cur = byId.get(cur.parentId)
+      }
+    }
+    return out
+  }, [items, q])
+
   return (
     <div
       style={{ width }}
@@ -373,6 +416,16 @@ export default function LayersPanel({ width = 240 }) {
           Layers
         </span>
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => {
+              setSearchOpen((o) => !o)
+              if (searchOpen) setQuery('')
+            }}
+            className={`btn btn-icon btn-ghost ${searchOpen ? 'text-accent' : ''}`}
+            title="Search layers"
+          >
+            <SearchIcon />
+          </button>
           <button
             onClick={() => addTab()}
             className="btn btn-icon btn-ghost"
@@ -398,10 +451,28 @@ export default function LayersPanel({ width = 240 }) {
         </div>
       </div>
 
+      {searchOpen && (
+        <div className="px-2 py-1.5 border-b border-border">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={query}
+            placeholder="Filter layers"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) }
+            }}
+            className="field w-full"
+          />
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto scrollbar py-1">
         {tabs.length === 0
           ? <div className="px-3 py-2 text-[10px] text-textMute italic">No tabs — click the page icon to add one.</div>
-          : tabs.map((t) => <LayerRow key={t.id} item={t} depth={0} />)
+          : tabs.map((t) => (
+              <LayerRow key={t.id} item={t} depth={0} visibleIds={visibleIds} query={q} />
+            ))
         }
       </div>
 

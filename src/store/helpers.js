@@ -39,6 +39,39 @@ export const findOwningTab = (items, id) => {
   return null
 }
 
+// ---- name uniqueness within a tab ------------------------------------
+//
+// Each tab is its own namespace. Two layers in the SAME tab can't share
+// a name — the second one is suffixed with `.copy`, `.copy2`, etc.
+// Across tabs the names are free to collide, so a `Title` panel in a
+// "Window" tab and a `Title` attachment in a "Volume" tab can later be
+// linked by interaction wiring.
+//
+// `targetId` (when given) is excluded from the uniqueness check so a
+// rename that doesn't actually change the name (or just changes case)
+// doesn't trigger a self-collision.
+export const uniqueNameInTab = (items, tabId, desired, targetId = null) => {
+  if (!desired) return desired
+  const taken = new Set()
+  for (const it of items) {
+    if (it.id === targetId) continue
+    if (it.type === 'tab') continue
+    if (findOwningTab(items, it.id)?.id !== tabId) continue
+    if (it.name) taken.add(it.name)
+  }
+  if (!taken.has(desired)) return desired
+  // Strip an existing `.copy` / `.copyN` suffix so renaming
+  // "Sphere.copy" → "Sphere" inside a tab that has another "Sphere"
+  // produces "Sphere.copy2" rather than "Sphere.copy.copy".
+  const base = desired.replace(/\.copy(\d*)$/, '')
+  let n = 1
+  while (true) {
+    const candidate = n === 1 ? `${base}.copy` : `${base}.copy${n}`
+    if (!taken.has(candidate)) return candidate
+    n += 1
+  }
+}
+
 // Resolves a panel's effective hover effect. `inherit` walks up to the
 // owning window's `spatial.hoverEffect`. Falls back to `automatic` (Apple's
 // default for visionOS interactive views) when no window is found.

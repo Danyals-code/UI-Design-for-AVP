@@ -49,6 +49,7 @@ export default function CommandPalette() {
   const addPanel    = useStore((s) => s.addPanel)
   const addStack    = useStore((s) => s.addStack)
   const addWindow   = useStore((s) => s.addWindow)
+  const addVolume   = useStore((s) => s.addVolume)
   const addSplitView = useStore((s) => s.addSplitView)
   const addTabBar   = useStore((s) => s.addTabBar)
   const addToolbar  = useStore((s) => s.addToolbar)
@@ -138,18 +139,26 @@ export default function CommandPalette() {
     { id: 'attLabel',  label: 'Label Attachment',  group: 'RealityKit', Icon: LabelIcon,  run: () => addAttachmentEntity('label') },
     { id: 'attButton', label: 'Button Attachment', group: 'RealityKit', Icon: ButtonIcon, run: () => addAttachmentEntity('button') },
     { id: 'attImage',  label: 'Image Attachment',  group: 'RealityKit', Icon: ImageIcon,  run: () => addAttachmentEntity('image') },
-    // Scene
-    { id: 'window',    label: 'Window',    group: 'Windows',      Icon: WindowIcon,    run: () => addWindow() },
+    // Scene — when in volume mode the same row reads "Volume" and
+    // creates a volumetric window so the palette matches the active
+    // scene type instead of always saying "Window".
+    { id: 'window',
+      label: isVolume ? 'Volume' : 'Window',
+      group: isVolume ? 'Volume' : 'Windows',
+      Icon: WindowIcon,
+      run: () => isVolume ? addVolume() : addWindow() },
     { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
     // Chrome — ornaments + scene-level tab bar
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => addTabBar() },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => addToolbar() }
-  ], [addPanel, addStack, addWindow, addSplitView, addTabBar, addToolbar, addPresentation,
-      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity])
+  ], [addPanel, addStack, addWindow, addVolume, addSplitView, addTabBar, addToolbar, addPresentation,
+      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity, isVolume])
 
   // Volume-mode allowlist — anything else is hidden because it relies on
-  // SwiftUI primitives that don't exist on a volumetric stage.
-  const VOLUME_ALLOWED_GROUPS = useMemo(() => new Set(['RealityKit', '3D', 'Windows']), [])
+  // SwiftUI primitives that don't exist on a volumetric stage. The
+  // "Window" row gets re-grouped to 'Volume' in volume mode (label
+  // "Volume") so it survives the filter via the new group key.
+  const VOLUME_ALLOWED_GROUPS = useMemo(() => new Set(['RealityKit', '3D', 'Volume']), [])
   // Inside Windows we only want the plain "Window" — split views are
   // SwiftUI-only, not volumetric. Filter that out by id.
   const VOLUME_ALLOWED_IDS = useMemo(() => new Set([
@@ -161,10 +170,12 @@ export default function CommandPalette() {
     if (!isVolume) return commands
     return commands.filter((c) => {
       if (!VOLUME_ALLOWED_GROUPS.has(c.group)) return false
-      if (c.group === 'Windows' && !VOLUME_ALLOWED_IDS.has(c.id)) return false
+      // Inside the Volume group, only the "Volume" entry is meaningful;
+      // navigation split views are SwiftUI-only.
+      if (c.group === 'Volume' && c.id !== 'window') return false
       return true
     })
-  }, [commands, isVolume, VOLUME_ALLOWED_GROUPS, VOLUME_ALLOWED_IDS])
+  }, [commands, isVolume, VOLUME_ALLOWED_GROUPS])
 
   const filtered = useMemo(
     () => visibleCommands.filter((c) => fuzzyMatch(query, c.label) || fuzzyMatch(query, c.group)),

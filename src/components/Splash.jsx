@@ -29,13 +29,37 @@ function TemplateThumb({ kind }) {
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
         </svg>
       )
-    case 'welcome':
+    case 'musicPlayer':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
-          <rect x="40" y="22" width="80" height="6" rx="1" fill={stroke} stroke="none" />
-          <rect x="50" y="34" width="60" height="4" rx="1" fill={grey} stroke="none" />
-          <rect x="58" y="50" width="44" height="14" rx="7" fill={accent} stroke="none" />
+          {/* artwork */}
+          <rect x="62" y="10" width="36" height="36" rx="4" fill="#5b3aa8" stroke="none" />
+          {/* track + artist */}
+          <rect x="58" y="48" width="44" height="4" rx="1" fill={stroke} stroke="none" />
+          <rect x="64" y="55" width="32" height="3" rx="1" fill={grey} stroke="none" />
+          {/* transport */}
+          <circle cx="64" cy="68" r="3" fill={grey} stroke="none" />
+          <circle cx="80" cy="68" r="4" fill={accent} stroke="none" />
+          <circle cx="96" cy="68" r="3" fill={grey} stroke="none" />
+        </svg>
+      )
+    case 'smartHome':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* greeting + status */}
+          <rect x="14" y="12" width="60" height="6" rx="1" fill={stroke} stroke="none" />
+          <rect x="14" y="22" width="80" height="3" rx="1" fill={grey} stroke="none" />
+          {/* room cards */}
+          {[14, 50, 86, 122].map((x, i) => (
+            <rect key={i} x={x} y="32" width="28" height="22" rx="3"
+                  fill={i === 0 ? accent : fill} opacity="0.9" stroke="none" />
+          ))}
+          {/* scene pills */}
+          <rect x="14" y="60" width="22" height="8" rx="4" fill={grey} stroke="none" />
+          <rect x="40" y="60" width="22" height="8" rx="4" fill={grey} stroke="none" />
+          <rect x="66" y="60" width="22" height="8" rx="4" fill={grey} stroke="none" />
         </svg>
       )
     case 'settings':
@@ -51,14 +75,25 @@ function TemplateThumb({ kind }) {
           ))}
         </svg>
       )
-    case 'onboarding':
+    case 'mailApp':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
-          <rect x="44" y="12" width="72" height="28" rx="3" fill={grey} stroke="none" />
-          <rect x="50" y="44" width="60" height="5" rx="1" fill={stroke} stroke="none" />
-          <rect x="60" y="54" width="40" height="4" rx="1" fill={grey} stroke="none" />
-          <rect x="60" y="62" width="40" height="10" rx="5" fill={accent} stroke="none" />
+          {/* sidebar */}
+          <rect x="6" y="6" width="50" height="68" rx="6" fill={grey} stroke="none" />
+          {[14, 24, 34, 44, 54, 64].map((y, i) => (
+            <rect key={i} x="12" y={y} width="38" height="6" rx="1.5"
+                  fill={i === 1 ? accent : stroke} stroke="none" />
+          ))}
+          {/* detail header */}
+          <rect x="64" y="14" width="50" height="5" rx="1" fill={stroke} stroke="none" />
+          <rect x="64" y="22" width="36" height="3" rx="1" fill={grey} stroke="none" />
+          <rect x="124" y="14" width="22" height="11" rx="3" fill={accent} stroke="none" />
+          {/* subject + body lines */}
+          <rect x="64" y="32" width="80" height="5" rx="1" fill={stroke} stroke="none" />
+          {[42, 50, 58].map((y, i) => (
+            <rect key={i} x="64" y={y} width={[80, 70, 50][i]} height="3" rx="1" fill={fill} stroke="none" />
+          ))}
         </svg>
       )
     case 'tabBar':
@@ -71,19 +106,6 @@ function TemplateThumb({ kind }) {
           {[28, 56, 84, 112].map((cx, i) => (
             <circle key={i} cx={cx} cy={65} r="2.5" fill={i === 0 ? accent : '#ffffff'} stroke="none" />
           ))}
-        </svg>
-      )
-    case 'sidebar':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
-          <rect x="6" y="6" width="50" height="68" rx="6" fill={grey} stroke="none" />
-          {[16, 26, 36, 46, 56].map((y, i) => (
-            <rect key={i} x="12" y={y} width="38" height="6" rx="1.5"
-                  fill={i === 0 ? accent : stroke} stroke="none" />
-          ))}
-          <rect x="80" y="22" width="48" height="6" rx="1" fill={stroke} stroke="none" />
-          <rect x="72" y="34" width="64" height="4" rx="1" fill={grey} stroke="none" />
         </svg>
       )
     case 'emptyVolume':
@@ -99,40 +121,41 @@ function TemplateThumb({ kind }) {
           <circle cx="80" cy="60" r="2" fill={accent} stroke="none" />
         </svg>
       )
-    case 'singleObject':
+    case 'productShowcase':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          <ellipse cx="80" cy="58" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
-          <circle cx="80" cy="42" r="14" fill="#d0a060" stroke="none" />
-          <ellipse cx="80" cy="58" rx="20" ry="3" fill={fill} stroke="none" />
+          {/* plinth + sphere */}
+          <ellipse cx="80" cy="56" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
+          <ellipse cx="80" cy="55" rx="20" ry="3" fill="#1a1a1c" stroke="none" />
+          <circle cx="80" cy="40" r="11" fill="#3a78ff" stroke="none" />
+          {/* Title above */}
+          <rect x="62" y="14" width="36" height="9" rx="2" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="21" fontSize="6" fill="#fff" textAnchor="middle">Globe Pro</text>
+          <rect x="68" y="25" width="24" height="4" rx="1" fill="#1c1c1e" stroke="none" />
+          {/* Buy CTA right + spec left */}
+          <rect x="106" y="38" width="26" height="8" rx="2" fill={accent} stroke="none" />
+          <rect x="28" y="35" width="28" height="14" rx="2" fill="#1c1c1e" stroke="none" />
         </svg>
       )
-    case 'labelledHero':
+    case 'solarSystem':
       return (
         <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          <ellipse cx="80" cy="58" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
-          <circle cx="80" cy="42" r="13" fill="#3a78ff" stroke="none" />
-          {/* Title attachment above */}
-          <rect x="62" y="18" width="36" height="9" rx="2" fill="#0c0c0e" stroke="none" />
-          <text x="80" y="25" fontSize="6" fill="#fff" textAnchor="middle">Sphere</text>
-          {/* Button attachment */}
-          <rect x="68" y="58" width="24" height="7" rx="3" fill={accent} stroke="none" />
-        </svg>
-      )
-    case 'showcase':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          {/* three cubes */}
-          <rect x="40" y="42" width="14" height="14" fill="#e63946" stroke="none" />
-          <rect x="73" y="42" width="14" height="14" fill="#83a87a" stroke="none" />
-          <rect x="106" y="42" width="14" height="14" fill="#e9c46a" stroke="none" />
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0a0a14" />
+          {/* sun */}
+          <circle cx="32" cy="40" r="9" fill="#ffb84a" stroke="none" />
           {/* labels */}
-          <rect x="38" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
-          <rect x="71" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
-          <rect x="104" y="22" width="18" height="8" rx="2" fill="#0c0c0e" />
+          <rect x="22" y="22" width="20" height="6" rx="1" fill="#1c1c1e" stroke="none" />
+          {/* planets in row */}
+          <circle cx="60" cy="40" r="3" fill="#a0a0a0" stroke="none" />
+          <circle cx="80" cy="40" r="4" fill="#e0c47a" stroke="none" />
+          <circle cx="102" cy="40" r="4" fill="#3a78ff" stroke="none" />
+          <circle cx="124" cy="40" r="3.5" fill="#cf5530" stroke="none" />
+          {/* tiny labels above */}
+          {[60, 80, 102, 124].map((cx, i) => (
+            <rect key={i} x={cx - 8} y="26" width="16" height="5" rx="1"
+                  fill="#0c0c0e" stroke="none" />
+          ))}
         </svg>
       )
     case 'diorama':
