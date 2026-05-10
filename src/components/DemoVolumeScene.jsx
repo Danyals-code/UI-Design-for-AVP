@@ -50,16 +50,16 @@ export default function DemoVolumeScene() {
   }, [root])
 
   return (
-    // Identity placement — the GLB's local axes match world axes
-    // already, so the stool sits at world origin, the painting hangs
-    // on the world -X cyclorama wall, and the open +X edge faces the
-    // wearer's default VR pose. No translation: the camera is what
-    // moves, not the room.
+    // The GLB was authored with the painting wall on -X and the open
+    // edge on +X. The volume camera sits on +Z (the conventional
+    // three.js forward axis), so we rotate the room 90° around Y to
+    // line the painting wall up along -Z behind the spawn area. The
+    // open edge then faces +Z toward the wearer.
     //
     // No lights here: Canvas3D already supplies an ambient + key
     // directional. Stacking another ambient + hemisphere on top was
     // the source of the "too bright" feedback.
-    <group position={[0, 0, 0]}>
+    <group position={[0, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
       <primitive object={root} />
     </group>
   )

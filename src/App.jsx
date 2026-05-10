@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Topbar from './components/Topbar'
 import LayersPanel from './components/LayersPanel'
+import AssetsPanel from './components/AssetsPanel'
 import PropertiesPanel from './components/PropertiesPanel'
 import Canvas3D from './components/Canvas3D'
 import ViewportOverlay from './components/ViewportOverlay'
@@ -38,12 +39,47 @@ function useResizer(initial, side) {
   return [width, start]
 }
 
+// Vertical splitter — used inside the left sidebar to size the top
+// (LayersPanel) and bottom (AssetsPanel) sections. Stores a percentage
+// of the available height for the top half so the split scales with
+// the viewport rather than freezing at a pixel value.
+function useVerticalResizer(initialPct = 60) {
+  const [topPct, setTopPct] = useState(initialPct)
+  const pctRef = useRef(initialPct)
+  pctRef.current = topPct
+  const start = (e) => {
+    e.preventDefault()
+    const container = e.currentTarget.parentElement
+    const rect = container?.getBoundingClientRect()
+    if (!rect) return
+    const startY = e.clientY
+    const startPct = pctRef.current
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY
+      const newPct = startPct + (dy / rect.height) * 100
+      setTopPct(Math.max(20, Math.min(85, newPct)))
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+  return [topPct, start]
+}
+
 export default function App() {
   // Splash opens on every launch (per user preference) and is reopenable
   // by clicking the "visionOS Designer" title in the topbar.
   const [splashOpen, setSplashOpen] = useState(true)
   const [leftWidth, startLeft] = useResizer(240, 'left')
   const [rightWidth, startRight] = useResizer(280, 'right')
+  const [leftTopPct, startLeftSplit] = useVerticalResizer(62)
   const selectedId = useStore((s) => s.selectedId)
   const copyItem = useStore((s) => s.copyItem)
   const pasteItem = useStore((s) => s.pasteItem)
@@ -141,8 +177,26 @@ export default function App() {
       <Topbar onTitleClick={() => setSplashOpen(true)} previewMode={isPreview} />
 
       <div className="flex-1 relative min-h-0">
-        {/* Always-on canvas layer. Sits beneath the editing chrome. */}
-        <div className="absolute inset-0">
+        {/* Always-on canvas layer. Sits beneath the editing chrome.
+            The wrapper div catches asset drops out of the AssetsPanel
+            so we can spawn entities on drop. R3F's <Canvas> doesn't
+            handle DOM drag-events, hence the outer div. */}
+        <div
+          className="absolute inset-0"
+          onDragOver={(e) => {
+            // Only swallow the drop if the drag started in our
+            // assets panel — let unrelated drags fall through.
+            if (useStore.getState().pendingDropAsset) e.preventDefault()
+          }}
+          onDrop={(e) => {
+            const assetId = useStore.getState().pendingDropAsset
+                         || e.dataTransfer.getData('application/x-asset-id')
+            if (!assetId) return
+            e.preventDefault()
+            useStore.getState().spawnAssetIntoScene?.(assetId)
+            useStore.getState().clearPendingDropAsset?.()
+          }}
+        >
           <Canvas3D />
         </div>
 
@@ -150,7 +204,24 @@ export default function App() {
         {!isPreview && (
           <>
             <div className="absolute top-0 left-0 bottom-0 z-10 flex">
-              <LayersPanel width={leftWidth} />
+              {/* Left sidebar split vertically: Layers up top, Assets
+                  in the bottom half, with a draggable horizontal
+                  splitter between them. The split is stored as a
+                  percentage so the two halves scale with viewport
+                  height instead of freezing at a pixel value. */}
+              <div className="flex flex-col bg-panel" style={{ width: leftWidth }}>
+                <div className="overflow-hidden flex-shrink-0" style={{ height: `${leftTopPct}%` }}>
+                  <LayersPanel width={leftWidth} />
+                </div>
+                <div
+                  onMouseDown={startLeftSplit}
+                  className="h-1 cursor-ns-resize bg-border hover:bg-accent/60 transition-colors flex-shrink-0"
+                  title="Drag to resize"
+                />
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <AssetsPanel />
+                </div>
+              </div>
               <div onMouseDown={startLeft} className="resize-gutter" title="Drag to resize" />
             </div>
             <div className="absolute top-0 right-0 bottom-0 z-10 flex">

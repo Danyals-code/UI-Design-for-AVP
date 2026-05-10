@@ -245,76 +245,59 @@ function SceneModeToggle() {
   )
 }
 
-// ---- View mode toggle (2D / 3D) ---------------------------------------
-// Stable segmented button — same shape and size in both states. In
-// volume mode the buttons grey out because the volumetric stage is
-// always rendered with the orbit camera (no flat 2D variant).
-
-function ViewModeToggle() {
-  const sceneMode = useStore((s) => s.scene.sceneMode)
-  const preview3D = useStore((s) => s.scene.preview3D)
-  const updateScene = useStore((s) => s.updateScene)
-  const isVolume = sceneMode === 'volume'
-
-  return (
-    <div
-      className="segmented"
-      style={{
-        height: 28,
-        background: 'rgba(21, 21, 21, 0.88)',
-        backdropFilter: 'blur(8px)',
-        opacity: isVolume ? 0.5 : 1,
-        cursor: isVolume ? 'not-allowed' : 'auto'
-      }}
-      title={isVolume ? 'Volume mode is always 3D' : undefined}
-    >
-      <button
-        className={!isVolume && !preview3D ? 'active' : ''}
-        onClick={isVolume ? undefined : () => updateScene({ preview3D: false })}
-        disabled={isVolume}
-        title="Flat 2D head-on view"
-        style={{ minWidth: 38 }}
-      >2D</button>
-      <button
-        className={!isVolume && preview3D ? 'active' : ''}
-        onClick={isVolume ? undefined : () => updateScene({ preview3D: true })}
-        disabled={isVolume}
-        title="Orbit camera — see your design in 3D"
-        style={{ minWidth: 38 }}
-      >3D</button>
-    </div>
-  )
-}
-
-// ---- Camera view buttons --------------------------------------------
+// ---- VR View button --------------------------------------------------
 //
-// VRViewButton — always-available snap to the wearer's default VR
-// pose (head height, looking forward). The visionOS analogue of
-// "press 0 in Blender to go to camera view" — gives the designer a
-// one-click way to preview their content from the same eye-line a
-// real wearer would see.
+// Single button replacing the old 2D/3D segmented toggle. In window
+// mode it toggles `preview3D` — clicking enters the studio-decor VR
+// preview, clicking again returns to the flat 2D edit view. In volume
+// mode the canvas is always 3D so the button instead snaps the orbit
+// camera back to the wearer's default eye-line pose (the visionOS
+// analogue of "press 0 in Blender for camera view").
 //
-// CameraEntityViewButton — appears when the scene has a Camera entity;
-// snaps the orbit camera to that entity's transform.
+// The user asked for one unified control here — the segmented 2D/3D
+// pair was confusing because volume mode could never be 2D, and
+// window mode usually wanted "show me how it looks in VR".
 
 function VRViewButton() {
   const sceneMode = useStore((s) => s.scene.sceneMode)
   const preview3D = useStore((s) => s.scene.preview3D)
-  if (!(sceneMode === 'volume' || preview3D)) return null
+  const updateScene = useStore((s) => s.updateScene)
+  const isVolume = sceneMode === 'volume'
+  const active = isVolume || preview3D
+
+  const onClick = () => {
+    if (isVolume) {
+      // Volume is always 3D; this just resets the camera pose.
+      window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
+      return
+    }
+    // Window mode: toggle into / out of VR preview. Snap the camera
+    // every time we enter so the wearer's pose is consistent.
+    const next = !preview3D
+    updateScene({ preview3D: next })
+    if (next) {
+      // dispatch on the next tick so the camera handler reads the
+      // newly-applied preview3D flag from the store.
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
+      })
+    }
+  }
+
   return (
     <button
-      onClick={() => window.dispatchEvent(new CustomEvent('snap-camera-to-default'))}
-      title="Default VR view — wearer's eye-line, looking forward"
+      onClick={onClick}
+      title={isVolume ? "Snap camera to wearer's eye-line" : (active ? 'Exit VR view' : 'Enter VR view — preview your window inside a living room')}
       className="vp-btn"
       style={{
         width: 'auto',
         height: 28,
         paddingLeft: 12, paddingRight: 12, gap: 6,
         whiteSpace: 'nowrap',
-        border: '1px solid #2e2e2e',
-        background: 'rgba(21, 21, 21, 0.88)',
+        border: active ? '1px solid #4a86ff' : '1px solid #2e2e2e',
+        background: active ? 'rgba(10, 132, 255, 0.18)' : 'rgba(21, 21, 21, 0.88)',
         backdropFilter: 'blur(8px)',
-        color: '#cfcfd1',
+        color: active ? '#ffffff' : '#cfcfd1',
         fontSize: 11
       }}
     >
@@ -376,7 +359,6 @@ export default function ViewportOverlay() {
       <ZoomSlider />
       <OverlaysDropdown />
       <SceneModeToggle />
-      <ViewModeToggle />
     </div>
   )
 }

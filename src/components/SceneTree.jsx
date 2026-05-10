@@ -25,6 +25,7 @@ function LiquidGlass({
   size,
   cornerRadius,
   color,
+  fillOpacity = 0.92,
   hitEvents = {}
   // `material`, `schemeDark`, `capsule` are accepted (but unused) for
   // call-site compatibility with the previous glass implementation.
@@ -40,22 +41,28 @@ function LiquidGlass({
     () => roundedRectShape(w + haloPad, h + haloPad, cornerRadius + haloPad / 2),
     [w, h, cornerRadius, haloPad]
   )
-
   return (
     <>
       {/* Faint contact shadow — a couple of millimetres behind the plate
           so it reads as "hovering" rather than "drawn on a backdrop".
-          Opacity is gentler than the old 22% halo so light viewports
-          aren't dominated by it. */}
+          Slightly softer (10% vs 12%) for a more glassy appearance —
+          frosted plates aren't supposed to fight a hard cast shadow. */}
       <mesh position={[0, 0, -0.003]}>
         <shapeGeometry args={[shadowShape]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.12} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.10} />
       </mesh>
 
-      {/* Solid fill (drag / click target) */}
+      {/* Plate fill. Transparent (so designers can see the environment
+          peek through the plate, the way visionOS UI does) and
+          double-sided so the back of a rotated window also reads. */}
       <mesh position={[0, 0, -0.001]} {...hitEvents}>
         <shapeGeometry args={[fillShape]} />
-        <meshBasicMaterial color={color} side={THREE.DoubleSide} />
+        <meshBasicMaterial
+          color={color}
+          side={THREE.DoubleSide}
+          transparent={fillOpacity < 1}
+          opacity={fillOpacity}
+        />
       </mesh>
     </>
   )
@@ -424,6 +431,7 @@ function Window3D({ window: win, items }) {
           size={[w, h]}
           cornerRadius={cornerR}
           color={fillColor}
+          fillOpacity={typeof win.fillOpacity === 'number' ? win.fillOpacity : 0.92}
           material={win.material || 'regular'}
           schemeDark={scene.designScheme === 'dark'}
           hitEvents={{

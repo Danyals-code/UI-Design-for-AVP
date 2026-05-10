@@ -15,6 +15,7 @@ import { useStore } from '../../store'
 import {
   Row, Section, NumField, Slider, ColorRow, Select
 } from './primitives'
+import { BehaviorsSection } from './BehaviorsSection'
 import { useScrub } from './useScrub'
 import {
   ENTITY_KINDS, ENTITY_KIND_ORDER,
@@ -1053,7 +1054,7 @@ export function EntityProps({ item }) {
         <ComponentsSection item={item} />
       )}
 
-      <InteractionSection item={item} />
+      <BehaviorsSection item={item} />
     </div>
   )
 }

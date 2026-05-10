@@ -14,7 +14,7 @@
 // requiring designers to think about the conversion. Refining this when
 // volumetric windows render is a future tuning pass.
 
-import { useMemo, useRef, Suspense } from 'react'
+import { useEffect, useMemo, useRef, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Text, useGLTF, Billboard } from '@react-three/drei'
@@ -23,6 +23,7 @@ import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
 import { resolveSemantic, SF_SYMBOLS } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
+import { useBehaviorRuntime, registerEntity } from '../behaviors/runtime'
 
 const DEG2RAD = Math.PI / 180
 
@@ -653,7 +654,31 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
     (c) => c.parentId === entity.id && c.type === 'entity' && isEffectivelyVisible(items, c.id)
   )
 
+  // Behaviour runtime — owns pointer handlers + per-frame ticks for the
+  // entity's trigger/action list. In edit mode the hook returns null
+  // handlers; pointer events fall through to the normal "select this
+  // entity" gesture. In preview mode the runtime takes over the gesture
+  // surface and selection is suppressed.
+  const runtime = useBehaviorRuntime({ entity, scene, items })
+
+  // Cross-entity registry — exposes our group's three.js ref under the
+  // entity ID so other entities' "follow [target]", "look at [target]",
+  // collision and proximity triggers can resolve targets to live
+  // objects. We always register, even in edit mode, because the cost
+  // is a single Map slot per entity and it keeps the cross-entity
+  // wiring consistent if preview is toggled mid-session.
+  useEffect(() => registerEntity(entity.id, {
+    groupRef: runtime.groupRef,
+    meshRef:  runtime.meshRef,
+    entity
+  }), [entity.id])
+
   const onPointerDown = (e) => { e.stopPropagation(); select(entity.id) }
+  // In preview mode every pointer-handler-bearing inner group swaps to
+  // the runtime's handlers; in edit mode they keep the selection
+  // gesture. The runtime intentionally returns null while previewMode
+  // is false so this collapses to the existing behaviour.
+  const interactProps = runtime.handlers || { onPointerDown }
 
   // The first material drives the surface; multi-material multi-submesh
   // is RealityKit territory the designer can't preview without the
@@ -662,6 +687,7 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
 
   return (
     <group
+      ref={runtime.groupRef}
       position={pos}
       rotation={rot}
       scale={scl}
@@ -669,7 +695,7 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
     >
       {/* Render mesh / gizmo for the entity's own kind */}
       {entity.entityKind === 'model' && entity.meshType === 'text' && (
-        <group onPointerDown={onPointerDown}>
+        <group {...interactProps}>
           <Text3DEntity entity={entity} mat={mat} opacity={opacity} />
           {isSelected && (
             <mesh position={[0, 0, -0.001]}>
@@ -681,7 +707,7 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
       )}
 
       {entity.entityKind === 'model' && entity.meshType === 'usdz' && (
-        <group onPointerDown={onPointerDown}>
+        <group {...interactProps}>
           <UsdzPlaceholder entity={entity} mat={mat} opacity={opacity} isSelected={isSelected} scene={scene} />
         </group>
       )}
@@ -689,9 +715,9 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
       {entity.entityKind === 'model' &&
         entity.meshType !== 'text' &&
         entity.meshType !== 'usdz' && (
-        <group onPointerDown={onPointerDown}>
+        <group {...interactProps}>
           {isSelected && <SelectionHalo entity={entity} scene={scene} />}
-          <mesh castShadow={showShadow} receiveShadow>
+          <mesh ref={runtime.meshRef} castShadow={showShadow} receiveShadow>
             {meshGeometry(entity)}
             {materialNode(mat, opacity, iblBoost)}
           </mesh>
@@ -717,7 +743,7 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
       )}
 
       {entity.entityKind === 'attachment' && (
-        <group onPointerDown={onPointerDown}>
+        <group {...interactProps}>
           <AttachmentPanel3D entity={entity} isSelected={isSelected} scene={scene} />
         </group>
       )}

@@ -1263,8 +1263,16 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // panel is being dragged we suppress hover so the lift doesn't fight the
   // drag offset. The 'highlight' effect renders an additive tint overlay
   // (rendered below); 'lift' and 'automatic' just nudge scale + Z.
+  //
+  // visionOS hover fires on gaze, not pointer-over. In edit mode the
+  // designer's mouse moving across the canvas isn't a gaze event — it's
+  // a layout cursor — so we suppress the hover lift/highlight outside
+  // Preview. Inside Preview, hover *is* the gaze proxy and re-engages.
   const effectiveHover = resolveHoverEffect(panel, items)
-  const hoverActive = hovered && !dragData.current?.dragging && effectiveHover !== 'none'
+  const hoverActive = hovered
+                   && !dragData.current?.dragging
+                   && effectiveHover !== 'none'
+                   && !!scene.previewMode
   let hoverScale = 1, hoverLift = 0
   if (hoverActive) {
     if (effectiveHover === 'lift')         { hoverScale = 1.05; hoverLift = 0.06 }
