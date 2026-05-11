@@ -4,7 +4,7 @@ import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
-import { roundedRectShape } from '../shapes'
+import { roundedRectShape, unevenRoundedRectShape } from '../shapes'
 import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS } from '../appleSystem'
 
 const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
@@ -24,6 +24,12 @@ import { EntityChildren } from './Entity3D'
 function LiquidGlass({
   size,
   cornerRadius,
+  // Optional per-corner radii — `[topLeft, topRight, bottomRight, bottomLeft]`
+  // matching SwiftUI's `UnevenRoundedRectangle(_:_:_:_:)`. When set the
+  // even `cornerRadius` is ignored and the plate is cut with the four
+  // distinct radii instead. Used by the joined NavigationSplitView
+  // sidebar so its right edge butts flush against the detail pane.
+  cornerRadii,
   color,
   fillOpacity = 0.92,
   hitEvents = {}
@@ -31,7 +37,13 @@ function LiquidGlass({
   // call-site compatibility with the previous glass implementation.
 }) {
   const [w, h] = size
-  const fillShape = useMemo(() => roundedRectShape(w, h, cornerRadius), [w, h, cornerRadius])
+  const fillShape = useMemo(() => {
+    if (Array.isArray(cornerRadii)) {
+      const [tl, tr, br, bl] = cornerRadii
+      return unevenRoundedRectShape(w, h, tl, tr, bl, br)
+    }
+    return roundedRectShape(w, h, cornerRadius)
+  }, [w, h, cornerRadius, cornerRadii?.[0], cornerRadii?.[1], cornerRadii?.[2], cornerRadii?.[3]])
   // Halo extension scales with the window size — at the metres-native
   // canvas scale a 1.2m window with a fixed 4cm halo looks like a heavy
   // drop shadow. Tying it to ~0.6% of the window's shorter side keeps
@@ -45,23 +57,28 @@ function LiquidGlass({
     <>
       {/* Faint contact shadow — a couple of millimetres behind the plate
           so it reads as "hovering" rather than "drawn on a backdrop".
-          Slightly softer (10% vs 12%) for a more glassy appearance —
-          frosted plates aren't supposed to fight a hard cast shadow. */}
-      <mesh position={[0, 0, -0.003]}>
+          `depthWrite={false}` lets foreground content draw over it
+          without z-fighting when viewed at an angle in 3D mode. */}
+      <mesh position={[0, 0, -0.003]} renderOrder={-2}>
         <shapeGeometry args={[shadowShape]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.10} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.10} depthWrite={false} />
       </mesh>
 
       {/* Plate fill. Transparent (so designers can see the environment
-          peek through the plate, the way visionOS UI does) and
-          double-sided so the back of a rotated window also reads. */}
-      <mesh position={[0, 0, -0.001]} {...hitEvents}>
+          peek through the plate, the way visionOS UI does). `polygonOffset`
+          pushes the plate's depth slightly back in the depth buffer so
+          stacked content (button fills, text labels) at tiny z-offsets
+          above it don't z-fight when the camera moves in 3D. */}
+      <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
         <shapeGeometry args={[fillShape]} />
         <meshBasicMaterial
           color={color}
           side={THREE.DoubleSide}
           transparent={fillOpacity < 1}
           opacity={fillOpacity}
+          polygonOffset
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
     </>
@@ -97,7 +114,9 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     ? Math.min(w, h) / 2
     : (stack.cornerRadius != null ? stack.cornerRadius : ptToUnits(12))
 
-  const stackOutlinePad = Math.max(w, h) * 0.008
+  // Same hair-thin selection ring metric as windows — keeps the
+  // indicator readable on small stacks without the previous fat halo.
+  const stackOutlinePad = Math.max(w, h) * 0.0025
   const outlineShape = useMemo(
     () => roundedRectShape(w + stackOutlinePad, h + stackOutlinePad, bgRadius + stackOutlinePad / 2),
     [w, h, bgRadius, stackOutlinePad]
@@ -117,7 +136,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.4} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.28} />
         </mesh>
       )}
 
@@ -125,6 +144,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         <LiquidGlass
           size={[w, h]}
           cornerRadius={bgRadius}
+          cornerRadii={stack.cornerRadii}
           color={bgColor}
           material={stack.material || 'regular'}
           schemeDark={scene.designScheme === 'dark'}
@@ -321,10 +341,11 @@ function Window3D({ window: win, items }) {
     ? resolveSemantic(win.colorToken, scene.designScheme || 'light')
     : (win.color || '#f2f2f7')
 
-  // Outline padding scales with window size — at the new metres scale a
-  // fixed 25mm halo dwarfs a 1.2m window. Half a percent of the longer
-  // side gives a consistently-thin selection ring.
-  const outlinePad = Math.max(w, h) * 0.008
+  // Outline padding scales with window size. Tuned to read as a thin
+  // selection ring rather than a fat halo — 0.25% of the longer side
+  // (instead of the previous 0.8%) keeps the indicator visible at a
+  // distance without overpowering the plate.
+  const outlinePad = Math.max(w, h) * 0.0025
   const outlineShape = useMemo(
     () => roundedRectShape(w + outlinePad, h + outlinePad, cornerR + outlinePad / 2),
     [w, h, cornerR, outlinePad]
@@ -332,6 +353,12 @@ function Window3D({ window: win, items }) {
 
   const onPointerDown = (e) => {
     e.stopPropagation()
+    // Preview mode runs the canvas as the deployed app — the wearer
+    // can't physically reposition windows from a pointer drag, so we
+    // suppress both selection and drag while previewMode is active.
+    // Without this the user could "design" while previewing, which
+    // defeats the purpose of the mode.
+    if (scene.previewMode) return
     select(win.id)
     const camDir = new THREE.Vector3()
     camera.getWorldDirection(camDir)
@@ -422,7 +449,7 @@ function Window3D({ window: win, items }) {
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.30} />
         </mesh>
       )}
 
@@ -470,9 +497,16 @@ function Window3D({ window: win, items }) {
         const innerW = Math.max(0, w - padU * 2)
         const innerH = Math.max(0, h - padU * 2)
         return contentChildren.map((c) => {
+          // Content sits a few millimetres in front of the window plate
+          // so it reads as "on the window" rather than orbiting in front
+          // of it. The previous 8-18 cm offsets read as physically
+          // detached when the camera moved in 3D, and the large
+          // delta between content and the plate caused noticeable
+          // z-fighting at oblique angles. 1-2 cm is enough for the
+          // parallax cue without separating from the plate.
           const chromeStack = c.type === 'stack' && (c.stackType === 'tabView' || c.stackType === 'navigationStack')
-          const zStack = scene.preview3D ? (chromeStack ? 0.18 : 0.08) : 0.005
-          const zPanel = scene.preview3D ? 0.08 : 0.005
+          const zStack = scene.preview3D ? (chromeStack ? 0.020 : 0.012) : 0.005
+          const zPanel = scene.preview3D ? 0.012 : 0.005
           const pos = c.type === 'stack' ? [0, 0, zStack] : (c.position || [0, 0, zPanel])
           if (c.type === 'stack') {
             const intrinsic = computeSize(c, items)
@@ -494,10 +528,13 @@ function Window3D({ window: win, items }) {
         })
       })()}
 
-      {/* Ornaments — pinned to edges, top depth tier in 3D preview */}
+      {/* Ornaments — pinned to edges. Sit a touch in front of content
+          (which is at 0.012-0.020) so toolbar items overlap content
+          when they share screen space, without floating off the
+          window in 3D space. */}
       {ornamentChildren.map((o) => {
         const basePos = ornPositions.get(o.id)
-        const z = scene.preview3D ? 0.18 : 0.015
+        const z = scene.preview3D ? 0.024 : 0.015
         const pos = [basePos[0], basePos[1], z]
         return (
           <Stack3D

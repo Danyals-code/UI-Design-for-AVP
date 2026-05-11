@@ -34,7 +34,7 @@ function TemplateThumb({ kind }) {
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
           {/* artwork */}
-          <rect x="62" y="10" width="36" height="36" rx="4" fill="#5b3aa8" stroke="none" />
+          <rect x="62" y="10" width="36" height="36" rx="4" fill="#1e3a8a" stroke="none" />
           {/* track + artist */}
           <rect x="58" y="48" width="44" height="4" rx="1" fill={stroke} stroke="none" />
           <rect x="64" y="55" width="32" height="3" rx="1" fill={grey} stroke="none" />

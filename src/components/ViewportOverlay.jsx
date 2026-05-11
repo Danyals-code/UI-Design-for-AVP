@@ -96,13 +96,15 @@ function OverlaysDropdown() {
           className="popover absolute right-0 top-full mt-1 rounded z-50 py-2 px-2.5 w-52"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {isVolume && (
-            <>
-              <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Volume</div>
-              <OverlayRow label="Demo Scene" on={showDemoScene} toggle={toggleDemoScene} />
-              <div className="border-b border-border my-2" />
-            </>
-          )}
+          {/*
+            Demo Scene applies to both window and volume modes — window
+            mode renders inside the same studio so a "hide the room"
+            toggle belongs here too. Previously it only surfaced in
+            volume mode, leaving window users with no way to opt out.
+          */}
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Studio</div>
+          <OverlayRow label="Demo Scene" on={showDemoScene} toggle={toggleDemoScene} />
+          <div className="border-b border-border my-2" />
 
           <div className="text-[9px] text-textMute uppercase tracking-wider mb-2 px-1">Grid</div>
           <OverlayRow label="X (side)"   on={gridAxes.x} toggle={() => toggleGridAxis('x')} disabled={!orbitActive} disabledHint="3D only" />
@@ -258,41 +260,76 @@ function SceneModeToggle() {
 // pair was confusing because volume mode could never be 2D, and
 // window mode usually wanted "show me how it looks in VR".
 
+// VR View is a "go to wearer default pose" snap, not a toggle. Same
+// behaviour in window and volume modes — flip preview3D on (if window
+// was flat), then dispatch the snap event so the camera lands at the
+// VOLUME_VR_POS / TARGET_WINDOW defaults regardless of where the user
+// orbited to. Flat View lives next to it as the explicit way to drop
+// out of the wearer's view; users picking between them feels less
+// like a toggle riddle than the old one-button-two-modes flow.
 function VRViewButton() {
   const sceneMode = useStore((s) => s.scene.sceneMode)
   const preview3D = useStore((s) => s.scene.preview3D)
   const updateScene = useStore((s) => s.updateScene)
   const isVolume = sceneMode === 'volume'
-  const active = isVolume || preview3D
 
   const onClick = () => {
-    if (isVolume) {
-      // Volume is always 3D; this just resets the camera pose.
+    if (!isVolume && !preview3D) {
+      // Coming from flat — switch into 3D first so the snap lands in
+      // the same studio framing the wearer sees.
+      updateScene({ preview3D: true })
+    }
+    requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
-      return
-    }
-    // Window mode: toggle into / out of VR preview. Snap the camera
-    // every time we enter so the wearer's pose is consistent.
-    const next = !preview3D
-    updateScene({ preview3D: next })
-    if (next) {
-      // dispatch on the next tick so the camera handler reads the
-      // newly-applied preview3D flag from the store.
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
-      })
-    }
+    })
   }
 
   return (
     <button
       onClick={onClick}
-      title={isVolume ? "Snap camera to wearer's eye-line" : (active ? 'Exit VR view' : 'Enter VR view — preview your window inside a living room')}
+      title="Snap to the wearer's default eye-line pose"
       className="vp-btn"
       style={{
         width: 'auto',
         height: 28,
-        paddingLeft: 12, paddingRight: 12, gap: 6,
+        paddingLeft: 12, paddingRight: 12,
+        whiteSpace: 'nowrap',
+        border: '1px solid #2e2e2e',
+        background: 'rgba(21, 21, 21, 0.88)',
+        backdropFilter: 'blur(8px)',
+        color: '#cfcfd1',
+        fontSize: 11
+      }}
+    >
+      VR View
+    </button>
+  )
+}
+
+// Flat View — only shown in window mode (volume is 3D-only). Toggles
+// preview3D off so the camera drops to the flat head-on plate; active
+// styling kicks in when we're already in that state.
+function FlatViewButton() {
+  const sceneMode = useStore((s) => s.scene.sceneMode)
+  const preview3D = useStore((s) => s.scene.preview3D)
+  const updateScene = useStore((s) => s.updateScene)
+  if (sceneMode === 'volume') return null
+  const active = !preview3D
+  const onClick = () => {
+    updateScene({ preview3D: active ? true : false })
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
+    })
+  }
+  return (
+    <button
+      onClick={onClick}
+      title={active ? 'Switch back to the wearer\'s VR view' : 'Switch to a flat head-on view of the window'}
+      className="vp-btn"
+      style={{
+        width: 'auto',
+        height: 28,
+        paddingLeft: 12, paddingRight: 12,
         whiteSpace: 'nowrap',
         border: active ? '1px solid #4a86ff' : '1px solid #2e2e2e',
         background: active ? 'rgba(10, 132, 255, 0.18)' : 'rgba(21, 21, 21, 0.88)',
@@ -301,11 +338,7 @@ function VRViewButton() {
         fontSize: 11
       }}
     >
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        {/* visionOS goggles silhouette */}
-        <path d="M2 6.5c0-1 1-2 2.5-2h7c1.5 0 2.5 1 2.5 2v3c0 1-1 2-2.5 2h-1.5c-.5 0-.8-.2-1-.6l-.5-1c-.2-.4-.5-.6-1-.6h-1c-.5 0-.8.2-1 .6l-.5 1c-.2.4-.5.6-1 .6H4.5C3 11.5 2 10.5 2 9.5v-3z" />
-      </svg>
-      VR&nbsp;View
+      Flat View
     </button>
   )
 }
@@ -354,6 +387,7 @@ function CameraEntityViewButton() {
 export default function ViewportOverlay() {
   return (
     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10 pointer-events-auto">
+      <FlatViewButton />
       <VRViewButton />
       <CameraEntityViewButton />
       <ZoomSlider />

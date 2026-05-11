@@ -8,7 +8,15 @@
 // each demonstrate a different production-grade pattern (NavigationSplit,
 // volumetric scenes with attachments, dashboards, settings, etc.).
 
-import { ptToUnits, VOLUME_PRESETS } from '../appleSystem'
+import { ptToUnits, VOLUME_PRESETS, WINDOW_CORNER_RADIUS } from '../appleSystem'
+
+// Pre-baked corner-radii arrays for the joined NavigationSplitView
+// sidebar (top-left + bottom-left round to match the window plate;
+// right edge is flush against the detail pane). Centralised so the
+// Mail and Files templates stay in sync with the addSplitView wizard.
+const JOINED_SIDEBAR_RADII = [
+  ptToUnits(WINDOW_CORNER_RADIUS), 0, 0, ptToUnits(WINDOW_CORNER_RADIUS)
+]
 import {
   makeTab, makeWindow, makeStack, makePanel,
   makeAnchorEntity, makeModelEntity, makeGroupEntity,
@@ -70,12 +78,14 @@ function musicPlayer() {
     widthMode: 'fill', heightMode: 'fill'
   })
 
-  // Hero artwork — square image plate at the top.
+  // Hero artwork — square image plate at the top. Tonal deep blue
+  // sits in the same palette as the system accent so the artwork plate
+  // and the prominent Play button read as related, not random.
   const artwork = makePanel('image', {
     parentId: root.id, name: 'Artwork',
     size: [ptToUnits(220), ptToUnits(220)],
     cornerRadius: ptToUnits(16),
-    color: '#5b3aa8', colorToken: null
+    color: '#1e3a8a', colorToken: null
   })
 
   // Track / artist text block.
@@ -107,12 +117,16 @@ function musicPlayer() {
     stackType: 'hstack', alignment: 'center', spacing: 28, padding: 6,
     widthMode: 'fit', heightMode: 'fit'
   })
+  // Plain transport buttons — soft secondary circles that pair with
+  // the light window plate. Play stays prominent (system blue) so
+  // the visual hierarchy still reads at a glance.
   const prev = makePanel('button', {
     parentId: transport.id, name: 'Prev', text: '',
     size: [ptToUnits(52), ptToUnits(52)],
     cornerRadius: ptToUnits(26),
     buttonStyle: 'plain',
-    color: '#ffffff', colorToken: null,
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null,
     symbolName: 'backward.fill'
   })
   const play = makePanel('button', {
@@ -127,7 +141,8 @@ function musicPlayer() {
     size: [ptToUnits(52), ptToUnits(52)],
     cornerRadius: ptToUnits(26),
     buttonStyle: 'plain',
-    color: '#ffffff', colorToken: null,
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null,
     symbolName: 'forward.fill'
   })
 
@@ -204,11 +219,14 @@ function smartHome() {
   ]
   const roomItems = []
   for (const r of roomData) {
+    // Soft secondary surface so cards sit on the near-white window
+    // plate without the harsh dark-on-light contrast the glass-token
+    // resolution produced in dark scheme.
     const card = makeStack({
       parentId: rooms.id, name: r.name,
       stackType: 'vstack', alignment: 'leading', spacing: 6, padding: 14,
       widthMode: 'fill', heightMode: 'fixed', fixedHeight: 110,
-      background: 'glassRegular',
+      background: '#d8d8dc',
       cornerRadius: ptToUnits(18)
     })
     const icon = makePanel('label', {
@@ -241,16 +259,19 @@ function smartHome() {
     stackType: 'hstack', alignment: 'center', spacing: 10, padding: 0,
     widthMode: 'fit', heightMode: 'fit'
   })
+  // Scene pills — slight rounding (12pt) to match visionOS's actual
+  // control radius, and a soft secondary surface that pairs with the
+  // light room cards above.
   const sceneData = ['Movie Night', 'Bright', 'Focus', 'Sleep']
   const sceneItems = sceneData.map((label) => makePanel('button', {
     parentId: scenes.id, name: label, text: label,
     textStyle: 'subheadline',
     fontSize: textStyleToFontSize('subheadline'),
     size: [ptToUnits(120), ptToUnits(40)],
-    cornerRadius: ptToUnits(20),
+    cornerRadius: ptToUnits(12),
     buttonStyle: 'plain',
-    color: '#ffffff', colorToken: null,
-    textColor: '#000000', textColorToken: 'primary'
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null
   }))
 
   // Quick toggle row.
@@ -293,12 +314,13 @@ function settings() {
     size: [ptToUnits(360), ptToUnits(36)]
   })
 
-  // Account header card.
+  // Account header card — soft secondary surface that harmonises
+  // with the near-white window plate.
   const accountCard = makeStack({
     parentId: root.id, name: 'Account',
     stackType: 'hstack', alignment: 'center', spacing: 12, padding: 14,
     widthMode: 'fill', heightMode: 'fit',
-    background: 'glassRegular',
+    background: '#d8d8dc',
     cornerRadius: ptToUnits(14)
   })
   const avatar = makePanel('image', {
@@ -399,7 +421,14 @@ function mailApp() {
     spacing: 4, padding: 16,
     widthMode: 'fixed', heightMode: 'fill', fixedWidth: 280,
     alignment: 'leading',
-    background: 'glassThin'
+    // Sidebar surface harmonised with the near-white window plate
+    // (`designWindow` resolves to #ecedef). A soft secondary tone —
+    // #d8d8dc — sits one step darker than the plate so the seam
+    // reads without the previous near-black sidebar fighting the
+    // light detail pane.
+    background: '#d8d8dc',
+    cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
+    cornerRadii: JOINED_SIDEBAR_RADII
   })
   const detail = makeStack({
     parentId: root.id, stackType: 'vstack', name: 'Detail',
@@ -407,11 +436,12 @@ function mailApp() {
     widthMode: 'fill', heightMode: 'fill', alignment: 'leading'
   })
 
-  // Sidebar — header + nav rows + counts.
+  // Sidebar — header + nav rows + counts. Light sidebar surface
+  // (#d8d8dc) calls for dark type so the title reads cleanly.
   const sidebarHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Mail Header', text: 'Mail',
     textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
-    fontWeight: 'bold', widthMode: 'fill', colorToken: 'primary',
+    fontWeight: 'bold', widthMode: 'fill', colorToken: null,
     color: '#000000'
   })
   const navData = [
@@ -423,14 +453,19 @@ function mailApp() {
     { label: 'Sent',        icon: 'paperplane', badge: ''    },
     { label: 'Archive',     icon: 'archivebox', badge: ''    }
   ]
+  // Sidebar nav rows — plain "selectable list item" treatment. No
+  // explicit fill (matches Apple's Mail sidebar, where the row sits
+  // on the sidebar's own glass without a coloured chip) so the rows
+  // read as list items rather than buttons. Selection / hover are
+  // expected to add a system highlight at runtime.
   const navRows = navData.map((n) => makePanel('button', {
     parentId: sidebar.id, name: n.label, text: n.label,
     textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    size: [ptToUnits(248), ptToUnits(40)],
-    cornerRadius: ptToUnits(10),
+    size: [ptToUnits(248), ptToUnits(36)],
+    cornerRadius: ptToUnits(8),
     buttonStyle: 'plain',
-    color: '#ffffff', colorToken: null,
-    textColor: '#000000', textColorToken: 'primary',
+    colorToken: 'designWindow',
+    textColor: '#000000', textColorToken: null,
     textAlign: 'left',
     symbolName: n.icon
   }))
@@ -517,14 +552,19 @@ function tabBarApp() {
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
 
-  // Bottom tab-bar ornament.
+  // Bottom tab-bar ornament — soft surface that picks up the same
+  // off-white as the window plate so the bar reads as part of the
+  // app rather than a contrasting dark band.
   const bar = makeStack({
     parentId: w.id, stackType: 'hstack',
     ornament: 'bottom', name: 'Tab Bar',
-    background: 'glassThick',
+    background: '#d8d8dc',
     fixedHeight: 64, padding: 10, spacing: 22, alignment: 'center',
     widthMode: 'fit', heightMode: 'fixed'
   })
+  // Tab pills — selected tab uses the system accent fill, others
+  // sit on the bar's secondary tone with dark labels for readability
+  // against the light surface.
   const tabLabels = ['Home', 'Browse', 'Library', 'Profile']
   const tabIcons  = ['house', 'magnifyingglass', 'books.vertical', 'person.crop.circle']
   const tabs = tabLabels.map((label, i) => makePanel('button', {
@@ -532,10 +572,10 @@ function tabBarApp() {
     textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
     fontWeight: 'medium',
     size: [ptToUnits(76), ptToUnits(44)],
-    cornerRadius: ptToUnits(22),
-    buttonStyle: 'plain',
-    color: '#ffffff', colorToken: null,
-    textColor: '#000000', textColorToken: 'primary',
+    cornerRadius: ptToUnits(14),
+    buttonStyle: i === 0 ? 'borderedProminent' : 'plain',
+    color: i === 0 ? '#0a84ff' : '#ecedef', colorToken: null,
+    textColor: i === 0 ? '#ffffff' : '#000000', textColorToken: null,
     symbolName: tabIcons[i] || null
   }))
 
@@ -560,19 +600,22 @@ function filesApp() {
   const root = makeStack({
     parentId: w.id, name: 'Split',
     stackType: 'hstack', alignment: 'top', spacing: 0, padding: 0,
-    widthMode: 'fill', heightMode: 'fill'
+    widthMode: 'fill', heightMode: 'fill',
+    splitStyle: 'joined', columnVisibility: 'all'
   })
 
   // ---- Sidebar ----
-  // `fixedWidth` is stored in pt (the layout engine's unit), not the
-  // internal canvas units `ptToUnits` produces. Mailapp's sidebar
-  // uses the same raw-pt convention (fixedWidth: 280).
+  // Joined sidebar — left edge inherits the window's corner radius;
+  // right edge is flush against the detail pane. Soft secondary
+  // surface that pairs with the near-white window plate.
   const sidebar = makeStack({
     parentId: root.id, name: 'Sidebar',
     stackType: 'vstack', alignment: 'leading', spacing: 14, padding: 18,
     fixedWidth: 240,
     widthMode: 'fixed', heightMode: 'fill',
-    background: 'glassThin'
+    background: '#d8d8dc',
+    cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
+    cornerRadii: JOINED_SIDEBAR_RADII
   })
   // Title row: large "Files" + ⋯ menu.
   const sidebarHeader = makeStack({
@@ -653,12 +696,17 @@ function filesApp() {
     stackType: 'hstack', alignment: 'center', spacing: 8, padding: 14,
     widthMode: 'fill', heightMode: 'fit'
   })
+  // Toolbar chrome — soft secondary circles for back/forward, a
+  // centred crumb, and a "Select" pill at the trailing edge. All
+  // share the same surface tone as the sidebar so the toolbar reads
+  // as one unit with the light window plate.
   const back = makePanel('button', {
     parentId: toolbar.id, name: 'Back', text: '',
     size: [ptToUnits(34), ptToUnits(34)],
     cornerRadius: ptToUnits(17),
     buttonStyle: 'plain',
-    color: '#00000022', colorToken: null,
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null,
     symbolName: 'chevron.left'
   })
   const fwd = makePanel('button', {
@@ -666,7 +714,8 @@ function filesApp() {
     size: [ptToUnits(34), ptToUnits(34)],
     cornerRadius: ptToUnits(17),
     buttonStyle: 'plain',
-    color: '#00000022', colorToken: null,
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null,
     symbolName: 'chevron.right'
   })
   const crumb = makePanel('text', {
@@ -679,7 +728,8 @@ function filesApp() {
     size: [ptToUnits(72), ptToUnits(32)],
     cornerRadius: ptToUnits(16),
     buttonStyle: 'plain',
-    color: '#00000022', colorToken: null
+    color: '#d8d8dc', colorToken: null,
+    textColor: '#000000', textColorToken: null
   })
 
   // Empty-state column in the middle.

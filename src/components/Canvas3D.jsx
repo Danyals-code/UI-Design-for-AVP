@@ -1,4 +1,4 @@
-import { useEffect, useRef, Suspense, memo } from 'react'
+import { useEffect, useRef, Suspense, memo, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas, useThree, useLoader } from '@react-three/fiber'
 import {
@@ -100,18 +100,58 @@ function CameraViewBinder() {
   return null
 }
 
-// Attaches a user-supplied image as the scene's background so it reads as
-// a flat environment behind the design. Used when scene.colorScheme is
-// 'image' and scene.backgroundImage is a data/blob URL.
+// Directional key light + an Object3D target sitting at the stage
+// centre (the wooden stool in the demo studio GLB). Moving
+// `scene.keyLightPosition` rotates the cast shadow on the floor
+// without ever pointing the rim away from the hero object — the
+// light is forever aimed at the same world point.
+//
+// We mount the target as a real `<object3D>` in the scene graph so
+// three.js' renderer walks it during the per-frame matrix update; a
+// detached target (the default Object3D the DirectionalLight ships
+// with) wouldn't get its world matrix refreshed and the shadow camera
+// would silently aim at the origin.
+function KeyLight({ scene }) {
+  const [target, setTarget] = useState(null)
+  const pos = scene.keyLightPosition || [0, 4.5, 1.5]
+  return (
+    <>
+      <object3D ref={setTarget} position={[0, 1.2, 0]} />
+      {target && (
+        <directionalLight
+          position={pos}
+          target={target}
+          intensity={scene.keyLightIntensity ?? 0.5}
+          castShadow
+          shadow-mapSize={[2048, 2048]}
+          shadow-camera-near={0.5}
+          shadow-camera-far={14}
+          shadow-camera-left={-4}
+          shadow-camera-right={4}
+          shadow-camera-top={4}
+          shadow-camera-bottom={-4}
+          shadow-bias={-0.0005}
+        />
+      )}
+    </>
+  )
+}
+
+// Wraps a user-supplied image as an HDRI-style environment so it lights
+// PBR materials and surrounds the scene as a 360° backdrop, instead of
+// reading as a flat picture pinned behind the camera. Drei's
+// `<Environment files={url}>` loads a single image as equirectangular
+// when the file extension isn't `.hdr/.exr`; that handles data-URL
+// uploads from the file picker too.
 function ImageBackground({ url }) {
-  const texture = useLoader(THREE.TextureLoader, url)
-  useEffect(() => {
-    if (texture) {
-      texture.colorSpace = THREE.SRGBColorSpace
-      texture.needsUpdate = true
-    }
-  }, [texture])
-  return <primitive attach="background" object={texture} />
+  return (
+    <Environment
+      files={url}
+      background
+      backgroundBlurriness={0}
+      environmentIntensity={0.6}
+    />
+  )
 }
 
 // Camera routing (metres-scale):
@@ -223,12 +263,13 @@ function Canvas3D() {
   // When an image background is active, keep the grid on the dark palette so
   // the grid lines don't disappear into most photographs.
   const effectiveScheme = imageBg ? 'dark' : scene.colorScheme
-  // Brighter neutral than the previous near-black so volume mode reads
-  // as a "studio" rather than "the void". Light scheme stays a soft grey
-  // so dark UI text still has contrast.
-  const viewportBg = effectiveScheme === 'dark' ? '#3a3d42' : '#e8e9ec'
-  const gridMain   = effectiveScheme === 'dark' ? '#52555a' : '#c9c9cc'
-  const gridSub    = effectiveScheme === 'dark' ? '#46484c' : '#d8d8dc'
+  // Neutral grey for the dark backdrop (the previous #3a3d42 had a blue
+  // cast that pushed the whole studio cool). Pure greys keep the
+  // viewport reading as "studio without colour bias" — the user's
+  // content and the demo scene then dictate the colour temperature.
+  const viewportBg = effectiveScheme === 'dark' ? '#2c2c2e' : '#e8e9ec'
+  const gridMain   = effectiveScheme === 'dark' ? '#48484a' : '#c9c9cc'
+  const gridSub    = effectiveScheme === 'dark' ? '#3a3a3c' : '#d8d8dc'
 
   // When not in an orbit camera, dim the gizmo so it reads as an inactive
   // hint rather than a loud overlay. Full tint kicks in for any 3D camera
@@ -299,27 +340,14 @@ function Canvas3D() {
       ) : null}
 
       <ambientLight intensity={scene.ambientLightIntensity ?? 0.7} />
-      {/* Key light pulled almost straight overhead so its falloff is
-          mostly on the floor (where designers want a real cast shadow
-          under the model) and not on the cyclorama walls (which
-          previously read as a "shadow band across the screen"). The
-          1.5-unit forward bias keeps a hint of front-light so the
-          painting on the back wall doesn't go completely flat. Shadow
-          camera frustum is sized to the studio bbox + a 1 m margin so
-          edge geometry isn't clipped out of the shadow map. */}
-      <directionalLight
-        position={[0, 6, 1.5]}
-        intensity={scene.keyLightIntensity ?? 0.5}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-near={0.5}
-        shadow-camera-far={14}
-        shadow-camera-left={-4}
-        shadow-camera-right={4}
-        shadow-camera-top={4}
-        shadow-camera-bottom={-4}
-        shadow-bias={-0.0005}
-      />
+      {/* Key light — designer-controllable in 3D space via
+          `scene.keyLightPosition`, but the light always re-targets the
+          stage centre (where the wooden stool sits) so re-positioning
+          changes the shadow angle without ever pointing the rim away
+          from the hero object. Three.js wants the target as a separate
+          Object3D in the scene graph; the small `<object3D>` placed at
+          the stool acts as that aim point. */}
+      <KeyLight scene={scene} />
 
       {/* SoftShadows from drei patches the renderer's shadow shaders
           globally — but its HMR fingerprint occasionally triggers a
@@ -409,13 +437,14 @@ function Canvas3D() {
 
       <SceneTree />
 
-      {/* Simulator-style demo scene — renders in volume mode AND in
-          window+preview3D mode when the user has it enabled in the
-          overlays popover. The studio decor frames the window plate
-          the way a visionOS window appears in someone's living room
-          on the device. Sits at the world origin / floor below the
-          content. */}
-      {scene.showDemoScene && (isVolume || scene.preview3D) && <DemoVolumeScene />}
+      {/* Simulator-style demo scene — renders whenever the studio is
+          enabled in the overlays popover. We used to gate on
+          `isVolume || preview3D` so the flat 2D window view rendered
+          without the studio, but preview mode now always runs in the
+          wearer's living-room framing (matching volume mode), so the
+          studio belongs there too. The toggle still lets users
+          hide it for screenshots or chrome-free authoring. */}
+      {scene.showDemoScene && <DemoVolumeScene />}
 
       {/* Modal transform handler. When the user picks Move / Rotate /
           Scale (toolbar or G/R/S), the cursor drives the entity's
@@ -445,12 +474,14 @@ function Canvas3D() {
         mouseButtons={mouseButtons}
       />
 
-      {/* Preview mode runs a different camera rig: a first-person
-          look-around with mouse-look + pan + walk. OrbitControls is
-          disabled (above) so its `target`-anchored rotation doesn't
-          fight ours. Volume-only — window mode is a flat plate, no
-          benefit from a head-rotation rig. */}
-      {scene.previewMode && isVolume && (
+      {/* Preview mode runs a first-person look-around (mouse-look +
+          pan + walk) for both modes — windows in visionOS aren't
+          really "flat plates"; they sit in 3D space and the wearer
+          turns their head. Running FPS controls in window preview too
+          mirrors what someone wearing the device experiences. The
+          window's plate is locked from drag in this mode (Panel/
+          Window3D check `scene.previewMode` before mutating). */}
+      {scene.previewMode && (
         <FirstPersonControls enabled={true} />
       )}
 

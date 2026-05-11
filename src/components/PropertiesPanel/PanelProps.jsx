@@ -80,11 +80,14 @@ export function PanelProps({ item, scene }) {
   const ctx = { item, scene, updateItem, applyTextStyle, switchPanelType }
   const titleCase = item.panelType.charAt(0).toUpperCase() + item.panelType.slice(1)
 
-  // Styles section is only meaningful for interactive controls — it carries
-  // `controlSize` plus per-control style pickers (toggleStyle, pickerStyle,
-  // …). Hiding it for Text/Image/Shape removes a section header that used
-  // to render with only a single greyed-out "Size" row.
-  const showStyles = interactive
+  // Styles section is only meaningful for controls whose dedicated
+  // inspector doesn't already expose Size + style pickers. Buttons
+  // and toggles already include Size + Style in their own section, so
+  // duplicating them under "Styles" produced confusing twin pickers.
+  // Pickers / labels / textfields are the remaining types that still
+  // need it.
+  const stylesOwnsSize = item.panelType === 'button' || item.panelType === 'toggle'
+  const showStyles = interactive && !stylesOwnsSize
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar">

@@ -37,7 +37,11 @@ export const createSceneSlice = (set, get) => ({
       activeTabId: seed.activeTabId,
       selectedId: null,
       editingId: null,
-      scene: { ...s.scene, sceneMode: tplMode, preview3D: false },
+      // Both modes now share the same 3D studio experience by default,
+      // so we leave `preview3D` alone — the user sees the wearer's VR
+      // view of their window straight after picking a template,
+      // matching the depth-rich preview volume mode offers.
+      scene: { ...s.scene, sceneMode: tplMode },
       // Pristine — applying a template explicitly resets the dirty flag
       // so the user doesn't get prompted on the next mode switch.
       sceneIsDirty: false
@@ -58,18 +62,20 @@ export const createSceneSlice = (set, get) => ({
       activeTabId: seed.activeTabId,
       selectedId: null,
       editingId: null,
-      scene: { ...s.scene, sceneMode: nextMode, preview3D: false },
+      // `preview3D` carries over — window mode opens in the wearer's VR
+      // view by default (the new app-wide default), and we don't want a
+      // mode switch to silently flip the camera back to a flat plate.
+      scene: { ...s.scene, sceneMode: nextMode },
       sceneIsDirty: false
     }
   }),
 
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }
-    // Switching sceneMode always resets the experimental 3D preview so the
-    // user lands on the placeholder next time they open Volume mode.
-    if (patch.sceneMode !== undefined && patch.sceneMode !== s.scene.sceneMode) {
-      next.preview3D = false
-    }
+    // `preview3D` no longer gets reset on mode switches — both window
+    // and volume modes render the same demo studio, and flipping
+    // between them shouldn't silently take the wearer out of the VR
+    // view they were just using.
     // Apply preset size changes to the root window.
     const items = s.items.map((it) => {
       if (it.type !== 'window') return it

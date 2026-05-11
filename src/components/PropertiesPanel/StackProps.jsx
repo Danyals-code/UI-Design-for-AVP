@@ -219,6 +219,107 @@ export function StackProps({ item }) {
             </div>
           </Row>
         )}
+        {/* Size sub-block — was its own "Frame" section. Putting it under
+            Layout keeps every "how does this stack take space" knob
+            (align / spacing / padding / size) in one inspector header
+            instead of two. */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Size</div>
+        {(() => {
+          const wMode = item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')
+          return (
+            <Row label="Width">
+              <div className="segmented flex-1">
+                <button
+                  className={wMode === 'fit' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fit', fixedWidth: null })}
+                  title="Hug contents"
+                >Fit</button>
+                <button
+                  className={wMode === 'fixed' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fixed', fixedWidth: item.fixedWidth ?? 300 })}
+                  title=".frame(width:)"
+                >Fixed</button>
+                <button
+                  className={wMode === 'fill' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { widthMode: 'fill' })}
+                  title=".frame(maxWidth: .infinity)"
+                >Fill</button>
+              </div>
+            </Row>
+          )
+        })()}
+        {(item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')) === 'fixed' && (
+          <Row label="W">
+            <div className="flex-1">
+              <input
+                type="number"
+                step={1}
+                min={0}
+                placeholder="pt"
+                value={item.fixedWidth ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                  updateItem(item.id, { fixedWidth: isNaN(v) ? null : Math.max(0, v) })
+                }}
+                className="field"
+              />
+            </div>
+            <span className="text-[9px] text-textMute">pt</span>
+          </Row>
+        )}
+        {(() => {
+          const hMode = item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')
+          return (
+            <Row label="Height">
+              <div className="segmented flex-1">
+                <button
+                  className={hMode === 'fit' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fit', fixedHeight: null })}
+                  title="Hug contents"
+                >Fit</button>
+                <button
+                  className={hMode === 'fixed' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fixed', fixedHeight: item.fixedHeight ?? 200 })}
+                  title=".frame(height:)"
+                >Fixed</button>
+                <button
+                  className={hMode === 'fill' ? 'active' : ''}
+                  onClick={() => updateItem(item.id, { heightMode: 'fill' })}
+                  title=".frame(maxHeight: .infinity)"
+                >Fill</button>
+              </div>
+            </Row>
+          )
+        })()}
+        {(item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')) === 'fixed' && (
+          <Row label="H">
+            <div className="flex-1">
+              <input
+                type="number"
+                step={1}
+                min={0}
+                placeholder="pt"
+                value={item.fixedHeight ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                  updateItem(item.id, { fixedHeight: isNaN(v) ? null : Math.max(0, v) })
+                }}
+                className="field"
+              />
+            </div>
+            <span className="text-[9px] text-textMute">pt</span>
+          </Row>
+        )}
+        {/* Scrollable — moved out of its own section so all the
+            "how does the stack take + use space" knobs live under
+            Layout. Draws a trailing-edge indicator while on. */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Scroll</div>
+        <Row label="Scrollable">
+          <div className="segmented flex-1">
+            <button className={item.scrollable ? 'active' : ''} onClick={() => updateItem(item.id, { scrollable: true })}>On</button>
+            <button className={!item.scrollable ? 'active' : ''} onClick={() => updateItem(item.id, { scrollable: false })}>Off</button>
+          </div>
+        </Row>
         <div className="text-[10px] text-textMute leading-relaxed mt-1">
           {STACK_TYPES[item.stackType]?.description}
         </div>
@@ -332,96 +433,9 @@ export function StackProps({ item }) {
         </Section>
       )}
 
-      <Section title="Frame">
-        {(() => {
-          const wMode = item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')
-          return (
-            <Row label="Width">
-              <div className="segmented flex-1">
-                <button
-                  className={wMode === 'fit' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { widthMode: 'fit', fixedWidth: null })}
-                  title="Hug contents"
-                >Fit</button>
-                <button
-                  className={wMode === 'fixed' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { widthMode: 'fixed', fixedWidth: item.fixedWidth ?? 300 })}
-                  title=".frame(width:)"
-                >Fixed</button>
-                <button
-                  className={wMode === 'fill' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { widthMode: 'fill' })}
-                  title=".frame(maxWidth: .infinity)"
-                >Fill</button>
-              </div>
-            </Row>
-          )
-        })()}
-        {(item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')) === 'fixed' && (
-          <Row label="W">
-            <div className="flex-1">
-              <input
-                type="number"
-                step={1}
-                min={0}
-                placeholder="pt"
-                value={item.fixedWidth ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
-                  updateItem(item.id, { fixedWidth: isNaN(v) ? null : Math.max(0, v) })
-                }}
-                className="field"
-              />
-            </div>
-            <span className="text-[9px] text-textMute">pt</span>
-          </Row>
-        )}
-        {(() => {
-          const hMode = item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')
-          return (
-            <Row label="Height">
-              <div className="segmented flex-1">
-                <button
-                  className={hMode === 'fit' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { heightMode: 'fit', fixedHeight: null })}
-                  title="Hug contents"
-                >Fit</button>
-                <button
-                  className={hMode === 'fixed' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { heightMode: 'fixed', fixedHeight: item.fixedHeight ?? 200 })}
-                  title=".frame(height:)"
-                >Fixed</button>
-                <button
-                  className={hMode === 'fill' ? 'active' : ''}
-                  onClick={() => updateItem(item.id, { heightMode: 'fill' })}
-                  title=".frame(maxHeight: .infinity)"
-                >Fill</button>
-              </div>
-            </Row>
-          )
-        })()}
-        {(item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')) === 'fixed' && (
-          <Row label="H">
-            <div className="flex-1">
-              <input
-                type="number"
-                step={1}
-                min={0}
-                placeholder="pt"
-                value={item.fixedHeight ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
-                  updateItem(item.id, { fixedHeight: isNaN(v) ? null : Math.max(0, v) })
-                }}
-                className="field"
-              />
-            </div>
-            <span className="text-[9px] text-textMute">pt</span>
-          </Row>
-        )}
-      </Section>
+      {/* Frame moved into the Layout section above as a Size sub-block. */}
 
-      <Section title=".ornament()">
+      <Section title="Ornament" defaultOpen={false}>
         <div className="text-[9px] text-textMute mb-1">attachmentAnchor — required (spec §1.26)</div>
         {/*
           Spec §1.26 / §3.4 — `OrnamentAttachmentAnchor` factories are
@@ -512,15 +526,9 @@ export function StackProps({ item }) {
         </Row>
       </Section>
 
-      <Section title="Scroll View">
-        <Row label="Scrollable">
-          <div className="segmented flex-1">
-            <button className={item.scrollable ? 'active' : ''} onClick={() => updateItem(item.id, { scrollable: true })}>On</button>
-            <button className={!item.scrollable ? 'active' : ''} onClick={() => updateItem(item.id, { scrollable: false })}>Off</button>
-          </div>
-        </Row>
-        <div className="text-[10px] text-textMute">Draws a scroll indicator along the trailing edge.</div>
-      </Section>
+      {/* Scroll View was its own section; rolled into Layout as a sub-
+          option so a designer doesn't have to expand a second header
+          just to flip a one-knob scrollable on/off. */}
 
       <Section title="Environment" defaultOpen={false}>
         <Row label="Font"><Select value={item.environment?.font || ''} options={[{ value: '', label: '— Inherit —' }, ...TEXT_STYLE_ORDER.map((k) => ({ value: k, label: TEXT_STYLES[k].label }))]} onChange={(v) => updateItem(item.id, { environment: { ...item.environment, font: v || null } })} /></Row>
@@ -535,10 +543,8 @@ export function StackProps({ item }) {
       </Section>
 
       <ModifierStack item={item} updateItem={updateItem} />
-
-      <Section title="Info" defaultOpen={false}>
-        <div className="text-[10px] text-textMute font-mono">ID: {item.id}</div>
-      </Section>
+      {/* Info section removed — the internal ID was developer plumbing
+          that didn't help the user and added a header to scroll past. */}
     </div>
   )
 }

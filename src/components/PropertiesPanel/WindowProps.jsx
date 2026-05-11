@@ -6,7 +6,6 @@ import {
   TEXT_STYLES, TEXT_STYLE_ORDER,
   MATERIALS, MATERIAL_ORDER,
   IMMERSION_STYLES, HOVER_EFFECTS, GESTURE_TYPES, WINDOW_RESIZABILITY,
-  WINDOW_STYLES,
   WORLD_SCALING_BEHAVIOR, VOLUME_BASEPLATE_VISIBILITY,
   VOLUME_WORLD_ALIGNMENT, VOLUME_VIEWPOINTS,
   POINTS_PER_METER
@@ -74,49 +73,40 @@ export function WindowProps({ item }) {
         </Row>
       </Section>
 
-      <Section title="Window Style" defaultOpen={false}>
-        {/*
-          Spec §3.1 — `.windowStyle(_:)`. `.automatic` is the glass plate;
-          `.plain` strips chrome; `.volumetric` opens the volume metadata
-          below. Spec §3.2 — every volume modifier resolves only when
-          `.volumetric` is selected.
-        */}
-        <Row label="Style">
-          <Select
-            value={item.windowStyle || 'automatic'}
-            options={WINDOW_STYLES}
-            onChange={(v) => updateItem(item.id, { windowStyle: v })}
-          />
-        </Row>
-        {item.windowStyle === 'volumetric' && (
-          <>
-            <Row label="Depth">
-              {/*
-                Spec §3.2 — `.defaultSize(in: .meters)`. visionOS uses the
-                fixed conversion 1360 pt = 1 m for the canvas; we surface
-                the metres value directly so designers think in real-world
-                units.
-              */}
-              <NumField value={item.volumeDepthMeters ?? 1.0} step={0.05} suffix="m" onChange={(v) => updateItem(item.id, { volumeDepthMeters: Math.max(0.05, v) })} />
-            </Row>
-            <Row label="Scaling">
-              <Select value={item.worldScalingBehavior || 'automatic'} options={WORLD_SCALING_BEHAVIOR} onChange={(v) => updateItem(item.id, { worldScalingBehavior: v })} />
-            </Row>
-            <Row label="Baseplate">
-              <Select value={item.volumeBaseplateVisibility || 'automatic'} options={VOLUME_BASEPLATE_VISIBILITY} onChange={(v) => updateItem(item.id, { volumeBaseplateVisibility: v })} />
-            </Row>
-            <Row label="Alignment">
-              <Select value={item.volumeWorldAlignment || 'adaptive'} options={VOLUME_WORLD_ALIGNMENT} onChange={(v) => updateItem(item.id, { volumeWorldAlignment: v })} />
-            </Row>
-            <Row label="Viewpoints">
-              <Select value={item.supportedVolumeViewpoints || 'all'} options={VOLUME_VIEWPOINTS} onChange={(v) => updateItem(item.id, { supportedVolumeViewpoints: v })} />
-            </Row>
-            <div className="text-[10px] text-textMute leading-snug mt-1">
-              visionOS converts pt→meters at <code>{POINTS_PER_METER}pt = 1m</code>. The exporter emits <code>.defaultSize(width:height:depth:in:&nbsp;.meters)</code>.
-            </div>
-          </>
-        )}
-      </Section>
+      {/*
+        The window vs volume choice is driven entirely by the scene
+        mode toggle in the top-right of the viewport (Window / Volume).
+        Picking Volume on the toggle creates the window with
+        `windowStyle: 'volumetric'` and the corresponding volume
+        modifiers. Surfacing the same option here was confusing — the
+        user could pick "volumetric" on a window while in window mode
+        and get a half-volume hybrid that didn't export correctly.
+        Volume-specific metadata (depth, scaling, viewpoints) now
+        lives in the volume scene's window inspector only when the
+        mode is volume.
+      */}
+      {item.windowStyle === 'volumetric' && (
+        <Section title="Volume" defaultOpen={false}>
+          <Row label="Depth">
+            <NumField value={item.volumeDepthMeters ?? 1.0} step={0.05} suffix="m" onChange={(v) => updateItem(item.id, { volumeDepthMeters: Math.max(0.05, v) })} />
+          </Row>
+          <Row label="Scaling">
+            <Select value={item.worldScalingBehavior || 'automatic'} options={WORLD_SCALING_BEHAVIOR} onChange={(v) => updateItem(item.id, { worldScalingBehavior: v })} />
+          </Row>
+          <Row label="Baseplate">
+            <Select value={item.volumeBaseplateVisibility || 'automatic'} options={VOLUME_BASEPLATE_VISIBILITY} onChange={(v) => updateItem(item.id, { volumeBaseplateVisibility: v })} />
+          </Row>
+          <Row label="Alignment">
+            <Select value={item.volumeWorldAlignment || 'adaptive'} options={VOLUME_WORLD_ALIGNMENT} onChange={(v) => updateItem(item.id, { volumeWorldAlignment: v })} />
+          </Row>
+          <Row label="Viewpoints">
+            <Select value={item.supportedVolumeViewpoints || 'all'} options={VOLUME_VIEWPOINTS} onChange={(v) => updateItem(item.id, { supportedVolumeViewpoints: v })} />
+          </Row>
+          <div className="text-[10px] text-textMute leading-snug mt-1">
+            Exports as <code>.defaultSize(width:height:depth:in:&nbsp;.meters)</code> (<code>{POINTS_PER_METER}pt = 1m</code>).
+          </div>
+        </Section>
+      )}
 
       <Section title="Spatial" defaultOpen={false}>
         <Row label="Immersion"><Select value={item.spatial?.immersionStyle || 'mixed'} options={IMMERSION_STYLES} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, immersionStyle: v } })} /></Row>
