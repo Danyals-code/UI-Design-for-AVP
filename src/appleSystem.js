@@ -579,11 +579,19 @@ export const MENU_INDICATOR_VISIBILITY = [
 // Row gap defaults to 4 pt on visionOS lists — the spec-mandated minimum
 // spacing between adjacent items so hover effects on neighbouring rows
 // don't visually overlap (WWDC23 #10076).
+// Per-style row metrics. The 4pt `gap` matches Apple's visionOS HIG
+// reference (see Settings.app screenshot — every row sits as its own
+// rounded chip with 4pt vertical breathing room between them).
+// `roundedRows: true` paints each row as its own glass capsule which
+// is the dominant visionOS pattern; the legacy "flat rows inside one
+// group card" treatment lingers as `default` for parity with iOS but
+// `insetGrouped` (the one the templates actually use) now follows
+// the spatial HIG metric.
 export const LIST_STYLES = {
   default:      { label: 'Default',       rowH: 44, pad: 12, inset: 20, gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
   plain:        { label: 'Plain',         rowH: 44, pad: 0,  inset: 16, gap: 4,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
   inset:        { label: 'Inset',         rowH: 44, pad: 10, inset: 24, gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
-  insetGrouped: { label: 'Inset Grouped', rowH: 44, pad: 12, inset: 20, gap: 4,  showBg: false, showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
+  insetGrouped: { label: 'Inset Grouped', rowH: 48, pad: 6,  inset: 16, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 14, showGroupCard: false },
   grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
   sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
 }
@@ -621,7 +629,10 @@ export const SF_SYMBOLS = {
   'star.fill':       { glyph: '\u2605', label: 'Star Fill' },
   'heart':           { glyph: '\u2661', label: 'Heart' },
   'heart.fill':      { glyph: '\u2665', label: 'Heart Fill' },
-  'magnifyingglass': { glyph: '\u26B2', label: 'Search' },
+  // U+26B2 is the alchemical "neutral" sign which renders as a venus/\u2640
+  // glyph in most fonts. U+1F50D is a more reliable magnifier; if the
+  // user's font doesn't have it, the renderer falls back gracefully.
+  'magnifyingglass': { glyph: '\u2315', label: 'Search' },
   'bell':            { glyph: '\u266A', label: 'Bell' },
   'bell.fill':       { glyph: '\u266A', label: 'Bell Fill' },
   'envelope':        { glyph: '\u2709', label: 'Envelope' },
@@ -710,7 +721,37 @@ export const SF_SYMBOLS = {
   'visionpro':                   { glyph: '\u25D4', label: 'Vision Pro' },
   'laptopcomputer':              { glyph: '\u2328', label: 'Laptop' },
   'tray':                        { glyph: '\u25AD', label: 'Inbox' },
-  'archivebox':                  { glyph: '\u2601', label: 'Archive' }
+  'tray.full':                   { glyph: '\u25A6', label: 'Inbox Full' },
+  'tray.full.fill':              { glyph: '\u25A6', label: 'Inbox Full Fill' },
+  'archivebox':                  { glyph: '\u26C1', label: 'Archive' },
+  'archivebox.fill':             { glyph: '\u26C1', label: 'Archive Fill' },
+  'flag':                        { glyph: '\u2691', label: 'Flag' },
+  'flag.fill':                   { glyph: '\u2691', label: 'Flag Fill' },
+  'paperplane.fill':             { glyph: '\u27A4', label: 'Send Fill' },
+  'doc.fill':                    { glyph: '\u25A0', label: 'Document Fill' },
+  // Music app additions
+  'music.note':                  { glyph: '\u266B', label: 'Music' },
+  'music.mic':                   { glyph: '\u2698', label: 'Studio' },
+  'play.fill':                   { glyph: '\u25B6', label: 'Play Fill' },
+  'pause.fill':                  { glyph: '\u2389', label: 'Pause Fill' },
+  'forward.fill':                { glyph: '\u23ED', label: 'Forward' },
+  'backward.fill':               { glyph: '\u23EE', label: 'Backward' },
+  // Smart home additions
+  'sofa':                        { glyph: '\u29C9', label: 'Sofa' },
+  'sofa.fill':                   { glyph: '\u29C9', label: 'Sofa Fill' },
+  'fork.knife':                  { glyph: '\u2692', label: 'Cutlery' },
+  'bed.double':                  { glyph: '\u2630', label: 'Bed' },
+  'bed.double.fill':             { glyph: '\u2630', label: 'Bed Fill' },
+  // Tab bar additions
+  'books.vertical':              { glyph: '\u26C0', label: 'Library' },
+  'books.vertical.fill':         { glyph: '\u26C0', label: 'Library Fill' },
+  // Mail reply / forward
+  'arrowshape.turn.up.left':     { glyph: '\u21A9', label: 'Reply' },
+  'arrowshape.turn.up.left.fill':{ glyph: '\u21A9', label: 'Reply Fill' },
+  'arrowshape.turn.up.right':    { glyph: '\u21AA', label: 'Forward' },
+  'square.stack':                { glyph: '\u29C9', label: 'Stack' },
+  // Layout / misc
+  'sparkles':                    { glyph: '\u2728', label: 'Sparkles' }
 }
 
 export const SF_SYMBOL_ORDER = Object.keys(SF_SYMBOLS)

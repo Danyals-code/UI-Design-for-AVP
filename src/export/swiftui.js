@@ -285,7 +285,12 @@ function renderPanel(panel, items, pad, out) {
   emitPanel(panel, {
     push, ind, out,
     escapeString, swiftColor, unitsToPt, applyTextModifiers,
-    sym, fill, textColor, style, weight
+    sym, fill, textColor, style, weight,
+    // Lookup so per-panel emitters (button's tapAction in particular)
+    // can resolve a referenced window/panel id back to its record.
+    // Falls back to null when the id no longer exists, so emitters
+    // can degrade to a generic identifier.
+    lookupItem: (id) => items.find((it) => it.id === id) || null
   })
 
   renderModifiers(panel, out, pad)
@@ -627,12 +632,17 @@ function renderWindow(win, items, pad, out, stateBag) {
     !presentationKids.includes(c) && !ornamentKids.includes(c) && !toolbarKids.includes(c)
   )
 
-  out.push(`${ind}ZStack {`)
+  // Wrap the window content in a ScrollView when the designer flipped
+  // the `Scrollable` toggle. This keeps the SwiftUI tree compact —
+  // no spare ScrollView wrappers for windows that fit their plate.
+  const openWrap = win.scrollable ? `${ind}ScrollView {` : `${ind}ZStack {`
+  const closeWrap = `${ind}}`
+  out.push(openWrap)
   for (const c of inlineKids) {
     if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
     else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
   }
-  out.push(`${ind}}`)
+  out.push(closeWrap)
   out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
   if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
 

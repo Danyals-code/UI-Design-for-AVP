@@ -44,44 +44,25 @@ function LiquidGlass({
     }
     return roundedRectShape(w, h, cornerRadius)
   }, [w, h, cornerRadius, cornerRadii?.[0], cornerRadii?.[1], cornerRadii?.[2], cornerRadii?.[3]])
-  // Halo extension scales with the window size — at the metres-native
-  // canvas scale a 1.2m window with a fixed 4cm halo looks like a heavy
-  // drop shadow. Tying it to ~0.6% of the window's shorter side keeps
-  // the silhouette consistent regardless of window dimensions.
-  const haloPad = Math.max(w, h) * 0.006
-  const shadowShape = useMemo(
-    () => roundedRectShape(w + haloPad, h + haloPad, cornerRadius + haloPad / 2),
-    [w, h, cornerRadius, haloPad]
-  )
+  // No drop shadow — visionOS glass plates rely on translucency and
+  // the environment lighting for their depth cue, not a contact
+  // shadow. The earlier rectangular shadow also bulged past uneven-
+  // corner sidebars (joined NavigationSplitView) creating a visible
+  // "ghost" silhouette. Dropping it cleans up the chrome and matches
+  // the HIG.
   return (
-    <>
-      {/* Faint contact shadow — a couple of millimetres behind the plate
-          so it reads as "hovering" rather than "drawn on a backdrop".
-          `depthWrite={false}` lets foreground content draw over it
-          without z-fighting when viewed at an angle in 3D mode. */}
-      <mesh position={[0, 0, -0.003]} renderOrder={-2}>
-        <shapeGeometry args={[shadowShape]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.10} depthWrite={false} />
-      </mesh>
-
-      {/* Plate fill. Transparent (so designers can see the environment
-          peek through the plate, the way visionOS UI does). `polygonOffset`
-          pushes the plate's depth slightly back in the depth buffer so
-          stacked content (button fills, text labels) at tiny z-offsets
-          above it don't z-fight when the camera moves in 3D. */}
-      <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
-        <shapeGeometry args={[fillShape]} />
-        <meshBasicMaterial
-          color={color}
-          side={THREE.DoubleSide}
-          transparent={fillOpacity < 1}
-          opacity={fillOpacity}
-          polygonOffset
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
-        />
-      </mesh>
-    </>
+    <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
+      <shapeGeometry args={[fillShape]} />
+      <meshBasicMaterial
+        color={color}
+        side={THREE.DoubleSide}
+        transparent={fillOpacity < 1}
+        opacity={fillOpacity}
+        polygonOffset
+        polygonOffsetFactor={1}
+        polygonOffsetUnits={1}
+      />
+    </mesh>
   )
 }
 
@@ -91,7 +72,10 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const scene = useStore((s) => s.scene)
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
-  const isSelected = selectedId === stack.id
+  // Hide the selection halo and suppress click-to-select while preview
+  // is running — the wearer's view should read as the deployed app,
+  // not the editor.
+  const isSelected = !scene.previewMode && selectedId === stack.id
 
   // `resolvedSize` comes from the parent's `resolvedChildSizes` — it already
   // accounts for `widthMode: 'fill'` / `heightMode: 'fill'` expansion. Fall
@@ -129,7 +113,11 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     return resolveSemantic(token, scene.designScheme || 'light')
   })()
 
-  const onDown = (e) => { e.stopPropagation(); select(stack.id) }
+  const onDown = (e) => {
+    e.stopPropagation()
+    if (scene.previewMode) return
+    select(stack.id)
+  }
 
   return (
     <group position={localPosition || [0, 0, 0]}>
@@ -402,7 +390,11 @@ function Window3D({ window: win, items }) {
   )
   const ornamentChildren = allChildren.filter((c) => c.type === 'stack' && c.ornament)
   const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
-  const gap = ptToUnits(ORNAMENT_GAP)
+  // Per WWDC23 #10076, visionOS ornaments *overlap* the window plate
+  // by 20pt rather than floating outside it with a gap. ORNAMENT_GAP
+  // is the overlap distance, used as a NEGATIVE offset against the
+  // edge so the ornament's near edge crosses 20pt into the window.
+  const overlap = ptToUnits(ORNAMENT_GAP)
 
   // Stack multiple ornaments on the same edge instead of overlapping. Each
   // ornament may declare widthMode/heightMode 'fill' to match the window's
@@ -418,18 +410,22 @@ function Window3D({ window: win, items }) {
     const oh = (orn.heightMode === 'fill' && !isHorizEdge) ? h : intrinsic[1]
     let ox = 0, oy = 0
 
+    // Each edge: position the ornament so its INNER edge crosses the
+    // window edge by `overlap` (20pt). For a bottom ornament, its top
+    // is `overlap` above the window's bottom edge; its center sits at
+    // `-(h/2 - overlap + oh/2)`. Same idea for the other three edges.
     if (edge === 'leading') {
-      ox = -(w / 2 + gap + ow / 2) - edgeOffsets.leading
-      edgeOffsets.leading += ow + gap * 0.5
+      ox = -(w / 2 - overlap + ow / 2) - edgeOffsets.leading
+      edgeOffsets.leading += ow
     } else if (edge === 'trailing') {
-      ox = (w / 2 + gap + ow / 2) + edgeOffsets.trailing
-      edgeOffsets.trailing += ow + gap * 0.5
+      ox = (w / 2 - overlap + ow / 2) + edgeOffsets.trailing
+      edgeOffsets.trailing += ow
     } else if (edge === 'top') {
-      oy = (h / 2 + gap + oh / 2) + edgeOffsets.top
-      edgeOffsets.top += oh + gap * 0.5
+      oy = (h / 2 - overlap + oh / 2) + edgeOffsets.top
+      edgeOffsets.top += oh
     } else if (edge === 'bottom') {
-      oy = -(h / 2 + gap + oh / 2) - edgeOffsets.bottom
-      edgeOffsets.bottom += oh + gap * 0.5
+      oy = -(h / 2 - overlap + oh / 2) - edgeOffsets.bottom
+      edgeOffsets.bottom += oh
     }
 
     ornPositions.set(orn.id, [ox, oy, 0.015])
@@ -444,12 +440,56 @@ function Window3D({ window: win, items }) {
   const isVolumetric = win.windowStyle === 'volumetric'
   const showBaseplate = !isVolumetric || win.volumeBaseplateVisibility === 'visible'
 
+  // Preview behaviour: only the active window/volume is shown, snapped
+  // to the wearer's default frame. Non-active items hide entirely so a
+  // multi-item editor layout doesn't show every plate at once. On
+  // preview exit each item snaps back to its stored editor `position`.
+  // Window mode snaps to chest height + 1m forward (the SwiftUI window
+  // default). Volume mode snaps to chest height at world centre (the
+  // volumetric stage default). Both modes are treated identically —
+  // the user's mental model is "preview = experience the active item",
+  // regardless of whether it's a window or a volume.
+  const isPreviewActive = scene.previewMode
+  let activeId = scene.activeWindowId
+  if (!activeId) {
+    // Fall back to the primary window, otherwise the first window in
+    // document order — never null, so a fresh scene previews cleanly.
+    const winItems = items.filter((it) => it.type === 'window')
+    activeId = scene.primaryWindowId || (winItems[0]?.id ?? null)
+  }
+  const isActiveInPreview = isPreviewActive && activeId === win.id
+  if (isPreviewActive && !isActiveInPreview) {
+    return null
+  }
+  // Snap target differs per mode. Window plates sit 1m in front of the
+  // wearer at chest height; volume stages sit at world origin (the
+  // floor) and their child entities already carry chest-height local
+  // Y, so an extra Y bump on the container would land the content
+  // above the camera. Both match the camera pose in Canvas3D so the
+  // active item lands dead-centre in the gaze.
+  const isVolumeScene = scene.sceneMode === 'volume'
+  const previewPos = isPreviewActive
+    ? (isVolumeScene ? [0, 0, 0] : [0, 1.4, -1.0])
+    : win.position
+
   return (
-    <group position={win.position}>
+    <group position={previewPos}>
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
           <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.30} />
+        </mesh>
+      )}
+
+      {/* Scrollable-window indicator. A thin pill on the trailing edge
+          + a soft glass capsule behind it, drawn just inside the plate.
+          Purely a visual cue that the SwiftUI ScrollView is in play
+          at export time — the canvas itself doesn't actually scroll
+          (the editor lets you see the full layout). */}
+      {win.scrollable && (
+        <mesh position={[w / 2 - 0.012, 0, 0.002]}>
+          <planeGeometry args={[0.012, h * 0.32]} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.55} />
         </mesh>
       )}
 

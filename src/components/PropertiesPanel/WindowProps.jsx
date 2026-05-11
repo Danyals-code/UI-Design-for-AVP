@@ -20,17 +20,51 @@ import { ToolbarWizard } from './wizards'
 export function WindowProps({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const renameItem = useStore((s) => s.renameItem)
+  const scene      = useStore((s) => s.scene)
+  const setPrimaryWindow = useStore((s) => s.setPrimaryWindow)
+  const isPrimary = scene.primaryWindowId === item.id
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title="Window" defaultOpen={false}>
+      {/* Window — one section with everything: identity, frame, spatial,
+          and the SwiftUI WindowGroup attributes. Previously these lived
+          in 3 separate dropdowns (Window / Frame / Spatial); merging
+          them removes the "where do I find X?" friction without
+          losing any control. */}
+      <Section title="Window" defaultOpen={true}>
+        {/* Identity */}
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
-      </Section>
+        <Row label="Primary">
+          <div className="segmented flex-1">
+            <button
+              className={isPrimary ? 'active' : ''}
+              onClick={() => setPrimaryWindow(item.id)}
+              title="Open this window first when entering preview"
+            >This window</button>
+            <button
+              className={!isPrimary ? 'active' : ''}
+              onClick={() => setPrimaryWindow(null)}
+              title="Use the first window in the document"
+            >Auto</button>
+          </div>
+        </Row>
+        <Row label="Scrollable">
+          <div className="segmented flex-1">
+            <button
+              className={item.scrollable ? 'active' : ''}
+              onClick={() => updateItem(item.id, { scrollable: true })}
+              title="Wrap the content in a ScrollView for tall layouts"
+            >On</button>
+            <button
+              className={!item.scrollable ? 'active' : ''}
+              onClick={() => updateItem(item.id, { scrollable: false })}
+            >Off</button>
+          </div>
+        </Row>
 
-      {/* Frame — size, position, inner padding. */}
-      <Section title="Frame" defaultOpen={false}>
-        <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">Size</div>
+        {/* Frame */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Size</div>
         <div className="grid grid-cols-2 gap-1.5">
           <Row label="W"><PtField value={item.size[0]} onChange={(v) => updateItem(item.id, { size: [v, item.size[1]] })} /></Row>
           <Row label="H"><PtField value={item.size[1]} onChange={(v) => updateItem(item.id, { size: [item.size[0], v] })} /></Row>
@@ -52,9 +86,40 @@ export function WindowProps({ item }) {
           <Row label="Y"><NumField value={item.position[1]} onChange={(v) => updateItem(item.id, { position: [item.position[0], v, item.position[2]] })} /></Row>
           <Row label="Z"><NumField value={item.position[2]} onChange={(v) => updateItem(item.id, { position: [item.position[0], item.position[1], v] })} /></Row>
         </div>
+
+        {/* Spatial */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Behaviour</div>
+        <Row label="Immersion"><Select value={item.spatial?.immersionStyle || 'mixed'} options={IMMERSION_STYLES} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, immersionStyle: v } })} /></Row>
+        <Row label="Hover"><Select value={item.spatial?.hoverEffect || 'automatic'} options={HOVER_EFFECTS} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, hoverEffect: v } })} /></Row>
+        <Row label="Resize"><Select value={item.spatial?.windowResizability || 'automatic'} options={WINDOW_RESIZABILITY} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, windowResizability: v } })} /></Row>
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-2 mb-1">Gestures</div>
+        <div className="flex flex-wrap gap-1">
+          {GESTURE_TYPES.map((g) => {
+            const gestures = item.spatial?.gestures || []
+            const active = gestures.includes(g.value)
+            return (
+              <button
+                key={g.value}
+                onClick={() => {
+                  const next = active ? gestures.filter((x) => x !== g.value) : [...gestures, g.value]
+                  updateItem(item.id, { spatial: { ...item.spatial, gestures: next } })
+                }}
+                className={`px-2 py-0.5 text-[9px] rounded border transition-colors ${
+                  active ? 'bg-accent border-accent text-white' : 'bg-surface3 border-border text-textDim hover:text-text'
+                }`}
+              >
+                {g.label}
+              </button>
+            )
+          })}
+        </div>
       </Section>
 
-      <Section title="Material" defaultOpen={false}>
+      {/* Appearance — material + tint colour. Kept as its own section
+          because window plates frequently get a non-default glass
+          treatment that's worth surfacing without scrolling past the
+          frame/spatial details. */}
+      <Section title="Appearance" defaultOpen={false}>
         <Row label="Glass">
           <Select
             value={item.material || 'regular'}
@@ -73,18 +138,10 @@ export function WindowProps({ item }) {
         </Row>
       </Section>
 
-      {/*
-        The window vs volume choice is driven entirely by the scene
-        mode toggle in the top-right of the viewport (Window / Volume).
-        Picking Volume on the toggle creates the window with
-        `windowStyle: 'volumetric'` and the corresponding volume
-        modifiers. Surfacing the same option here was confusing — the
-        user could pick "volumetric" on a window while in window mode
-        and get a half-volume hybrid that didn't export correctly.
-        Volume-specific metadata (depth, scaling, viewpoints) now
-        lives in the volume scene's window inspector only when the
-        mode is volume.
-      */}
+      {/* Volume-specific metadata — only consulted when this window is
+          volumetric (scene-mode = volume). Picking volumetric on a
+          flat window mid-design was a footgun, so the toggle lives on
+          the viewport's scene-mode picker instead. */}
       {item.windowStyle === 'volumetric' && (
         <Section title="Volume" defaultOpen={false}>
           <Row label="Depth">
@@ -107,33 +164,6 @@ export function WindowProps({ item }) {
           </div>
         </Section>
       )}
-
-      <Section title="Spatial" defaultOpen={false}>
-        <Row label="Immersion"><Select value={item.spatial?.immersionStyle || 'mixed'} options={IMMERSION_STYLES} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, immersionStyle: v } })} /></Row>
-        <Row label="Hover"><Select value={item.spatial?.hoverEffect || 'automatic'} options={HOVER_EFFECTS} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, hoverEffect: v } })} /></Row>
-        <Row label="Resize"><Select value={item.spatial?.windowResizability || 'automatic'} options={WINDOW_RESIZABILITY} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, windowResizability: v } })} /></Row>
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-2">Gestures</div>
-        <div className="flex flex-wrap gap-1">
-          {GESTURE_TYPES.map((g) => {
-            const gestures = item.spatial?.gestures || []
-            const active = gestures.includes(g.value)
-            return (
-              <button
-                key={g.value}
-                onClick={() => {
-                  const next = active ? gestures.filter((x) => x !== g.value) : [...gestures, g.value]
-                  updateItem(item.id, { spatial: { ...item.spatial, gestures: next } })
-                }}
-                className={`px-2 py-0.5 text-[9px] rounded border transition-colors ${
-                  active ? 'bg-accent border-accent text-white' : 'bg-surface3 border-border text-textDim hover:text-text'
-                }`}
-              >
-                {g.label}
-              </button>
-            )
-          })}
-        </div>
-      </Section>
 
       {/* Chrome — visionOS exposes two first-party window attachments:
           • `.toolbar { ... }` ornament (top/bottom, leading/principal/trailing)

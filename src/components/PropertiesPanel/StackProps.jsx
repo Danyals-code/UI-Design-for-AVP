@@ -23,7 +23,11 @@ export function StackProps({ item }) {
   const isSplit = !!item.splitStyle
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      <Section title={isSplit ? 'Navigation Split View' : 'Stack'}>
+      {/* One section for everything stack-related: identity, kind,
+          alignment, spacing, padding, sizing, scroll. Previously
+          split across "Stack" + "Layout" which made the user hunt
+          between two dropdowns for related properties. */}
+      <Section title={isSplit ? 'Navigation Split View' : 'Stack'} defaultOpen={true}>
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
@@ -97,9 +101,7 @@ export function StackProps({ item }) {
             </div>
           </Row>
         )}
-      </Section>
-
-      <Section title="Layout">
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Layout</div>
         <Row label="Align">
           <StackAlignmentPicker
             stackType={item.stackType}

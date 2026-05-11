@@ -70,6 +70,97 @@ export const createSceneSlice = (set, get) => ({
     }
   }),
 
+  // Preview-only navigation: which window is presented at the camera
+  // pose right now. Not undoable — preview clicks shouldn't pollute
+  // the undo stack. Falls back gracefully if the requested id is not
+  // a window in the current scene.
+  setActiveWindow: (id) => set((s) => {
+    const target = s.items.find((it) => it.id === id && it.type === 'window')
+    if (!target) return s
+    return { scene: { ...s.scene, activeWindowId: id } }
+  }),
+
+  // Designer-set: which window opens first when the user enters
+  // preview. Persisted on the scene so re-entering preview always
+  // starts from the same plate.
+  setPrimaryWindow: (id) => undoable(set, get, (s) => {
+    return { scene: { ...s.scene, primaryWindowId: id } }
+  }),
+
+  // ---- SwiftUI action dispatcher --------------------------------
+  //
+  // Buttons / toggles can carry a `tapAction` whose `type` selects
+  // one of the visual-navigation effects below. Mirrors the shape of
+  // RealityKit behaviour actions but keeps the implementation small
+  // — the editor wires up the action via the inspector, preview
+  // dispatches it on click. The effect runs against the live store;
+  // we don't push these to undo because they're preview-only state.
+  //
+  // Supported action types:
+  //   - navigateWindow { windowId }            — swap active window
+  //   - navigateTab    { stackId, tab }        — flip a TabView's tab
+  //   - presentSheet   { panelId }             — show a sheet/popover/alert
+  //   - dismiss        { panelId }             — hide a presentation panel
+  //   - setToggle      { panelId, value }      — explicit on/off
+  //   - flipToggle     { panelId }             — invert current value
+  runTapAction: (action) => {
+    if (!action || !action.type) return
+    const state = get()
+    switch (action.type) {
+      case 'navigateWindow': {
+        if (!action.windowId) return
+        const target = state.items.find((it) => it.id === action.windowId && it.type === 'window')
+        if (!target) return
+        set((s) => ({ scene: { ...s.scene, activeWindowId: action.windowId } }))
+        return
+      }
+      case 'navigateTab': {
+        if (!action.stackId) return
+        const stack = state.items.find((it) => it.id === action.stackId)
+        if (!stack) return
+        set((s) => ({
+          items: s.items.map((it) => it.id === action.stackId ? { ...it, activeTab: action.tab ?? 0 } : it)
+        }))
+        return
+      }
+      case 'presentSheet':
+      case 'dismiss': {
+        if (!action.panelId) return
+        set((s) => ({
+          items: s.items.map((it) => it.id === action.panelId
+            ? { ...it, visible: action.type === 'presentSheet' }
+            : it
+          )
+        }))
+        return
+      }
+      case 'setToggle': {
+        if (!action.panelId) return
+        set((s) => ({
+          items: s.items.map((it) => it.id === action.panelId
+            ? { ...it, toggleOn: !!action.value }
+            : it
+          )
+        }))
+        return
+      }
+      case 'flipToggle': {
+        if (!action.panelId) return
+        const cur = state.items.find((it) => it.id === action.panelId)
+        if (!cur) return
+        set((s) => ({
+          items: s.items.map((it) => it.id === action.panelId
+            ? { ...it, toggleOn: !it.toggleOn }
+            : it
+          )
+        }))
+        return
+      }
+      default:
+        return
+    }
+  },
+
   updateScene: (patch) => undoable(set, get, (s) => {
     const next = { ...s.scene, ...patch }
     // `preview3D` no longer gets reset on mode switches — both window

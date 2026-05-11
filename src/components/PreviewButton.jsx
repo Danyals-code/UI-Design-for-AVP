@@ -17,13 +17,42 @@ export default function PreviewButton() {
   const sceneMode   = useStore((s) => s.scene.sceneMode)
   const isVolume = sceneMode === 'volume'
 
-  const enter = () => updateScene({ previewMode: true })
-  const exit  = () => updateScene({ previewMode: false })
+  // Entering preview always slams the camera back to the wearer's
+  // default eye-line pose. Without this the user keeps whatever orbit
+  // pose they were authoring with — including weird angles — and the
+  // preview reads as "broken" before they even start interacting.
+  // Defer the snap a frame so previewMode flips first; OrbitControls
+  // disables itself in preview, so the snap targets the FPS rig.
+  //
+  // Window mode: seed `activeWindowId` with the configured primary
+  // (or the first window in document order) so preview opens to a
+  // known plate. A Button's tapAction can mutate it from there.
+  const enter = () => {
+    const state = useStore.getState()
+    const isWindow = state.scene.sceneMode === 'window'
+    let activeWindowId = state.scene.activeWindowId
+    if (isWindow) {
+      const wins = state.items.filter((it) => it.type === 'window')
+      const primary = state.scene.primaryWindowId
+      activeWindowId = (primary && wins.some((w) => w.id === primary))
+        ? primary
+        : (wins[0]?.id || null)
+    }
+    updateScene({ previewMode: true, activeWindowId })
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
+    })
+  }
+  // Exit clears `activeWindowId` so the editor's multi-window layout
+  // shows every plate again at its stored editor position.
+  const exit  = () => updateScene({ previewMode: false, activeWindowId: null })
 
   // Shared shell so the entry / exit pill keep identical metrics — same
-  // bottom-centre slot, same height, same padding. Only the icon, label,
-  // and hover affordance differ between the two states.
-  const PillShell = ({ onClick, title, children }) => (
+  // bottom-centre slot, same height, same padding. `tinted` flips the
+  // pill into a solid accent colour so the Preview entry button reads
+  // as the primary action in the viewport rather than blending into the
+  // other dark chrome.
+  const PillShell = ({ onClick, title, children, tinted = false }) => (
     <button
       onClick={onClick}
       title={title}
@@ -31,11 +60,12 @@ export default function PreviewButton() {
         display: 'flex', alignItems: 'center', gap: 8,
         height: 30,
         paddingLeft: 14, paddingRight: 14,
-        border: '1px solid #2e2e2e',
-        background: 'rgba(21, 21, 21, 0.92)',
+        border: tinted ? '1px solid #0a84ff' : '1px solid #2e2e2e',
+        background: tinted ? '#0a84ff' : 'rgba(21, 21, 21, 0.92)',
         backdropFilter: 'blur(8px)',
-        color: '#eaeaea',
-        fontSize: 12, fontWeight: 500,
+        color: tinted ? '#ffffff' : '#eaeaea',
+        boxShadow: tinted ? '0 6px 16px rgba(10, 132, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)' : 'none',
+        fontSize: 12, fontWeight: tinted ? 600 : 500,
         borderRadius: 6,
         cursor: 'pointer',
         whiteSpace: 'nowrap'
@@ -56,22 +86,21 @@ export default function PreviewButton() {
   if (previewMode) {
     // Same anchor as the Preview entry button so the user's mouse
     // doesn't have to travel — flipping in / out of preview is a single
-    // click in one fixed spot. The Reset Camera button sits beside it
+    // click in one fixed spot. The Reset View button sits beside it
     // so the user can recover from any walk-around without leaving
-    // preview.
+    // preview. Shown for window mode too — the wearer can also
+    // walk/orbit out of frame and may need a way back.
     return (
       <>
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-2">
-          {isVolume && (
-            <PillShell onClick={resetCamera} title="Snap back to the default VR spawn point">
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                {/* Curved reset arrow */}
-                <path d="M3 8a5 5 0 1 0 1.5-3.5" />
-                <path d="M3 3v3h3" />
-              </svg>
-              Reset Camera
-            </PillShell>
-          )}
+          <PillShell onClick={resetCamera} title={isVolume ? 'Snap back to the default VR spawn point' : 'Re-centre the camera on the window'}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              {/* Curved reset arrow */}
+              <path d="M3 8a5 5 0 1 0 1.5-3.5" />
+              <path d="M3 3v3h3" />
+            </svg>
+            Reset View
+          </PillShell>
           <PillShell onClick={exit} title="Leave preview and return to editing">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 4l8 8M12 4l-8 8" />
@@ -126,11 +155,15 @@ export default function PreviewButton() {
     )
   }
 
+  // z-30 keeps the tinted Preview entry above the bottom-left edit
+  // hint on narrow viewports — the hint sits at z-20 and would
+  // otherwise overlap the button when the canvas area gets compressed.
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-auto">
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
       <PillShell
         onClick={enter}
         title={`Run the ${isVolume ? 'volume' : 'window'} as a live preview`}
+        tinted
       >
         {/* Play triangle */}
         <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">

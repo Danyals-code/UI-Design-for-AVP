@@ -358,7 +358,14 @@ export default function AssetsPanel() {
             <div className="mt-2 text-textDim">Use <span className="text-textBase">📁</span> to create folders.</div>
           </div>
         )}
-        <div className="grid grid-cols-3 gap-1.5">
+        {/* Auto-fit tile grid — uses minmax so columns flex as the
+            sidebar grows. App.jsx widens the sidebar with the asset
+            library; the grid responds by laying out more tiles per
+            row instead of stretching individual tiles past readable. */}
+        <div
+          className="grid gap-1.5"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))' }}
+        >
           {visible.map((a) => (
             <AssetTile
               key={a.id}

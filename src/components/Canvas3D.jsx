@@ -12,18 +12,37 @@ import DemoVolumeScene from './DemoVolumeScene'
 import ModalTransform from './ModalTransform'
 import FirstPersonControls from './FirstPersonControls'
 
-// Camera targets in metres (1 unit = 1m). Window mode keeps a 1m-out
-// chest-height target. Volume mode places the wearer at the studio's
-// open +Z edge, eye-line height, looking back toward world centre
-// along -Z — the conventional three.js / RealityKit forward axis.
-// This way default-rotated planes, text and USDZ models (which all
-// use +Z forward) face the wearer correctly without a per-entity
-// 90° rotation hack. The studio decor GLB is rotated 90° in
-// `<DemoVolumeScene>` so the painting wall stays behind the spawn
-// area instead of off to the right.
+// Camera targets in metres (1 unit = 1m). Distances match the visionOS
+// Xcode simulator: a SwiftUI window plate spawns ~1.4m in front of the
+// wearer, and a default volume sits ~1.5m away. The wearer is at
+// eye-line height (1.55m) and looks back along -Z — the conventional
+// three.js / RealityKit forward axis — so default-rotated planes,
+// text and USDZ models (all +Z forward) face the wearer correctly
+// without per-entity 90° rotations. The studio decor GLB is rotated
+// 90° in `<DemoVolumeScene>` so the painting wall stays behind the
+// spawn area instead of off to the right.
+// Both window mode and volume mode treat preview as the same
+// experience: camera fixed, active item snaps to a stand-off in
+// front of the camera, gaze strictly horizontal (camera Y === target
+// Y so there's no down-tilt). The two stand-off distances mirror the
+// Xcode simulator defaults — 1.4m for windows, 1.5m for volumes.
 const TARGET_WINDOW = [0, 1.4, -1.0]
-const VOLUME_VR_POS    = [0, 1.55, 3]
+const WINDOW_VR_POS    = [0, 1.4, 0.4]
+// Volume content centres at chest height (1.2m). Camera Y is locked
+// to that height so the gaze is perpendicular to the volume centre,
+// matching the window-mode treatment. Wearer at z = 1.5 keeps the
+// 1.5m stand-off the simulator uses.
 const VOLUME_VR_TARGET = [0, 1.2, 0]
+const VOLUME_VR_POS    = [0, 1.2, 1.5]
+
+// Stand-off the preview camera holds from the active window plate, in
+// metres. 1.4m matches the Xcode simulator's default UIWindow
+// placement. The *window* snaps to this offset in preview (not the
+// camera), so the editor can lay out many windows side-by-side and
+// preview always shows the active one dead-centre in front of the
+// wearer. See `Window3D` for the position override.
+export const PREVIEW_WINDOW_STAND_OFF = 1.4
+export const WINDOW_VR_POSE = { pos: WINDOW_VR_POS, target: TARGET_WINDOW }
 
 // Cursor-driven Blender-modal transforms live in ModalTransform.jsx — no
 // drei TransformControls handle. Click a tool (or press G/R/S), move
@@ -74,19 +93,21 @@ function CameraViewBinder() {
       controls?.update?.()
     }
 
-    // Default VR view — wearer at the open +X edge of the studio,
-    // standing eye-line height, looking horizontally back at the
-    // painting wall via the orbit pivot at chest height. Same pose
-    // ModeHandler uses when entering volume mode, so the "VR View"
-    // pill (editing) and the "Reset Camera" pill (preview) both
-    // round-trip to the same pose. Calling `camera.lookAt` covers the
-    // preview case where OrbitControls is disabled — without it, only
-    // position would update and the FPS rig's pre-existing yaw/pitch
-    // would survive the snap.
+    // Default VR view. Both modes use a fixed camera pose — the user
+    // can place windows wherever they like in the editor, but preview
+    // always frames the wearer's eye-line + 1.4m stand-off, and the
+    // active window snaps in front of that camera (see Window3D).
+    // Calling `camera.lookAt` covers the preview case where
+    // OrbitControls is disabled — without it, only position would
+    // update and the FPS rig's pre-existing yaw/pitch would survive
+    // the snap.
     const onSnapToDefault = () => {
-      camera.position.set(...VOLUME_VR_POS)
-      camera.lookAt(...VOLUME_VR_TARGET)
-      if (controls?.target) controls.target.set(...VOLUME_VR_TARGET)
+      const isVolume = useStore.getState().scene.sceneMode === 'volume'
+      const pos    = isVolume ? VOLUME_VR_POS    : WINDOW_VR_POS
+      const target = isVolume ? VOLUME_VR_TARGET : TARGET_WINDOW
+      camera.position.set(...pos)
+      camera.lookAt(...target)
+      if (controls?.target) controls.target.set(...target)
       controls?.update?.()
     }
 
@@ -154,13 +175,13 @@ function ImageBackground({ url }) {
   )
 }
 
-// Camera routing (metres-scale):
-//   - volume mode     → orbit around the demo floor / volumetric content
-//   - window preview3D=true → angled orbit around the window plate
-//   - window mode (2D) → flat head-on at the window
+// Camera routing (metres-scale). Both modes now always render in the
+// wearer's VR view at the same stand-off the Xcode visionOS simulator
+// uses for default windows and volumes:
+//   - volume mode → orbit around demo floor, wearer 1.5m from centre
+//   - window mode → orbit around the window plate, wearer 1.4m out
 function ModeHandler() {
   const sceneMode = useStore((s) => s.scene.sceneMode)
-  const preview3D = useStore((s) => s.scene.preview3D)
   const { camera, controls } = useThree()
   useEffect(() => {
     // Apply pose, then re-apply on the next frame. The first apply
@@ -174,15 +195,13 @@ function ModeHandler() {
       if (sceneMode === 'volume') {
         camera.position.set(...VOLUME_VR_POS)
         if (controls?.target) controls.target.set(...VOLUME_VR_TARGET)
-      } else if (preview3D) {
-        // Window VR view: park the wearer slightly in front of the
-        // window plate (which sits at z = −1), eye-line height, so
-        // the studio decor frames the plate the way a visionOS
-        // window appears in someone's living room.
-        camera.position.set(0, 1.55, 1.4)
-        if (controls?.target) controls.target.set(...TARGET_WINDOW)
       } else {
-        camera.position.set(0, 1.4, 0.8)
+        // Window mode: camera stays at the eye-line / studio-default
+        // pose. The active window snaps to be in front of it (Window3D
+        // overrides position when previewing). This lets the editor
+        // lay out many windows side-by-side without the camera
+        // chasing whichever one happened to be first.
+        camera.position.set(...WINDOW_VR_POS)
         if (controls?.target) controls.target.set(...TARGET_WINDOW)
       }
       controls?.update?.()
@@ -190,7 +209,7 @@ function ModeHandler() {
     apply()
     const raf = requestAnimationFrame(apply)
     return () => cancelAnimationFrame(raf)
-  }, [sceneMode, preview3D, camera, controls])
+  }, [sceneMode, camera, controls])
   return null
 }
 

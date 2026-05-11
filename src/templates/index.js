@@ -261,13 +261,15 @@ function smartHome() {
   })
   // Scene pills — slight rounding (12pt) to match visionOS's actual
   // control radius, and a soft secondary surface that pairs with the
-  // light room cards above.
+  // light room cards above. Width bumped to 140pt so the longest
+  // label ("Movie Night") fits without truncating, with 12pt of
+  // padding on either side of the glyph run.
   const sceneData = ['Movie Night', 'Bright', 'Focus', 'Sleep']
   const sceneItems = sceneData.map((label) => makePanel('button', {
     parentId: scenes.id, name: label, text: label,
     textStyle: 'subheadline',
     fontSize: textStyleToFontSize('subheadline'),
-    size: [ptToUnits(120), ptToUnits(40)],
+    size: [ptToUnits(140), ptToUnits(40)],
     cornerRadius: ptToUnits(12),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -297,10 +299,16 @@ function smartHome() {
 // actual visionOS Settings sheet.
 function settings() {
   const tab = makeTab({ name: 'Settings', icon: 'gearshape.fill' })
-  const w   = makeWindow({ name: 'Settings', parentId: tab.id })
+  // Taller window — Settings ships with title + search + account card
+  // + a 4-row list + a header + slider + 4 toggles. Regular (800×600)
+  // overflowed the plate; 800×900 holds the full set without scrolling.
+  const w   = makeWindow({
+    name: 'Settings', parentId: tab.id,
+    size: [ptToUnits(800), ptToUnits(900)]
+  })
   const root = makeStack({
     parentId: w.id, name: 'Content',
-    stackType: 'vstack', alignment: 'leading', spacing: 14, padding: 24,
+    stackType: 'vstack', alignment: 'leading', spacing: 14, padding: 32,
     widthMode: 'fill', heightMode: 'fill'
   })
   const title = makePanel('text', {
@@ -308,10 +316,13 @@ function settings() {
     textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
     fontWeight: 'bold', widthMode: 'fill'
   })
+  // Fill width so the search field tracks the window plate at any
+  // preset size — we used to ship a fixed 360pt width alongside
+  // widthMode:'fill', which the layout engine treated as conflicting
+  // and left the field looking stuck on the leading edge.
   const search = makePanel('search', {
     parentId: root.id, name: 'Search', text: 'Search settings',
-    widthMode: 'fill',
-    size: [ptToUnits(360), ptToUnits(36)]
+    widthMode: 'fill'
   })
 
   // Account header card — soft secondary surface that harmonises
@@ -323,10 +334,13 @@ function settings() {
     background: '#d8d8dc',
     cornerRadius: ptToUnits(14)
   })
-  const avatar = makePanel('image', {
+  // Solid coloured swatch — `image` panels with no imageUrl render
+  // a "missing image" cross which made the avatar look like a `+`
+  // tile. A `circle` keeps the same disc silhouette but stays
+  // visually intentional regardless of whether a user uploads.
+  const avatar = makePanel('circle', {
     parentId: accountCard.id, name: 'Avatar',
     size: [ptToUnits(48), ptToUnits(48)],
-    cornerRadius: ptToUnits(24),
     color: '#0a84ff', colorToken: null
   })
   const acctLabels = makeStack({
@@ -407,7 +421,14 @@ function settings() {
 // Mail app shape on visionOS.
 function mailApp() {
   const tab = makeTab({ name: 'Mail', icon: 'envelope.fill' })
-  const w   = makeWindow({ name: 'Mail', parentId: tab.id })
+  // NavigationSplitView needs horizontal room — a 280pt sidebar plus
+  // a detail pane wide enough for a multi-line email body doesn't fit
+  // the 800pt regular preset. 1280×800 mirrors the visionOS Wide
+  // preset and gives the detail pane ~960pt of breathing room.
+  const w   = makeWindow({
+    name: 'Mail', parentId: tab.id,
+    size: [ptToUnits(1280), ptToUnits(800)]
+  })
   const root = makeStack({
     parentId: w.id, stackType: 'hstack',
     name: 'NavigationSplitView',
@@ -453,18 +474,19 @@ function mailApp() {
     { label: 'Sent',        icon: 'paperplane', badge: ''    },
     { label: 'Archive',     icon: 'archivebox', badge: ''    }
   ]
-  // Sidebar nav rows — plain "selectable list item" treatment. No
-  // explicit fill (matches Apple's Mail sidebar, where the row sits
-  // on the sidebar's own glass without a coloured chip) so the rows
-  // read as list items rather than buttons. Selection / hover are
-  // expected to add a system highlight at runtime.
+  // Sidebar nav rows — plain "selectable list item" treatment.
+  // widthMode:'fill' (instead of a hardcoded 248pt size) lets each
+  // row stretch the full inner width of the sidebar regardless of
+  // what fixed width the sidebar gets resized to, matching the way
+  // visionOS Mail draws its rows flush to the sidebar's leading edge.
   const navRows = navData.map((n) => makePanel('button', {
     parentId: sidebar.id, name: n.label, text: n.label,
     textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    widthMode: 'fill',
     size: [ptToUnits(248), ptToUnits(36)],
     cornerRadius: ptToUnits(8),
     buttonStyle: 'plain',
-    colorToken: 'designWindow',
+    color: '#00000000', colorToken: null,
     textColor: '#000000', textColorToken: null,
     textAlign: 'left',
     symbolName: n.icon
@@ -504,11 +526,16 @@ function mailApp() {
     textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
     fontWeight: 'semibold', widthMode: 'fill'
   })
+  // Body text uses a fixed-height fill frame so the parent VStack
+  // leaves room for the wrapped lines. Without the explicit
+  // heightMode the layout engine uses the single-line intrinsic
+  // height and the wrapped body paints over the subject above.
   const body = makePanel('text', {
     parentId: detail.id, name: 'Body',
-    text: 'Hi,\n\nThanks for your patience while we reviewed your app. We\'re happy to let you know that your submission is approved and ready for distribution on the App Store for visionOS.\n\nThe Apple Developer team',
+    text: 'Hi, thanks for your patience while we reviewed your app. We\'re happy to let you know that your submission is approved and ready for distribution on the App Store for visionOS.\n\n— The Apple Developer team',
     textStyle: 'body', fontSize: textStyleToFontSize('body'),
-    widthMode: 'fill'
+    widthMode: 'fill',
+    heightMode: 'fixed', size: [ptToUnits(640), ptToUnits(160)]
   })
 
   return {
@@ -552,27 +579,37 @@ function tabBarApp() {
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
 
-  // Bottom tab-bar ornament — soft surface that picks up the same
-  // off-white as the window plate so the bar reads as part of the
-  // app rather than a contrasting dark band.
+  // Bottom tab-bar ornament — tight 2pt internal padding, height
+  // hugs the contained pills (heightMode 'fit'), and the ornament
+  // anchor logic in SceneTree lets it overlap the window plate by
+  // 20pt per the visionOS HIG (WWDC23 #10076). Background tone
+  // picks up the off-white plate so the bar reads as part of the app
+  // rather than a contrasting dark band.
   const bar = makeStack({
     parentId: w.id, stackType: 'hstack',
     ornament: 'bottom', name: 'Tab Bar',
     background: '#d8d8dc',
-    fixedHeight: 64, padding: 10, spacing: 22, alignment: 'center',
-    widthMode: 'fit', heightMode: 'fixed'
+    padding: 2, spacing: 4, alignment: 'center',
+    widthMode: 'fit', heightMode: 'fit'
   })
   // Tab pills — selected tab uses the system accent fill, others
   // sit on the bar's secondary tone with dark labels for readability
-  // against the light surface.
+  // against the light surface. Pill width bumped to 100pt so the
+  // icon + label combo fits without the glyph overrunning the text.
+  // Icons trimmed to symbols our SF_SYMBOLS map renders reliably.
+  // Tab pills are full capsules — cornerRadius = height/2 so the
+  // ends are perfectly round (matches the HIG Apple Music transport
+  // pill). The active tab keeps the borderedProminent fill;
+  // inactive tabs render flat in the ornament's shared capsule.
   const tabLabels = ['Home', 'Browse', 'Library', 'Profile']
-  const tabIcons  = ['house', 'magnifyingglass', 'books.vertical', 'person.crop.circle']
+  const tabIcons  = ['house.fill', 'magnifyingglass', 'books.vertical.fill', 'person.crop.circle.fill']
+  const TAB_HEIGHT = 44
   const tabs = tabLabels.map((label, i) => makePanel('button', {
     parentId: bar.id, name: label, text: label,
     textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
     fontWeight: 'medium',
-    size: [ptToUnits(76), ptToUnits(44)],
-    cornerRadius: ptToUnits(14),
+    size: [ptToUnits(110), ptToUnits(TAB_HEIGHT)],
+    cornerRadius: ptToUnits(TAB_HEIGHT / 2),
     buttonStyle: i === 0 ? 'borderedProminent' : 'plain',
     color: i === 0 ? '#0a84ff' : '#ecedef', colorToken: null,
     textColor: i === 0 ? '#ffffff' : '#000000', textColorToken: null,
@@ -594,7 +631,11 @@ function tabBarApp() {
 // shell" starting point.
 function filesApp() {
   const tab = makeTab({ name: 'Files', icon: 'folder' })
-  const w   = makeWindow({ name: 'Files', parentId: tab.id })
+  // Same NavigationSplitView shape as Mail — needs the Wide preset.
+  const w   = makeWindow({
+    name: 'Files', parentId: tab.id,
+    size: [ptToUnits(1280), ptToUnits(800)]
+  })
 
   // Outer HStack: sidebar (240pt) | divider | main (fill).
   const root = makeStack({
@@ -608,16 +649,24 @@ function filesApp() {
   // Joined sidebar — left edge inherits the window's corner radius;
   // right edge is flush against the detail pane. Soft secondary
   // surface that pairs with the near-white window plate.
+  // Sidebar is 280pt wide (was 240) with 14pt inner padding so the
+  // "Files" title + "..." menu button fit on one row without
+  // clipping. JOINED split style rounds the leading edge into the
+  // window corner; the right edge sits flush against the detail pane.
   const sidebar = makeStack({
     parentId: root.id, name: 'Sidebar',
-    stackType: 'vstack', alignment: 'leading', spacing: 14, padding: 18,
-    fixedWidth: 240,
+    stackType: 'vstack', alignment: 'leading', spacing: 12, padding: 14,
+    fixedWidth: 280,
     widthMode: 'fixed', heightMode: 'fill',
     background: '#d8d8dc',
     cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
     cornerRadii: JOINED_SIDEBAR_RADII
   })
-  // Title row: large "Files" + ⋯ menu.
+  // Title row: "Files" + ⋯ menu. Uses title1 instead of largeTitle
+  // so the title fits inside a 240pt sidebar without clipping. The
+  // menu button keeps a faint glass swatch (matching visionOS' soft
+  // pill chrome) — previously it had transparent fill + no glyph
+  // colour, so it rendered as a blank dot.
   const sidebarHeader = makeStack({
     parentId: sidebar.id, name: 'Header',
     stackType: 'hstack', alignment: 'center', spacing: 8, padding: 0,
@@ -625,15 +674,16 @@ function filesApp() {
   })
   const sidebarTitle = makePanel('text', {
     parentId: sidebarHeader.id, name: 'Title', text: 'Files',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'title1', fontSize: textStyleToFontSize('title1'),
     fontWeight: 'bold', widthMode: 'fill'
   })
   const sidebarMenu = makePanel('button', {
     parentId: sidebarHeader.id, name: 'Menu', text: '',
-    size: [ptToUnits(28), ptToUnits(28)],
-    cornerRadius: ptToUnits(14),
+    size: [ptToUnits(32), ptToUnits(32)],
+    cornerRadius: ptToUnits(16),
     buttonStyle: 'plain',
-    color: '#00000000', colorToken: null,
+    color: '#ecedef', colorToken: null,
+    textColor: '#000000', textColorToken: null,
     symbolName: 'ellipsis'
   })
 
@@ -641,7 +691,7 @@ function filesApp() {
   // the list doesn't blow past the sidebar's fixed 240pt frame.
   const pinnedList = makePanel('list', {
     parentId: sidebar.id, name: 'Pinned',
-    size: [ptToUnits(204), ptToUnits(0)],
+    size: [ptToUnits(252), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
       { title: 'Recents', subtitle: '' },
@@ -657,7 +707,7 @@ function filesApp() {
   })
   const locationsList = makePanel('list', {
     parentId: sidebar.id, name: 'Locations',
-    size: [ptToUnits(204), ptToUnits(0)],
+    size: [ptToUnits(252), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
       { title: 'iCloud Drive',           subtitle: '' },
@@ -674,7 +724,7 @@ function filesApp() {
   })
   const tagsList = makePanel('list', {
     parentId: sidebar.id, name: 'Tags',
-    size: [ptToUnits(204), ptToUnits(0)],
+    size: [ptToUnits(252), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
       { title: 'Red',    subtitle: '' },
@@ -690,20 +740,22 @@ function filesApp() {
     stackType: 'vstack', alignment: 'center', spacing: 0, padding: 0,
     widthMode: 'fill', heightMode: 'fill'
   })
-  // Top toolbar: ‹ › buttons + "Recents" title + search.
+  // Top toolbar: ‹ › buttons + "Recents" title + Select pill.
+  // Tighter spacing + padding so the contents reliably fit inside
+  // the main pane regardless of how the joined NavigationSplitView
+  // allocates width between sidebar and detail. The crumb text
+  // hugs its content (no widthMode fill) and gets pushed to the
+  // centre by a leading Spacer; a trailing Spacer pushes the
+  // Select pill to the right edge.
   const toolbar = makeStack({
     parentId: main.id, name: 'Toolbar',
-    stackType: 'hstack', alignment: 'center', spacing: 8, padding: 14,
+    stackType: 'hstack', alignment: 'center', spacing: 6, padding: 8,
     widthMode: 'fill', heightMode: 'fit'
   })
-  // Toolbar chrome — soft secondary circles for back/forward, a
-  // centred crumb, and a "Select" pill at the trailing edge. All
-  // share the same surface tone as the sidebar so the toolbar reads
-  // as one unit with the light window plate.
   const back = makePanel('button', {
     parentId: toolbar.id, name: 'Back', text: '',
-    size: [ptToUnits(34), ptToUnits(34)],
-    cornerRadius: ptToUnits(17),
+    size: [ptToUnits(30), ptToUnits(30)],
+    cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
     textColor: '#000000', textColorToken: null,
@@ -711,22 +763,27 @@ function filesApp() {
   })
   const fwd = makePanel('button', {
     parentId: toolbar.id, name: 'Forward', text: '',
-    size: [ptToUnits(34), ptToUnits(34)],
-    cornerRadius: ptToUnits(17),
+    size: [ptToUnits(30), ptToUnits(30)],
+    cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
     textColor: '#000000', textColorToken: null,
     symbolName: 'chevron.right'
   })
+  const leadSpacer = makePanel('spacer', { parentId: toolbar.id, name: 'Lead Spacer' })
   const crumb = makePanel('text', {
     parentId: toolbar.id, name: 'Crumb', text: 'Recents',
     textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
-    fontWeight: 'semibold', widthMode: 'fill', textAlign: 'center'
+    fontWeight: 'semibold', textAlign: 'center',
+    // Explicit width so the layout engine never wraps the title to
+    // two lines when the spacers push the centre slot small.
+    widthMode: 'fixed', size: [ptToUnits(120), ptToUnits(24)]
   })
+  const trailSpacer = makePanel('spacer', { parentId: toolbar.id, name: 'Trail Spacer' })
   const select = makePanel('button', {
     parentId: toolbar.id, name: 'Select', text: 'Select',
-    size: [ptToUnits(72), ptToUnits(32)],
-    cornerRadius: ptToUnits(16),
+    size: [ptToUnits(64), ptToUnits(30)],
+    cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
     textColor: '#000000', textColorToken: null
@@ -763,7 +820,7 @@ function filesApp() {
       tab, w, root,
       sidebar, sidebarHeader, sidebarTitle, sidebarMenu,
       pinnedList, locationsHeader, locationsList, tagsHeader, tagsList,
-      main, toolbar, back, fwd, crumb, select,
+      main, toolbar, back, fwd, leadSpacer, crumb, trailSpacer, select,
       empty, emptyIcon, emptyTitle, emptyBody
     ],
     activeTabId: tab.id

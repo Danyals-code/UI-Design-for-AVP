@@ -62,12 +62,21 @@ export function gridColumnCount(stack, innerW, gap) {
 // Intrinsic (content-hug) size for a text-like panel. Width grows with the
 // character count (plus tracking), height grows with the font size (plus any
 // extra .lineSpacing the user dialled in).
+//
+// Explicit newlines in the body bump the height proportionally so a
+// multi-line block (Mail body, multi-paragraph hero copy) doesn't
+// collapse to a single-line slot and overlap its siblings inside a
+// VStack. Wrap-driven multi-line is still under-counted at this stage
+// — the parent only knows the wrap width once layoutStack runs — but
+// '\n' is information we have here, so we honour it.
 function textIntrinsicSize(item) {
   const text = item.text || ''
   const fontSize = item.fontSize || ptToUnits(17)
   const glyphAdv = fontSize * 0.55 + ptToUnits(item.tracking || 0)
-  const w = Math.max(ptToUnits(40), text.length * glyphAdv)
-  const h = fontSize * 1.5 + ptToUnits(item.lineSpacing || 0)
+  const lines = Math.max(1, text.split('\n').length)
+  const longestLine = text.split('\n').reduce((m, l) => Math.max(m, l.length), 1)
+  const w = Math.max(ptToUnits(40), longestLine * glyphAdv)
+  const h = fontSize * 1.5 * lines + ptToUnits((item.lineSpacing || 0) * lines)
   return [w, h]
 }
 
@@ -78,20 +87,26 @@ export function computeSize(item, items) {
   if (item.type === 'panel' && item.isSpacer) return [0, 0]
 
   if (item.type !== 'stack' && item.type !== 'window') {
-    // Text / Link: honour `widthMode` (fit / fixed / fill).
-    // For `fill`, layoutStack overrides the width with the parent's innerW —
-    // here we return the intrinsic height but fall back to intrinsic width
-    // so a `fill` child in a free-sizing parent still has a sensible default.
+    // Text / Link: honour `widthMode` (fit / fixed / fill) plus an
+    // optional `heightMode: 'fixed'` for multi-paragraph blocks where
+    // the intrinsic single-line count would underestimate the slot.
+    // For `fill`, layoutStack overrides the width with the parent's
+    // innerW — here we return the intrinsic height but fall back to
+    // intrinsic width so a `fill` child in a free-sizing parent still
+    // has a sensible default.
     const isTextLike = item.type === 'panel' && (item.panelType === 'text' || item.panelType === 'link')
     if (isTextLike) {
       const mode = item.widthMode || 'fit'
+      const hMode = item.heightMode || 'fit'
       const [iw, ih] = textIntrinsicSize(item)
+      const fixedH = hMode === 'fixed' && Array.isArray(item.size) && item.size[1] ? item.size[1] : null
       if (mode === 'fixed' && Array.isArray(item.size)) {
-        return [item.size[0], item.size[1] || ih]
+        return [item.size[0], fixedH ?? item.size[1] ?? ih]
       }
       // fit and fill both start from intrinsic at this stage. fill gets
-      // resized later inside layoutStack once innerW is known.
-      return [iw, ih]
+      // resized later inside layoutStack once innerW is known. `fixed`
+      // heightMode wins over the intrinsic guess when present.
+      return [iw, fixedH ?? ih]
     }
     // List: height is driven by (row count × style row height) + style pad.
     // Width uses the stored frame or a sensible default — Apple lets Lists
