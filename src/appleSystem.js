@@ -58,20 +58,26 @@ export const TEXT_STYLE_ORDER = [
 export const textStyleDefaultWeight = (style) =>
   TEXT_STYLES[style]?.weight ?? 'regular'
 
-// visionOS window sizes. These match Apple's default "regular" window.
-// Users can resize the window freely; these are just starting presets.
+// visionOS window sizes. Defaults follow the canonical Apple example
+// `.defaultSize(width: 800, height: 600)` so freshly-created windows
+// drop into the same proportions Apple's templates use. Other presets
+// stay around for designers who want a different starting frame.
 export const WINDOW_PRESETS = {
-  regular:  { label: 'Regular',  width: 1636, height: 1142 },
-  wide:     { label: 'Wide',     width: 1600, height: 900 },
-  tall:     { label: 'Tall',     width: 900,  height: 1200 },
-  compact:  { label: 'Compact',  width: 960,  height: 600 },
-  square:   { label: 'Square',   width: 1000, height: 1000 }
+  regular:  { label: 'Regular',  width: 800,  height: 600 },
+  wide:     { label: 'Wide',     width: 1280, height: 720 },
+  tall:     { label: 'Tall',     width: 720,  height: 1080 },
+  compact:  { label: 'Compact',  width: 640,  height: 480 },
+  square:   { label: 'Square',   width: 720,  height: 720 }
 }
 
+// Volume sizes follow Apple's `.defaultSize(_, _, _, in: .meters)` —
+// the canonical example is 0.6 × 0.4 × 0.6 m. We store them in pt
+// for the canvas (1360pt = 1m) so they round-trip cleanly through
+// the layout engine, then re-emit in metres at export time.
 export const VOLUME_PRESETS = {
-  small:   { label: 'Small',   width: 600,  height: 600,  depth: 600 },
-  medium:  { label: 'Medium',  width: 1000, height: 800,  depth: 800 },
-  large:   { label: 'Large',   width: 1400, height: 1000, depth: 1200 }
+  small:   { label: 'Small',   width: 544,  height: 408,  depth: 544 },   // 0.4 × 0.3 × 0.4 m
+  medium:  { label: 'Medium',  width: 816,  height: 544,  depth: 816 },   // 0.6 × 0.4 × 0.6 m (Apple default)
+  large:   { label: 'Large',   width: 1224, height: 816,  depth: 1224 }   // 0.9 × 0.6 × 0.9 m
 }
 
 // visionOS uses a glass material for window backgrounds. We approximate with

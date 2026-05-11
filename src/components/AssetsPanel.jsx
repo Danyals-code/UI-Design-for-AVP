@@ -14,9 +14,10 @@
 // Built-in starter meshes will live alongside user assets later; we
 // surface the seam by treating folders / assets uniformly.
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { TEMPLATES, TEMPLATE_ORDER_WINDOW, TEMPLATE_ORDER_VOLUME } from '../templates'
+import { SearchIcon } from './icons'
 
 // ---- Built-in templates folder -------------------------------------
 //
@@ -167,7 +168,19 @@ export default function AssetsPanel() {
   const [dragOver, setDragOver] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
+  // Search: mirrors the LayersPanel pattern — hidden by default, click
+  // the magnifier to reveal a filter input that filters by asset /
+  // template / folder name. When a query is active we flatten the
+  // current folder's listing AND surface any nested matches so the
+  // user can find a template living inside `Templates → Window` from
+  // the top-level Assets folder without navigating in.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const fileInputRef = useRef(null)
+  const searchInputRef = useRef(null)
+  useEffect(() => {
+    if (searchOpen) requestAnimationFrame(() => searchInputRef.current?.focus())
+  }, [searchOpen])
 
   // Build the breadcrumb path back to root by walking parentId.
   // Virtual template folders use a separate breadcrumb chain since
@@ -189,8 +202,26 @@ export default function AssetsPanel() {
   // Items shown at the current folder level. We always show the
   // virtual `Templates` folder at root, and switch the listing to
   // synthesized template records when the user is inside the
-  // virtual subtree.
+  // virtual subtree. A non-empty search query flattens the listing
+  // to all matches anywhere in the asset tree + every template.
+  const q = query.trim().toLowerCase()
   const visible = useMemo(() => {
+    if (q) {
+      const matchesName = (n) => (n || '').toLowerCase().includes(q)
+      // Real assets — match anywhere in the tree.
+      const realMatches = assets
+        .filter((a) => matchesName(a.name))
+        .sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      // Templates — surface any whose label matches.
+      const tplMatches = [
+        ...TEMPLATE_ORDER_WINDOW.map((k) => virtualTemplateRecord(k, TPL_WINDOW)),
+        ...TEMPLATE_ORDER_VOLUME.map((k) => virtualTemplateRecord(k, TPL_VOLUME))
+      ].filter((t) => t && matchesName(t.name))
+      return [...tplMatches, ...realMatches]
+    }
     if (isVirtualFolder(currentFolder)) {
       return getVirtualEntries(currentFolder)
     }
@@ -204,7 +235,7 @@ export default function AssetsPanel() {
       return [...getVirtualEntries(null), ...real]
     }
     return real
-  }, [assets, currentFolder])
+  }, [assets, currentFolder, q])
 
   const onPickFiles = () => fileInputRef.current?.click()
   const onFileInputChange = async (e) => {
@@ -254,6 +285,16 @@ export default function AssetsPanel() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => {
+              setSearchOpen((o) => !o)
+              if (searchOpen) setQuery('')
+            }}
+            className={`btn btn-icon btn-ghost ${searchOpen ? 'text-accent' : ''}`}
+            title="Search assets"
+          >
+            <SearchIcon size={12} />
+          </button>
+          <button
+            onClick={() => {
               const id = createAssetFolder('New Folder', currentFolder)
               startRename({ id, name: 'New Folder' })
             }}
@@ -279,6 +320,22 @@ export default function AssetsPanel() {
           />
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="px-2 py-1.5 border-b border-border">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={query}
+            placeholder="Filter assets"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { setQuery(''); setSearchOpen(false) }
+            }}
+            className="field w-full"
+          />
+        </div>
+      )}
 
       {/* Breadcrumbs */}
       <div className="flex items-center gap-1 px-2 py-1 text-[10px] flex-shrink-0">

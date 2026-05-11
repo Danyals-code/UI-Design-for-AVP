@@ -147,9 +147,9 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
     () => roundedRectShape(w, h, cornerRadius),
     [w, h, cornerRadius]
   )
-  // Outline padding tied to window size — fixed mm-scale halos dwarf
-  // a 1m window at the metres-native canvas scale.
-  const rvOutlinePad = Math.max(w, h) * 0.008
+  // Outline padding — same hairline metric as windows/stacks so a
+  // selected panel reads as a thin tint ring rather than a fat halo.
+  const rvOutlinePad = Math.max(w, h) * 0.0025
   const outlineShape = useMemo(
     () => roundedRectShape(w + rvOutlinePad, h + rvOutlinePad, cornerRadius + rvOutlinePad / 2),
     [w, h, cornerRadius, rvOutlinePad]
@@ -163,7 +163,7 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
       {isSelected && (
         <mesh position={[0, 0, -0.012]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={tint} transparent opacity={0.45} />
+          <meshBasicMaterial color={tint} transparent opacity={0.28} />
         </mesh>
       )}
 
@@ -450,15 +450,33 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     if (panelType === 'text' || panelType === 'button') setEditing(id)
   }
 
-  // Button style resolves final fill / opacity / fallback text color
+  // Button style resolves final fill / opacity / fallback text color.
+  //
+  // `.plain` paints with whatever the user picked — `color` for the
+  // fill, `textColor` for the label. Earlier this branch overrode
+  // both: it set fill opacity to 0 (hiding any custom background) and
+  // forced the text to the scene tint, which made templated rows
+  // with a dark surface + white text render as transparent rows with
+  // blue text — and produced the "all my buttons turned blue" bug.
+  // Respecting the user-set color (and only tinting when no override
+  // is in place via `colorToken`) restores the expected behaviour.
   const buttonStyle = panel.buttonStyle || 'bordered'
   let resolvedFill = fillColor
   let resolvedFillOpacity = 0.98
   let resolvedTextColor = textColor
   if (panelType === 'button') {
     if (buttonStyle === 'plain') {
-      resolvedFillOpacity = 0.0
-      resolvedTextColor = scene.tintColor || textColor
+      // If the template/user supplied an explicit color (hex literal,
+      // colorToken: null), honour it. A bare `colorToken` like
+      // `'designWindow'` defers to the system-pick path — those
+      // buttons fade to transparent so just the label shows.
+      const hasExplicitFill = panel.colorToken === null && !!panel.color
+      if (!hasExplicitFill) {
+        resolvedFillOpacity = 0.0
+        if (panel.textColorToken == null && panel.textColor == null) {
+          resolvedTextColor = scene.tintColor || textColor
+        }
+      }
     } else if (buttonStyle === 'borderedProminent') {
       resolvedFill = scene.tintColor || '#007aff'
       resolvedTextColor = '#ffffff'
@@ -479,7 +497,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient']
   const hasFill = !noFillTypes.includes(panelType)
   const labelTypes = ['text', 'button', 'image', 'slideshow', 'sheet', 'path', 'groupbox']
-  const showDefaultLabel = !isEditing && labelTypes.includes(panelType)
+  // Image panels render their placeholder via the cross meshes above
+  // (lines 1531-1538) — drawing "Image" as a text label on top of a
+  // 48pt avatar swatch wraps one glyph per line and looks broken.
+  // Hide the default label for `image` whenever there's no user-set
+  // text (the cross is enough); `text` panels with an empty body keep
+  // showing their type name as a hint.
+  const imagePlaceholder = panelType === 'image' && !panel.imageUrl && !panel.text
+  const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder
   const isComplex = ['list', 'table', 'menu', 'progress', 'slider', 'stepper', 'gauge', 'search'].includes(panelType)
 
   const baseFontSize = panel.textStyle
@@ -505,10 +530,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // on non-Text panels (button, picker etc.). Pure text/link panels have no
   // inset — the panel box already equals the text's bounds.
   const textInset = (panelType === 'text' || panelType === 'link') ? 0 : ptToUnits(4)
+  // Buttons with a leading SF Symbol (`Label(_, systemImage:)`) need
+  // the text shifted right past the icon so they don't overlap. The
+  // icon sits at `-size[0]/2 + 12pt` and renders at ~`finalFontSize *
+  // 1.1` wide — reserve 28pt of leading runway for left-aligned text,
+  // and bias centered text by half that so the title stays optically
+  // centred within the remaining width.
+  const hasLeadingSymbol = panelType === 'button' && panel.symbolName && SF_SYMBOLS[panel.symbolName]
+  const symbolOffset = hasLeadingSymbol ? ptToUnits(28) : 0
   const textX =
-    panel.textAlign === 'left'  ? -size[0] / 2 + textInset
+    panel.textAlign === 'left'  ? -size[0] / 2 + textInset + symbolOffset
   : panel.textAlign === 'right' ?  size[0] / 2 - textInset
-  : 0
+  : symbolOffset / 2
 
   // Text-specific modifiers (.italic, .underline, .strikethrough, .lineLimit,
   // .lineSpacing, .tracking, .textCase) come from the ordered modifier stack
@@ -1273,12 +1306,39 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                    && !dragData.current?.dragging
                    && effectiveHover !== 'none'
                    && !!scene.previewMode
-  let hoverScale = 1, hoverLift = 0
+  // visionOS hover is soft — a subtle scale (~1%) and a few-millimetre
+  // lift, not a 5% jump. The old numbers read as jittery cards
+  // popping toward the camera when the gaze flicked. Reduced
+  // amplitudes match the actual gaze-hover feel on device.
+  let hoverScaleTarget = 1, hoverLiftTarget = 0
   if (hoverActive) {
-    if (effectiveHover === 'lift')         { hoverScale = 1.05; hoverLift = 0.06 }
-    else if (effectiveHover === 'highlight'){ hoverScale = 1.00; hoverLift = 0.02 }
-    else                                    { hoverScale = 1.02; hoverLift = 0.02 } // automatic
+    if (effectiveHover === 'lift')          { hoverScaleTarget = 1.015; hoverLiftTarget = 0.012 }
+    else if (effectiveHover === 'highlight') { hoverScaleTarget = 1.000; hoverLiftTarget = 0.006 }
+    else                                     { hoverScaleTarget = 1.008; hoverLiftTarget = 0.006 } // automatic
   }
+  // Damp toward the target each frame so the hover reads as a glide,
+  // not a hard snap. The animated state lives in refs (no re-renders
+  // per frame) and the actual transform is applied imperatively to
+  // the group's matrix below. 12% per-frame catch-up at 60fps maps to
+  // ~120ms to reach 95% of the target — close to Apple's `easeOut`.
+  const hoverAnimRef = useRef({ scale: 1, lift: 0 })
+  useFrame(() => {
+    const cur = hoverAnimRef.current
+    const dScale = hoverScaleTarget - cur.scale
+    const dLift  = hoverLiftTarget - cur.lift
+    if (Math.abs(dScale) < 0.0002 && Math.abs(dLift) < 0.0002) return
+    cur.scale += dScale * 0.12
+    cur.lift  += dLift  * 0.12
+    const g = groupRef.current
+    if (g) {
+      g.scale.x = modScaleX * cur.scale
+      g.scale.y = modScaleY * cur.scale
+      g.position.z = (localPosition?.[2] || 0) + cur.lift
+    }
+    invalidate()
+  })
+  const hoverScale = hoverAnimRef.current.scale
+  const hoverLift = hoverAnimRef.current.lift
 
   const borderRing = useMemo(
     () => hasBorder ? rimRingShape(size[0], size[1], cornerRadius, ptToUnits(borderSummary.width)) : null,
@@ -1459,15 +1519,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {hoverActive && effectiveHover === 'highlight' && hasFill && (
         <mesh position={[0, 0, 0.0015]}>
           <shapeGeometry args={[fillShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} />
+          <meshBasicMaterial color={'#ffffff'} transparent opacity={0.06} />
         </mesh>
       )}
-      {/* Lift effect: drop a soft shadow under the panel so the lift reads
-          as 3D, not just a scale. */}
+      {/* Lift effect: a soft contact shadow under the panel — kept
+          gentle so the hover reads as a glide, not a slam. */}
       {hoverActive && effectiveHover === 'lift' && hasFill && (
-        <mesh position={[0, -0.015, -0.012]}>
+        <mesh position={[0, -0.004, -0.012]}>
           <shapeGeometry args={[fillShape]} />
-          <meshBasicMaterial color="#000000" transparent opacity={0.22} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.12} />
         </mesh>
       )}
       {/* Modifier: shadow — rect shadow only for panels with a visible fill.
@@ -1483,7 +1543,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {isSelected && !isEditing && panelType !== 'text' && panelType !== 'link' && panelType !== 'label' && (
         <mesh position={[0, 0, -0.002]}>
           <shapeGeometry args={[outlineShape]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.45} />
+          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.28} />
         </mesh>
       )}
       {/* Text/Link/Label selection: subtle underline instead of bounding box */}

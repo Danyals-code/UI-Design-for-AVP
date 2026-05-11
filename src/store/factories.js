@@ -133,7 +133,9 @@ export const makeWindow = (overrides = {}) => ({
   // the volume-only knobs below.
   windowStyle: 'automatic',         // 'automatic' | 'plain' | 'volumetric'
   // Volume metadata — only consulted when windowStyle === 'volumetric'.
-  volumeDepthMeters: 1.0,           // .defaultSize depth in meters
+  // 0.6m matches Apple's canonical example
+  // `.defaultSize(width: 0.6, height: 0.4, depth: 0.6, in: .meters)`.
+  volumeDepthMeters: 0.6,           // .defaultSize depth in meters
   worldScalingBehavior: 'automatic',// .defaultWorldScalingBehavior
   volumeBaseplateVisibility: 'automatic',
   volumeWorldAlignment: 'adaptive', // visionOS 2+
@@ -432,14 +434,14 @@ export const DEFAULT_SCENE = {
                                 // primary text, so we match that out-of-box.
   tintColor: '#007aff',
   hdri: null,                   // null | drei Environment preset
-  // Legacy gate from the experimental window-mode 3D preview camera.
-  // Kept for window mode (the 2D / 3D viewport toggle still drives it);
-  // volume mode renders the canvas directly without consulting this.
-  preview3D: false,
+  // Window mode renders inside the same 3D studio as volume mode — the
+  // wearer's living-room view is the default so the designer immediately
+  // sees how their window reads in space. The viewport's "VR View"
+  // pill flips this off for a flat head-on plate when needed.
+  preview3D: true,
   // Toggle a simulator-style demo scene (floor + scattered props) behind
-  // any volumetric content. Off by default so a brand-new project starts
-  // clean; users flip it on from the viewport overlay when they want a
-  // sense of scale.
+  // the user's content. On by default for both modes so the designer
+  // gets a sense of scale immediately.
   showDemoScene: true,
   // Preview mode — the canvas runs as if it were the deployed app.
   // Editing chrome (layers panel, properties panel, transform toolbar,
@@ -455,6 +457,13 @@ export const DEFAULT_SCENE = {
   // so we can lean a bit hotter than 1.0.
   ambientLightIntensity: 0.7,
   keyLightIntensity:     0.5,
+  // Key-light position in world space (metres). The light always targets
+  // the stage centre at (0, 1.2, 0) — moving the position changes the
+  // angle of the cast shadow on the floor without ever pointing the
+  // light away from the wooden stool / hero object. Default sits high
+  // and slightly forward so contact shadows fall mostly underneath
+  // entities rather than across the back wall.
+  keyLightPosition: [0, 4.5, 1.5],
   // Studio HDRI (drei `<Environment preset="...">`) for instant IBL
   // without the user picking a file. `null` defers to scene.hdri (a
   // bundled .hdr asset) when present, otherwise no environment.

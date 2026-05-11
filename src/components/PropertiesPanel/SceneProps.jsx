@@ -68,34 +68,41 @@ export function SceneProps({ scene, updateScene }) {
           </div>
         </Row>
         {scene.colorScheme === 'image' && (
-          <Row label="Image">
-            <label className="btn flex-1 justify-center cursor-pointer">
-              {scene.backgroundImage ? 'Change…' : 'Choose…'}
-              <input
-                id="viewport-bg-image-input"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  const reader = new FileReader()
-                  reader.onload = (ev) => {
-                    updateScene({ backgroundImage: ev.target.result, colorScheme: 'image' })
-                  }
-                  reader.readAsDataURL(file)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-            {scene.backgroundImage && (
-              <button
-                className="btn btn-ghost"
-                onClick={() => updateScene({ backgroundImage: null, colorScheme: 'dark' })}
-                title="Remove image"
-              >×</button>
-            )}
-          </Row>
+          <>
+            <Row label="Image">
+              <label className="btn flex-1 justify-center cursor-pointer">
+                {scene.backgroundImage ? 'Change…' : 'Choose…'}
+                <input
+                  id="viewport-bg-image-input"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = (ev) => {
+                      updateScene({ backgroundImage: ev.target.result, colorScheme: 'image' })
+                    }
+                    reader.readAsDataURL(file)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+              {scene.backgroundImage && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => updateScene({ backgroundImage: null, colorScheme: 'dark' })}
+                  title="Remove image"
+                >×</button>
+              )}
+            </Row>
+            <div className="text-[10px] text-textMute leading-relaxed">
+              The image wraps the scene as a 360° HDRI: it surrounds the
+              camera and lights PBR materials. Equirectangular panoramas
+              read best; regular photos work but won't tile seamlessly.
+            </div>
+          </>
         )}
         {scene.colorScheme !== 'image' && (
           <input
@@ -158,6 +165,42 @@ export function SceneProps({ scene, updateScene }) {
             onChange={(v) => updateScene({ keyLightIntensity: v })}
           />
         </Row>
+        {/*
+          Key-light position in world space. The light always targets the
+          stage centre (the wooden stool at 0, 1.2, 0) — moving the
+          position changes the angle of the cast shadow without ever
+          pointing the rim away from the hero object. X swings the light
+          left/right, Y lifts it overhead, Z pushes it forward or behind
+          the wearer. Ranges are tuned to the studio's metres-scale bbox
+          so the slider sweep maps to "useful" angles.
+        */}
+        <Row label="Key X">
+          <Slider
+            value={scene.keyLightPosition?.[0] ?? 0}
+            min={-6} max={6} step={0.1}
+            onChange={(v) => updateScene({
+              keyLightPosition: [v, scene.keyLightPosition?.[1] ?? 4.5, scene.keyLightPosition?.[2] ?? 1.5]
+            })}
+          />
+        </Row>
+        <Row label="Key Y">
+          <Slider
+            value={scene.keyLightPosition?.[1] ?? 4.5}
+            min={0.5} max={8} step={0.1}
+            onChange={(v) => updateScene({
+              keyLightPosition: [scene.keyLightPosition?.[0] ?? 0, v, scene.keyLightPosition?.[2] ?? 1.5]
+            })}
+          />
+        </Row>
+        <Row label="Key Z">
+          <Slider
+            value={scene.keyLightPosition?.[2] ?? 1.5}
+            min={-6} max={6} step={0.1}
+            onChange={(v) => updateScene({
+              keyLightPosition: [scene.keyLightPosition?.[0] ?? 0, scene.keyLightPosition?.[1] ?? 4.5, v]
+            })}
+          />
+        </Row>
         <Row label="Environment">
           <Select
             value={scene.environmentPreset || 'none'}
@@ -166,18 +209,21 @@ export function SceneProps({ scene, updateScene }) {
           />
         </Row>
         <div className="text-[10px] text-textMute leading-snug mt-1">
-          Environment provides PBR reflections without requiring an HDRI
-          file. An HDRI from <code>Viewport</code> takes precedence when set.
+          The key light always points at the stage centre. Environment
+          provides PBR reflections without an HDRI; an HDRI or Image
+          background from <code>Viewport</code> takes precedence when set.
         </div>
       </Section>
 
+      {/*
+        visionOS has no global light/dark switch — the system runs in
+        a single perceptual palette and individual views opt into a
+        scheme via `.preferredColorScheme(_:)`. The old global "Scheme"
+        toggle was misleading because it implied a wider system
+        setting. We keep the accent tint, which maps to SwiftUI's
+        `.tint(_:)` modifier and does affect the actual export.
+      */}
       <Section title="Design">
-        <Row label="Scheme">
-          <div className="segmented flex-1">
-            <button className={scene.designScheme === 'light' ? 'active' : ''} onClick={() => updateScene({ designScheme: 'light' })}>Light</button>
-            <button className={scene.designScheme === 'dark' ? 'active' : ''} onClick={() => updateScene({ designScheme: 'dark' })}>Dark</button>
-          </div>
-        </Row>
         <Row label="Tint">
           <ColorRow value={scene.tintColor} onChange={(v) => updateScene({ tintColor: v })} />
         </Row>

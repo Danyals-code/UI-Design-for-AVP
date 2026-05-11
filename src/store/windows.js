@@ -12,7 +12,10 @@
 // In-window TabView lives in `stacks.js` because it produces a stack subtree
 // without window-level chrome.
 
-import { ptToUnits, SPLIT_SEPARATED_WIDTH, SPLIT_SEPARATED_RADIUS } from '../appleSystem'
+import {
+  ptToUnits, SPLIT_SEPARATED_WIDTH, SPLIT_SEPARATED_RADIUS,
+  WINDOW_CORNER_RADIUS
+} from '../appleSystem'
 import { undoable } from './undo'
 import { makeWindow, makeStack, makePanel, textStyleToFontSize } from './factories'
 import { findTargetWindow } from './helpers'
@@ -224,6 +227,16 @@ export const createWindowsSlice = (set, get) => ({
       searchable: 'none',
       searchPrompt: 'Search'
     })
+    // Joined sidebar: matches the window's outer corner radius on the
+    // left edge (top-left + bottom-left) and butts flush with the
+    // detail pane on the right (zero radius). visionOS uses
+    // `UnevenRoundedRectangle` here so the sidebar reads as one
+    // half of the window plate, not a separate floating column.
+    // Separated sidebars float as a dialogue with even 30pt corners.
+    const winR = ptToUnits(WINDOW_CORNER_RADIUS)
+    const sidebarCorners = separated
+      ? { cornerRadius: ptToUnits(SPLIT_SEPARATED_RADIUS) }
+      : { cornerRadius: winR, cornerRadii: [winR, 0, 0, winR] }
     const sidebar = makeStack({
       parentId: root.id,
       stackType: 'vstack',
@@ -234,13 +247,13 @@ export const createWindowsSlice = (set, get) => ({
       heightMode: 'fill',
       fixedWidth: sideW,
       alignment: 'leading',
-      // Readable mid-grey that sits between the window fill (#9ea1a2) and
-      // black — avoids the near-black the previous secondarySystemBackground
-      // token resolved to in dark mode.
-      background: '#6b6e70',
+      // Soft secondary surface that harmonises with the near-white
+      // window plate (`designWindow` ≈ #ecedef). One step darker is
+      // enough to read as a separate column without the previous
+      // near-black sidebar fighting the light detail pane.
+      background: '#d8d8dc',
       material: 'thin',
-      // Separated sidebars render as a floating dialogue with a 30pt radius.
-      ...(separated ? { cornerRadius: ptToUnits(SPLIT_SEPARATED_RADIUS) } : {})
+      ...sidebarCorners
     })
     const detail = makeStack({
       parentId: root.id,
@@ -264,11 +277,14 @@ export const createWindowsSlice = (set, get) => ({
       fontWeight: 'bold',
       textAlign: 'left',
       widthMode: 'fill',
-      colorToken: 'primary',
+      colorToken: null,
       color: '#000000'
     })
     const navLabels = ['Inbox', 'Starred', 'Drafts', 'Archive']
     const navIcons  = ['tray',  'star',    'doc',    'archivebox']
+    // Nav rows ride the sidebar's surface without their own coloured
+    // chip — the plain button style leaves the row's fill transparent
+    // and lets the system highlight a selected row at runtime.
     const navRows = navLabels.map((label, i) => makePanel('button', {
       parentId: sidebar.id,
       name: label,
@@ -276,13 +292,12 @@ export const createWindowsSlice = (set, get) => ({
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       fontWeight: 'regular',
-      size: [ptToUnits(sideW - 32), ptToUnits(40)],
-      cornerRadius: ptToUnits(10),
+      size: [ptToUnits(sideW - 32), ptToUnits(36)],
+      cornerRadius: ptToUnits(8),
       buttonStyle: 'plain',
-      color: '#ffffff',
-      colorToken: null,
+      colorToken: 'designWindow',
       textColor: '#000000',
-      textColorToken: 'primary',
+      textColorToken: null,
       textAlign: 'left',
       symbolName: navIcons[i] || null,
       symbolRenderingMode: 'monochrome'
@@ -358,10 +373,15 @@ export const createWindowsSlice = (set, get) => ({
           }
         }
         if (sidebar && it.id === sidebar.id) {
+          const winR = ptToUnits(WINDOW_CORNER_RADIUS)
           return {
             ...it,
             fixedWidth: sideW,
-            cornerRadius: separated ? ptToUnits(SPLIT_SEPARATED_RADIUS) : undefined
+            cornerRadius: separated ? ptToUnits(SPLIT_SEPARATED_RADIUS) : winR,
+            // Joined flushes the right edge against the detail pane;
+            // separated rounds all four corners evenly. Clearing
+            // `cornerRadii` on separated puts us back on the even path.
+            cornerRadii: separated ? null : [winR, 0, 0, winR]
           }
         }
         // Resize nav-row buttons so their 16pt-inset width matches the
