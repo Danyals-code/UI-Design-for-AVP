@@ -240,71 +240,64 @@ export const INSPECTORS = {
   ),
 
   button: (ctx) => (
-    <>
-      <Section title="Button Style">
-        <Row label="Style">
-          <Select
-            value={ctx.item.buttonStyle || 'automatic'}
-            options={Object.entries(BUTTON_STYLES).map(([k, v]) => ({ value: k, label: v.label }))}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonStyle: v })}
-          />
-        </Row>
-        {/*
-          `.buttonBorderShape(_:)` only takes effect on bordered styles —
-          we still expose it on every button so designers can preview the
-          shape switch (capsule / circle / rounded rect / automatic).
-        */}
-        <Row label="Shape">
-          <Select
-            value={ctx.item.buttonBorderShape || 'automatic'}
-            options={BUTTON_BORDER_SHAPES}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonBorderShape: v })}
-          />
-        </Row>
-        <Row label="Size">
-          <Select
-            value={ctx.item.controlSize || 'regular'}
-            options={CONTROL_SIZES}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { controlSize: v })}
-          />
-        </Row>
-        {/*
-          `role:` distinguishes destructive/cancel buttons. SwiftUI applies
-          the appropriate red tint and confirmation semantics automatically;
-          on visionOS the role is still respected even though the visual
-          treatment is glass-tuned.
-        */}
-        <Row label="Role">
-          <Select
-            value={ctx.item.buttonRole || 'none'}
-            options={[
-              { value: 'none',        label: 'None' },
-              { value: 'destructive', label: 'Destructive' },
-              { value: 'cancel',      label: 'Cancel' }
-            ]}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
-          />
-        </Row>
-        {/*
-          `.tint(_:)` overrides the system accent on the button label/border.
-          Empty hex falls back to the system tint (visionOS white on glass).
-        */}
-        <Row label="Tint">
-          <ColorRow
-            value={ctx.item.tint || '#0a84ff'}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
-          />
-          {ctx.item.tint && (
-            <button
-              className="btn btn-ghost text-[9px]"
-              title="Use system tint"
-              onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
-            >×</button>
-          )}
-        </Row>
-      </Section>
-      <TextSection {...ctx} sectionTitle="Label" includeBody />
-    </>
+    // One unified "Button" section. Previously split across "Button
+    // Style" + "Label" which split related controls (the button's
+    // visual style and the text on it) across two dropdowns. Style
+    // pickers sit up top; the label-text + font controls sit below
+    // under a small sub-heading so they're easy to scan.
+    <Section title="Button" defaultOpen={true}>
+      <Row label="Style">
+        <Select
+          value={ctx.item.buttonStyle || 'automatic'}
+          options={Object.entries(BUTTON_STYLES).map(([k, v]) => ({ value: k, label: v.label }))}
+          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonStyle: v })}
+        />
+      </Row>
+      <Row label="Shape">
+        <Select
+          value={ctx.item.buttonBorderShape || 'automatic'}
+          options={BUTTON_BORDER_SHAPES}
+          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonBorderShape: v })}
+        />
+      </Row>
+      <Row label="Size">
+        <Select
+          value={ctx.item.controlSize || 'regular'}
+          options={CONTROL_SIZES}
+          onChange={(v) => ctx.updateItem(ctx.item.id, { controlSize: v })}
+        />
+      </Row>
+      <Row label="Role">
+        <Select
+          value={ctx.item.buttonRole || 'none'}
+          options={[
+            { value: 'none',        label: 'None' },
+            { value: 'destructive', label: 'Destructive' },
+            { value: 'cancel',      label: 'Cancel' }
+          ]}
+          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
+        />
+      </Row>
+      <Row label="Tint">
+        <ColorRow
+          value={ctx.item.tint || '#0a84ff'}
+          onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
+        />
+        {ctx.item.tint && (
+          <button
+            className="btn btn-ghost text-[9px]"
+            title="Use system tint"
+            onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
+          >×</button>
+        )}
+      </Row>
+
+      {/* Label text + typography. Embedded as a sub-block so the user
+          doesn't have to expand another dropdown to edit the button's
+          text or font. */}
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Label</div>
+      <TextSection {...ctx} sectionTitle="Label" includeBody embedded />
+    </Section>
   ),
 
   toggle: ({ item, updateItem }) => (

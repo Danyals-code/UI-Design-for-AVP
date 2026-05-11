@@ -1,8 +1,20 @@
+import { useState } from 'react'
 import { useStore } from '../store'
+import { SearchIcon } from './icons'
+import HelpDialog from './HelpDialog'
 
 export default function Topbar({ onTitleClick, previewMode = false }) {
   const count = useStore((s) => s.items.length)
   const mode = useStore((s) => s.scene.sceneMode)
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // Search button reuses the existing command palette so we keep a
+  // single search/runner surface. CommandPalette already listens for
+  // the `open-add-palette` event the layers-panel + button uses; we
+  // hook into it here so the topbar magnifier behaves identically.
+  const openSearch = () => {
+    window.dispatchEvent(new CustomEvent('open-add-palette'))
+  }
   return (
     <div className="h-10 bg-surface border-b border-border flex items-center px-3 gap-3 flex-shrink-0">
       <button
@@ -34,6 +46,34 @@ export default function Topbar({ onTitleClick, previewMode = false }) {
       <span className="text-[10px] text-textMute uppercase tracking-wider">
         {previewMode ? 'Preview' : mode === 'window' ? 'Window Mode' : 'Volume Mode'} · {count} items
       </span>
+
+      {/* Topbar trailing actions — Search opens the command palette
+          (same surface as ⇧A), Help opens a longform breakdown of the
+          app. Both are kept off the preview chrome so the wearer's
+          view stays uncluttered. */}
+      {!previewMode && (
+        <>
+          <div className="h-4 w-px bg-border mx-1" />
+          <button
+            type="button"
+            onClick={openSearch}
+            title="Search (⇧A)"
+            className="w-7 h-7 flex items-center justify-center rounded-md text-textMute hover:text-text hover:bg-hover/60 transition-colors"
+          >
+            <SearchIcon size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            title="Help & app guide"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-textMute hover:text-text hover:bg-hover/60 border border-border/60 hover:border-accent/60 transition-colors text-[12px] font-semibold"
+          >
+            ?
+          </button>
+        </>
+      )}
+
+      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
     </div>
   )
 }

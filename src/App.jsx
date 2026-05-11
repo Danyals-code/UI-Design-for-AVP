@@ -12,7 +12,7 @@ import Splash from './components/Splash'
 import PreviewButton from './components/PreviewButton'
 import { useStore } from './store'
 
-function useResizer(initial, side) {
+function useResizer(initial, side, { min = 200, max = 520 } = {}) {
   const [width, setWidth] = useState(initial)
   const widthRef = useRef(initial)
   widthRef.current = width
@@ -25,7 +25,7 @@ function useResizer(initial, side) {
     const onMove = (ev) => {
       const dx = ev.clientX - startX
       const newW = side === 'left' ? startW + dx : startW - dx
-      setWidth(Math.max(200, Math.min(520, newW)))
+      setWidth(Math.max(min, Math.min(max, newW)))
     }
     const onUp = () => {
       document.body.style.cursor = ''
@@ -36,7 +36,7 @@ function useResizer(initial, side) {
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
-  return [width, start]
+  return [width, start, setWidth]
 }
 
 // Vertical splitter — used inside the left sidebar to size the top
@@ -73,11 +73,35 @@ function useVerticalResizer(initialPct = 60) {
   return [topPct, start]
 }
 
+// Local-storage key used to skip the splash on subsequent launches.
+// Set on the first dismissal so returning users land straight in the
+// editor; cleared when the user explicitly re-opens the splash via
+// the topbar title (giving them an obvious way to start a fresh
+// project later).
+const SPLASH_SEEN_KEY = 'visionos-designer:splash-seen-v1'
+
 export default function App() {
-  // Splash opens on every launch (per user preference) and is reopenable
-  // by clicking the "visionOS Designer" title in the topbar.
-  const [splashOpen, setSplashOpen] = useState(true)
-  const [leftWidth, startLeft] = useResizer(240, 'left')
+  // Splash opens only on the FIRST launch (or when explicitly
+  // re-opened from the topbar). Returning users skip the splash and
+  // land in the editor immediately — way less friction than the
+  // previous "show on every launch" behaviour.
+  const [splashOpen, setSplashOpen] = useState(() => {
+    try { return !localStorage.getItem(SPLASH_SEEN_KEY) } catch { return true }
+  })
+  const closeSplash = () => {
+    setSplashOpen(false)
+    try { localStorage.setItem(SPLASH_SEEN_KEY, '1') } catch {}
+  }
+  const openSplash = () => {
+    setSplashOpen(true)
+    try { localStorage.removeItem(SPLASH_SEEN_KEY) } catch {}
+  }
+  // Left sidebar can auto-grow with the asset library — capped at 420
+  // so a runaway folder doesn't eat half the screen. The user can still
+  // drag past the cap via the gutter (up to 520) and shrink back any
+  // time; auto-grow only nudges in the "give me more room" direction
+  // and never overrides a manual choice that's already wider.
+  const [leftWidth, startLeft, setLeftWidth] = useResizer(240, 'left', { min: 200, max: 520 })
   const [rightWidth, startRight] = useResizer(280, 'right')
   const [leftTopPct, startLeftSplit] = useVerticalResizer(62)
   const selectedId = useStore((s) => s.selectedId)
@@ -88,6 +112,24 @@ export default function App() {
   const undo = useStore((s) => s.undo)
   const redo = useStore((s) => s.redo)
   const scene = useStore((s) => s.scene)
+  const assetCount = useStore((s) => s.assets.length)
+
+  // Auto-grow the sidebar with the asset library. We compute a "needed"
+  // width by reasoning about how many tile rows the asset count
+  // produces in the 3-column grid, then bump the sidebar up to fit
+  // (capped at 420 — leaves the user 100px of headroom before the hard
+  // max). Only ever grows: a user who manually dragged wider keeps
+  // their choice. We guard on `assetCount` only, so adding assets
+  // grows the sidebar but folder navigation doesn't shrink it back.
+  useEffect(() => {
+    const AUTO_MAX = 420
+    // 3 cols at ~64px per tile, plus ~32px of header + padding chrome.
+    // Each additional row of items (after the first 9) effectively
+    // wants ~24px more horizontal room so labels don't truncate.
+    const rows = Math.max(1, Math.ceil((assetCount + 4) / 3))
+    const target = Math.min(AUTO_MAX, 240 + rows * 12)
+    setLeftWidth((w) => (target > w ? target : w))
+  }, [assetCount, setLeftWidth])
 
   useEffect(() => {
     // Read the current selection + item list fresh on every key so we always
@@ -172,9 +214,9 @@ export default function App() {
   // through the transition.
   return (
     <div className="h-screen w-screen flex flex-col bg-bg text-text overflow-hidden">
-      <Splash open={splashOpen && !isPreview} onClose={() => setSplashOpen(false)} />
+      <Splash open={splashOpen && !isPreview} onClose={closeSplash} />
       {!isPreview && <CommandPalette />}
-      <Topbar onTitleClick={() => setSplashOpen(true)} previewMode={isPreview} />
+      <Topbar onTitleClick={openSplash} previewMode={isPreview} />
 
       <div className="flex-1 relative min-h-0">
         {/* Always-on canvas layer. Sits beneath the editing chrome.
@@ -250,8 +292,16 @@ export default function App() {
           {!isPreview && <SceneInfoOverlay />}
           <PreviewButton />
         </div>
+        {/* Edit hint. Anchored to the left edge but capped at the
+            viewport's left half so it never bleeds under the centred
+            Preview pill on narrow monitors. The preview button sits at
+            z-30 — even if a wider future hint slips this guard, the
+            button still paints over it instead of disappearing. */}
         {!isPreview && (
-          <div className="absolute bottom-3 left-3 text-[9px] text-textMute bg-[#151515]/70 backdrop-blur px-2.5 py-1.5 rounded-md border border-border/60 pointer-events-none tracking-wide z-20" style={{ left: leftWidth + 16 }}>
+          <div
+            className="absolute bottom-3 text-[9px] text-textMute bg-[#151515]/70 backdrop-blur px-2.5 py-1.5 rounded-md border border-border/60 pointer-events-none tracking-wide z-20 truncate"
+            style={{ left: leftWidth + 16, maxWidth: 'calc(50vw - 120px)' }}
+          >
             Double-click text to edit · <kbd className="kbd">⌘Z</kbd> undo · <kbd className="kbd">⇧A</kbd> add · arrows to nudge
           </div>
         )}

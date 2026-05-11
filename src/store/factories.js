@@ -132,6 +132,13 @@ export const makeWindow = (overrides = {}) => ({
   // Apple's `.automatic` glass plate; `.volumetric` enables the rest of
   // the volume-only knobs below.
   windowStyle: 'automatic',         // 'automatic' | 'plain' | 'volumetric'
+  // Wrap the window's content in a SwiftUI ScrollView. When true the
+  // canvas draws a trailing-edge scroll-indicator and the exporter
+  // wraps the root view in `ScrollView { ... }`. Off by default so
+  // a regular dashboard / settings layout doesn't get an unwanted
+  // scrollbar — flip it on for long content (e.g. a settings page
+  // that overruns the plate height).
+  scrollable: false,
   // Volume metadata — only consulted when windowStyle === 'volumetric'.
   // 0.6m matches Apple's canonical example
   // `.defaultSize(width: 0.6, height: 0.4, depth: 0.6, in: .meters)`.
@@ -429,9 +436,13 @@ export const DEFAULT_SCENE = {
   volumePreset: 'medium',
   colorScheme: 'dark',          // 'light' | 'dark' | 'image' — viewport bg
   backgroundImage: null,        // data URL (used when colorScheme==='image')
-  designScheme: 'dark',         // resolves semantic tokens in the design.
-                                // visionOS defaults to dark glass + white
-                                // primary text, so we match that out-of-box.
+  // The designer's window plate is rendered as a near-white glass
+  // (#ecedef) for both colour schemes, so we resolve content tokens
+  // against the LIGHT palette by default — that keeps text dark,
+  // list cards on `secondarySystemBackground` light, and the entire
+  // window readable. Users who want a dark visionOS app can flip
+  // this in Scene → Appearance.
+  designScheme: 'light',
   tintColor: '#007aff',
   hdri: null,                   // null | drei Environment preset
   // Window mode renders inside the same 3D studio as volume mode — the
@@ -449,6 +460,16 @@ export const DEFAULT_SCENE = {
   // panels and entities via mouse the same way a wearer would via
   // gaze + pinch. Toggled from the viewport's bottom Preview button.
   previewMode: false,
+  // Window navigation. The editor can lay out multiple WindowGroups
+  // side-by-side; preview shows just one centred in front of the
+  // camera at a time. `primaryWindowId` is the entry point (null =
+  // first window). `activeWindowId` tracks which window is *currently*
+  // presented — a Button's tap action can mutate it to "navigate" to
+  // a different window. Both null when there are no windows. On
+  // preview exit, every window snaps back to its editor `position`
+  // so the design layout is preserved.
+  primaryWindowId: null,
+  activeWindowId:  null,
   // Lighting — designer-controllable ambient + key light. Defaults are
   // tuned so a fresh scene reads bright and well-lit without the user
   // needing to load an HDRI. The Scene → Lighting inspector exposes

@@ -124,10 +124,15 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
   const items = useStore((s) => s.items)
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
-  const isSelected = selectedId === panel.id
+  // Selection halos are an editor affordance — suppress them entirely
+  // in preview so the wearer sees just the app chrome they're meant to.
+  const isSelected = !scene.previewMode && selectedId === panel.id
   // The frame also shows when the user has any descendant of this RV
-  // selected — that's when they care about the bounds the most.
+  // selected — that's when they care about the bounds the most. In
+  // preview we suppress the frame entirely so the wearer doesn't see
+  // a stale "this thing was selected" tint.
   const isContextActive = useMemo(() => {
+    if (scene.previewMode) return false
     if (isSelected) return true
     if (!selectedId) return false
     let cur = items.find((it) => it.id === selectedId)
@@ -136,7 +141,7 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
       cur = items.find((it) => it.id === cur.parentId)
     }
     return false
-  }, [isSelected, selectedId, items, panel.id])
+  }, [scene.previewMode, isSelected, selectedId, items, panel.id])
 
   const size = (resolvedSize && Array.isArray(resolvedSize))
     ? resolvedSize
@@ -285,7 +290,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const moveItem = useStore((s) => s.moveItem)
   const items = useStore((s) => s.items)
   const setDragging = useStore((s) => s.setDragging)
-  const isSelected = selectedId === id
+  // Selection halos hide entirely in preview — they're a designer
+  // affordance and would read as "this UI is glowing blue" to a wearer.
+  const isSelected = !scene.previewMode && selectedId === id
   const isEditing = editingId === id
 
   const [hovered, setHovered] = useState(false)
@@ -322,8 +329,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     () => roundedRectShape(size[0], size[1], cornerRadius),
     [size[0], size[1], cornerRadius]
   )
+  // Hair-thin selection ring — same metric as Window3D / Stack3D so
+  // every selectable thing on the canvas reads as a single discreet
+  // tint outline, not a fat halo. 0.25% of the longer side keeps the
+  // ring visible at distance without overpowering small buttons.
   const outlineShape = useMemo(() => {
-    const pad = 0.02
+    const pad = Math.max(size[0], size[1]) * 0.0025
     return roundedRectShape(size[0] + pad * 2, size[1] + pad * 2, cornerRadius + pad)
   }, [size[0], size[1], cornerRadius])
 
@@ -344,6 +355,24 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         : null
   const canReorder = reorderAxis !== null
 
+  // Hover cursor — picks the right shape for the current mode. In
+  // preview, interactive controls (buttons with a tapAction, toggles,
+  // sliders, steppers) get a pointer; everything else stays as the
+  // default arrow so a wearer doesn't see a "grab" hand over plain
+  // text. In editor, draggable / reorderable items show "grab" so the
+  // designer knows they can move them. Centralised so every
+  // onPointerOver in the file picks the same shape.
+  const interactiveInPreview = (
+    (panelType === 'button' && panel.tapAction) ||
+    panelType === 'toggle' ||
+    panelType === 'slider' ||
+    panelType === 'stepper' ||
+    panelType === 'link'
+  )
+  const hoverCursor = scene.previewMode
+    ? (interactiveInPreview ? 'pointer' : 'default')
+    : ((canDrag || canReorder) ? 'grab' : 'default')
+
   // -- ticker scroll animation --
   const tickerRef = useRef()
   useFrame((_, delta) => {
@@ -360,6 +389,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const onPointerDown = (e) => {
     e.stopPropagation()
     if (isEditing) return
+    // Preview runs the canvas as the deployed app — the wearer can't
+    // physically drag panels around to "design" mid-preview, so we
+    // suppress both selection and drag/reorder. Buttons with a
+    // configured `tapAction` fire it here; toggles / sliders /
+    // steppers have their own overlay hit-targets that mutate their
+    // local state directly. Plain (action-less) buttons no-op.
+    if (scene.previewMode) {
+      if (panelType === 'button' && panel.tapAction) {
+        useStore.getState().runTapAction(panel.tapAction)
+      }
+      return
+    }
     select(id)
     if (!canDrag && !canReorder) return
     const camDir = new THREE.Vector3()
@@ -440,7 +481,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       }
       dragData.current = null
       setDragging(false)
-      gl.domElement.style.cursor = hovered ? 'grab' : 'auto'
+      gl.domElement.style.cursor = hovered ? hoverCursor : 'auto'
       try { e.target.releasePointerCapture(e.pointerId) } catch {}
       invalidate()
     }
@@ -464,8 +505,24 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   let resolvedFill = fillColor
   let resolvedFillOpacity = 0.98
   let resolvedTextColor = textColor
+  // Buttons living inside an ornament/toolbar render as flat icons on
+  // the ornament's shared capsule — the HIG pattern (see toolbar
+  // comparison image: every icon shares ONE pill background, no
+  // per-icon circles). Prominent / destructive buttons keep their
+  // own fill because they're meant to stand out.
+  const inOrnamentChrome = parent && parent.type === 'stack' && (
+    parent.ornament != null || parent.stackType === 'toolbar' || parent.stackType === 'toolbarItem' || parent.stackType === 'toolbarItemGroup'
+  )
   if (panelType === 'button') {
-    if (buttonStyle === 'plain') {
+    if (inOrnamentChrome && buttonStyle !== 'borderedProminent' && buttonStyle !== 'destructive') {
+      resolvedFillOpacity = 0.0
+      // Use the design scheme's primary text colour so the icon reads
+      // on the ornament's glass without inheriting the button's own
+      // fill colour.
+      if (panel.textColorToken == null && panel.textColor == null) {
+        resolvedTextColor = resolveSemantic('primary', scheme)
+      }
+    } else if (buttonStyle === 'plain') {
       // If the template/user supplied an explicit color (hex literal,
       // colorToken: null), honour it. A bare `colorToken` like
       // `'designWindow'` defers to the system-pick path — those
@@ -494,9 +551,20 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const isShape = ['rectangle', 'circle', 'capsule'].includes(panelType)
   const isDivider = panelType === 'divider'
   const isPresentation = ['sheet', 'popover', 'alert'].includes(panelType)
-  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient']
+  // `toggle` and `stepper` don't paint a frame fill — their controls
+  // are drawn as their own widgets by their overlays (track+knob for
+  // toggle, ± circle buttons for stepper), and the row itself is just
+  // a transparent label slot. Without this the row would render with
+  // the control's fill stretched across the whole panel width.
+  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient', 'toggle', 'stepper']
   const hasFill = !noFillTypes.includes(panelType)
-  const labelTypes = ['text', 'button', 'image', 'slideshow', 'sheet', 'path', 'groupbox']
+  // `toggle` + `stepper` belong here so the panel's leading-edge label
+  // renders next to the trailing control — the SwiftUI shape of
+  // `Toggle("Wi-Fi", isOn:)` and `Stepper("Count", value:)`. The label
+  // sits left-aligned; each panel's overlay paints its widget on the
+  // trailing edge, so the two don't overlap as long as the panel is
+  // wider than the widget (default frame: 280×36).
+  const labelTypes = ['text', 'button', 'image', 'slideshow', 'sheet', 'path', 'groupbox', 'toggle', 'stepper']
   // Image panels render their placeholder via the cross meshes above
   // (lines 1531-1538) — drawing "Image" as a text label on top of a
   // 48pt avatar swatch wraps one glyph per line and looks broken.
@@ -594,12 +662,46 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     </>
   )
 
-  const toggleOverlay = panelType === 'toggle' && (
-    <mesh position={[panel.toggleOn ? size[0] / 4 : -size[0] / 4, 0, 0.005]}>
-      <circleGeometry args={[size[1] * 0.38, 32]} />
-      <meshBasicMaterial color="#ffffff" />
-    </mesh>
-  )
+  // Toggle: label on the leading edge, fixed 52×32 switch on the
+  // trailing edge — the same shape SwiftUI's `Toggle("Wi-Fi", isOn:)`
+  // renders. The full panel frame is the row; the switch is its own
+  // rounded-rect track + knob anchored to size[0]/2.
+  //
+  // In preview the track + knob mesh listens for clicks and flips the
+  // panel's `toggleOn` value, so the wearer can interact with the
+  // switch the same way they would on-device. The handler bypasses
+  // the regular drag/select gate above (which early-returns in
+  // preview) by reading directly from the store.
+  const toggleOverlay = panelType === 'toggle' && (() => {
+    const TRACK_W = ptToUnits(52)
+    const TRACK_H = ptToUnits(32)
+    const trackX = size[0] / 2 - TRACK_W / 2 - ptToUnits(4)
+    const trackColor = panel.toggleOn
+      ? (panel.color || '#0a84ff')
+      : (scheme === 'dark' ? '#3a3a3c' : '#d1d1d6')
+    const knobX = panel.toggleOn
+      ? TRACK_W / 2 - TRACK_H / 2
+      : -TRACK_W / 2 + TRACK_H / 2
+    const flip = (e) => {
+      if (!scene.previewMode) return
+      e.stopPropagation()
+      useStore.getState().updateItem(id, { toggleOn: !panel.toggleOn })
+    }
+    return (
+      <group onPointerDown={flip}>
+        {/* Switch track */}
+        <mesh position={[trackX, 0, 0.004]}>
+          <shapeGeometry args={[roundedRectShape(TRACK_W, TRACK_H, TRACK_H / 2)]} />
+          <meshBasicMaterial color={trackColor} />
+        </mesh>
+        {/* Switch knob */}
+        <mesh position={[trackX + knobX, 0, 0.006]}>
+          <circleGeometry args={[TRACK_H * 0.42, 32]} />
+          <meshBasicMaterial color="#ffffff" />
+        </mesh>
+      </group>
+    )
+  })()
 
   // ---- Divider (thin hairline) ----
   const dividerOverlay = isDivider && (
@@ -627,7 +729,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
+        onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
         onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
       >
         <circleGeometry args={[circleRadius, 64]} />
@@ -995,8 +1097,32 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const trackH = ptToUnits(4)
     const thumbR = ptToUnits(13)
     const fillW = size[0] * value
+    // Preview: click/drag along the track sets the slider value from
+    // the local-X intersect. Editor-mode keeps the panel passive so
+    // the regular drag-to-reposition pipeline still works.
+    const setFromIntersect = (e) => {
+      if (!scene.previewMode) return
+      e.stopPropagation()
+      const local = e.eventObject.worldToLocal(e.point.clone())
+      const t = Math.max(0, Math.min(1, (local.x + size[0] / 2) / size[0]))
+      useStore.getState().updateItem(id, { sliderValue: t })
+    }
     return (
-      <>
+      <group
+        onPointerDown={(e) => {
+          if (!scene.previewMode) return
+          setFromIntersect(e)
+          try { e.target.setPointerCapture(e.pointerId) } catch {}
+        }}
+        onPointerMove={(e) => {
+          if (!scene.previewMode || e.buttons === 0) return
+          setFromIntersect(e)
+        }}
+        onPointerUp={(e) => {
+          if (!scene.previewMode) return
+          try { e.target.releasePointerCapture(e.pointerId) } catch {}
+        }}
+      >
         <mesh position={[0, 0, 0.003]}>
           <planeGeometry args={[size[0], trackH]} />
           <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
@@ -1009,27 +1135,52 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           <circleGeometry args={[thumbR, 32]} />
           <meshBasicMaterial color="#ffffff" />
         </mesh>
-      </>
+      </group>
     )
   })()
 
-  // ---- Stepper ----
+  // Stepper — Apple HIG visionOS renders this as a label on the
+  // leading edge, the current value next to it, and two *separate*
+  // circular buttons for `−` and `+` on the trailing edge. That's
+  // the shape in the reference screenshot the user shared. The
+  // previous "one bar with two dividers" treatment came from iOS
+  // UIKit and doesn't match the platform.
   const stepperOverlay = panelType === 'stepper' && (() => {
     const primary = resolveSemantic('primary', scheme)
-    const divW = 0.003
+    const buttonBg = resolveSemantic('secondarySystemFill', scheme) || '#e3e3e8'
+    const CIRCLE_R = ptToUnits(14)
+    // Trailing-edge button cluster: [-] [value] [+], 12pt gap.
+    const xPlus  = size[0] / 2 - CIRCLE_R - ptToUnits(4)
+    const xMinus = xPlus - (CIRCLE_R * 2 + ptToUnits(12))
+    const xValue = xMinus - ptToUnits(18)
+    const bump = (delta) => (e) => {
+      if (!scene.previewMode) return
+      e.stopPropagation()
+      useStore.getState().updateItem(id, { stepperValue: (panel.stepperValue ?? 0) + delta })
+    }
     return (
       <>
-        <Text position={[-size[0] / 3, 0, 0.005]} fontSize={ptToUnits(18)} color={primary} anchorX="center" anchorY="middle">−</Text>
-        <Text position={[0, 0, 0.005]} fontSize={ptToUnits(14)} color={primary} anchorX="center" anchorY="middle" fontWeight="semibold">{String(panel.stepperValue ?? 0)}</Text>
-        <Text position={[size[0] / 3, 0, 0.005]} fontSize={ptToUnits(18)} color={primary} anchorX="center" anchorY="middle">+</Text>
-        <mesh position={[-size[0] / 6, 0, 0.002]}>
-          <planeGeometry args={[divW, size[1] * 0.6]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
-        </mesh>
-        <mesh position={[size[0] / 6, 0, 0.002]}>
-          <planeGeometry args={[divW, size[1] * 0.6]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
-        </mesh>
+        {/* Leading label uses the panel's text rendering path above; the
+            stepper-specific glyph + value live here. */}
+        <Text position={[xValue, 0, 0.005]} fontSize={ptToUnits(14)} color={primary} anchorX="right" anchorY="middle" fontWeight="semibold">
+          {String(panel.stepperValue ?? 0)}
+        </Text>
+        {/* Minus button */}
+        <group position={[xMinus, 0, 0.004]} onPointerDown={bump(-1)}>
+          <mesh>
+            <circleGeometry args={[CIRCLE_R, 32]} />
+            <meshBasicMaterial color={buttonBg} />
+          </mesh>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">−</Text>
+        </group>
+        {/* Plus button */}
+        <group position={[xPlus, 0, 0.004]} onPointerDown={bump(+1)}>
+          <mesh>
+            <circleGeometry args={[CIRCLE_R, 32]} />
+            <meshBasicMaterial color={buttonBg} />
+          </mesh>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">+</Text>
+        </group>
       </>
     )
   })()
@@ -1088,6 +1239,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const labelOverlay = panelType === 'label' && (() => {
     const sym = panel.symbolName ? SF_SYMBOLS[panel.symbolName] : null
     const iconGlyph = sym ? sym.glyph : (panel.iconName || 'A')
+    // Empty-text labels are "icon-only" — used in templates as room/
+    // section glyphs without the SwiftUI `Label` text slot. We render
+    // just the icon (no tile, no placeholder "Label" text) so the row
+    // doesn't pick up an unintended blue chip + filler word.
+    const iconOnly = !panel.text
     // Apple's sidebar Label pattern (Settings.app): a coloured rounded-rect
     // tile behind the glyph instead of a circle. Driven by:
     //   iconTileColor  — fill color; null ⇒ classic circle fallback
@@ -1097,33 +1253,41 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const tileSize = ptToUnits(panel.iconTileSize ?? 28)
     const tileRadius = ptToUnits(panel.iconTileRadius ?? 6)
     const iconR = tileSize / 2
-    const iconX = -size[0] / 2 + iconR + ptToUnits(4)
+    const iconX = iconOnly ? 0 : -size[0] / 2 + iconR + ptToUnits(4)
     const textX = -size[0] / 2 + tileSize + ptToUnits(12)
     const resolvedTile = tileColor
       ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scheme))
       : null
-    const tileShape = resolvedTile
+    const tileShape = resolvedTile && !iconOnly
       ? roundedRectShape(tileSize, tileSize, tileRadius)
       : null
+    // Icon-only labels drop the coloured chip and paint the glyph in
+    // the panel's textColor — that lets a template author tint the
+    // glyph via the standard `colorToken: 'primary'` knob.
+    const glyphColor = iconOnly ? resolvedTextColor : '#ffffff'
+    const glyphSize = iconOnly ? finalFontSize : ptToUnits(14)
     return (
       <>
-        {tileShape ? (
+        {!iconOnly && tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <shapeGeometry args={[tileShape]} />
             <meshBasicMaterial color={resolvedTile} />
           </mesh>
-        ) : (
+        )}
+        {!iconOnly && !tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <circleGeometry args={[iconR, 32]} />
             <meshBasicMaterial color={panel.iconColor || '#007aff'} />
           </mesh>
         )}
-        <Text position={[iconX, 0, 0.006]} fontSize={ptToUnits(14)} color="#ffffff" anchorX="center" anchorY="middle">
+        <Text position={[iconX, 0, 0.006]} fontSize={glyphSize} color={glyphColor} anchorX="center" anchorY="middle">
           {iconGlyph}
         </Text>
-        <Text position={[textX, 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
-          {panel.text || 'Label'}
-        </Text>
+        {!iconOnly && (
+          <Text position={[textX, 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
+            {panel.text}
+          </Text>
+        )}
       </>
     )
   })()
@@ -1355,7 +1519,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       onPointerDown,
       onPointerMove,
       onPointerUp,
-      onPointerOver: (e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' },
+      onPointerOver: (e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor },
       onPointerOut: () => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }
     }
     // Z offset (`.offset(z:)`) + per-axis rotation (`.rotation3DEffect(...)`)
@@ -1540,14 +1704,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         </mesh>
       )}
 
-      {isSelected && !isEditing && panelType !== 'text' && panelType !== 'link' && panelType !== 'label' && (
+      {/* Editor-only selection halo. Doubled the previewMode guard so a
+          stale `isSelected` (e.g. HMR scenarios where this Panel re-uses
+          a memoised value across a preview toggle) cannot paint the
+          ring while the wearer is in preview. */}
+      {!scene.previewMode && isSelected && !isEditing && panelType !== 'text' && panelType !== 'link' && panelType !== 'label' && (
         <mesh position={[0, 0, -0.002]}>
           <shapeGeometry args={[outlineShape]} />
           <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.28} />
         </mesh>
       )}
       {/* Text/Link/Label selection: subtle underline instead of bounding box */}
-      {isSelected && !isEditing && (panelType === 'text' || panelType === 'link' || panelType === 'label') && (
+      {!scene.previewMode && isSelected && !isEditing && (panelType === 'text' || panelType === 'link' || panelType === 'label') && (
         <mesh position={[0, -size[1] / 2 - ptToUnits(2), -0.001]}>
           <planeGeometry args={[size[0], ptToUnits(2)]} />
           <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.6} />
@@ -1560,7 +1728,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[fillShape]} />
@@ -1577,7 +1745,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'text' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = scene.previewMode ? hoverCursor : ((canDrag || canReorder) ? 'grab' : 'text') }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <planeGeometry args={[size[0], size[1]]} />
@@ -1787,7 +1955,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = (canDrag || canReorder) ? 'grab' : 'default' }}
+          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
           <shapeGeometry args={[capsuleShape]} />

@@ -155,10 +155,22 @@ export const PANELS = {
       // exporter when the value is `automatic` so the device renders the
       // system-tuned glass effect without an override.
       buttonStyle: 'automatic',
-      buttonBorderShape: 'automatic'
+      buttonBorderShape: 'automatic',
+      // SwiftUI action wiring. When the button is tapped *in preview*
+      // (clicks in the editor stay as drag/select), `tapAction`
+      // dispatches a typed effect against the live store. Null means
+      // the button is purely visual.
+      // Schema:
+      //   { type: 'navigateWindow', windowId: '…' }     — swap active window
+      //   { type: 'navigateTab',    stackId:  '…', tab: N } — switch a TabView
+      //   { type: 'presentSheet',   panelId:  '…' }     — show a sheet
+      //   { type: 'dismiss' }                           — close current sheet
+      //   { type: 'setToggle',      panelId:  '…', value: bool }
+      //   { type: 'flipToggle',     panelId:  '…' }
+      tapAction: null
     },
     emit(panel, ctx) {
-      const { push, escapeString, swiftColor, sym } = ctx
+      const { push, escapeString, swiftColor, sym, lookupItem } = ctx
       const label = sym
         ? `Label("${escapeString(panel.text || 'Button')}", systemImage: "${sym}")`
         : `Text("${escapeString(panel.text || 'Button')}")`
@@ -178,7 +190,51 @@ export const PANELS = {
         ? `.controlSize(.${panel.controlSize})` : ''
       const tint = panel.tint
         ? `.tint(${swiftColor(null, panel.tint)})` : ''
-      push(`Button${role}{ /* action */ } label: { ${label} }${bs}${shape}${size}${tint}`)
+      // Compile the editor's `tapAction` to the canonical SwiftUI
+      // closure body. Each action type maps to a single SwiftUI idiom
+      // — they all assume standard bindings in the host View:
+      //   navigateWindow → `openWindow(id:)`        (@Environment OpenWindowAction)
+      //   navigateTab    → assignment to `selectedTab`   (@State binding)
+      //   presentSheet   → set the `isShowingX` flag     (@State binding)
+      //   dismiss        → clear the `isShowingX` flag   (@State binding)
+      //   flipToggle     → call `.toggle()` on the binding
+      //   setToggle      → assignment to the binding
+      // Unrecognized / null actions emit a `// no action` comment so
+      // the user can spot un-wired buttons in the source.
+      const compileAction = (a) => {
+        if (!a || !a.type) return '// no action'
+        if (a.type === 'navigateWindow') {
+          const tgt = a.windowId ? lookupItem(a.windowId) : null
+          const name = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '') : 'Window'
+          return `openWindow(id: "${name}")`
+        }
+        if (a.type === 'navigateTab') {
+          return `selectedTab = ${a.tab ?? 0}`
+        }
+        if (a.type === 'presentSheet') {
+          const tgt = a.panelId ? lookupItem(a.panelId) : null
+          const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
+          return `${flag} = true`
+        }
+        if (a.type === 'dismiss') {
+          const tgt = a.panelId ? lookupItem(a.panelId) : null
+          const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
+          return `${flag} = false`
+        }
+        if (a.type === 'flipToggle') {
+          const tgt = a.panelId ? lookupItem(a.panelId) : null
+          const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
+          return `${bind}.toggle()`
+        }
+        if (a.type === 'setToggle') {
+          const tgt = a.panelId ? lookupItem(a.panelId) : null
+          const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
+          return `${bind} = ${a.value ? 'true' : 'false'}`
+        }
+        return '// no action'
+      }
+      const body = compileAction(panel.tapAction)
+      push(`Button${role}{ ${body} } label: { ${label} }${bs}${shape}${size}${tint}`)
     }
   },
 
@@ -199,10 +255,25 @@ export const PANELS = {
 
   toggle: {
     defaults: {
-      size: [ptToUnits(52), ptToUnits(32)],
-      color: '#34c759',
-      colorToken: 'systemGreen',
-      cornerRadius: ptToUnits(16),
+      // visionOS Toggle renders as `Label · Switch` end-to-end across
+      // its container. We default the frame to a full-row size so the
+      // canvas matches that — the rendering code splits the row into
+      // a leading text label and a trailing 52×32 switch track.
+      size: [ptToUnits(280), ptToUnits(36)],
+      widthMode: 'fill',
+      text: 'Toggle',
+      textStyle: 'body',
+      fontSize: textStyleToFontSize('body'),
+      textAlign: 'left',
+      textColor: '#000000',
+      textColorToken: 'primary',
+      // Apple HIG visionOS toggles use the system blue (.tint), not
+      // the iOS-stock green — see the HIG reference screenshot. The
+      // green tint shipped a UIKit reflex; on visionOS the
+      // affirmative state is `systemBlue`.
+      color: '#0a84ff',
+      colorToken: 'systemBlue',
+      cornerRadius: 0,
       toggleOn: true
     },
     emit(panel, ctx) {
@@ -497,10 +568,21 @@ export const PANELS = {
 
   stepper: {
     defaults: {
-      size: [ptToUnits(130), ptToUnits(34)],
+      // visionOS HIG: label on leading edge, value + ± buttons on
+      // trailing edge — same row shape as Toggle. Width fills the
+      // owning stack so the controls anchor on the trailing edge no
+      // matter how wide the row gets.
+      size: [ptToUnits(280), ptToUnits(36)],
+      widthMode: 'fill',
+      text: 'Stepper',
+      textStyle: 'body',
+      fontSize: textStyleToFontSize('body'),
+      textAlign: 'left',
+      textColor: '#000000',
+      textColorToken: 'primary',
       color: '#e3e3e8',
       colorToken: 'systemFill',
-      cornerRadius: ptToUnits(8),
+      cornerRadius: 0,
       stepperValue: 5,
       stepperMin: 0,
       stepperMax: 10,

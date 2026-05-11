@@ -249,24 +249,11 @@ function SceneModeToggle() {
 
 // ---- VR View button --------------------------------------------------
 //
-// Single button replacing the old 2D/3D segmented toggle. In window
-// mode it toggles `preview3D` — clicking enters the studio-decor VR
-// preview, clicking again returns to the flat 2D edit view. In volume
-// mode the canvas is always 3D so the button instead snaps the orbit
-// camera back to the wearer's default eye-line pose (the visionOS
-// analogue of "press 0 in Blender for camera view").
-//
-// The user asked for one unified control here — the segmented 2D/3D
-// pair was confusing because volume mode could never be 2D, and
-// window mode usually wanted "show me how it looks in VR".
-
-// VR View is a "go to wearer default pose" snap, not a toggle. Same
-// behaviour in window and volume modes — flip preview3D on (if window
-// was flat), then dispatch the snap event so the camera lands at the
-// VOLUME_VR_POS / TARGET_WINDOW defaults regardless of where the user
-// orbited to. Flat View lives next to it as the explicit way to drop
-// out of the wearer's view; users picking between them feels less
-// like a toggle riddle than the old one-button-two-modes flow.
+// Replaces the old 2D/3D segmented toggle. Window mode now renders
+// exclusively in the wearer's VR view (`preview3D` is forced on), so
+// the button's sole job in either mode is to snap the orbit camera
+// back to the wearer's default eye-line pose — the visionOS analogue
+// of "press 0 in Blender for camera view".
 function VRViewButton() {
   const sceneMode = useStore((s) => s.scene.sceneMode)
   const preview3D = useStore((s) => s.scene.preview3D)
@@ -275,8 +262,8 @@ function VRViewButton() {
 
   const onClick = () => {
     if (!isVolume && !preview3D) {
-      // Coming from flat — switch into 3D first so the snap lands in
-      // the same studio framing the wearer sees.
+      // Safety net — if anything ever flipped preview3D off, ensure
+      // we're back in the 3D framing before snapping the camera.
       updateScene({ preview3D: true })
     }
     requestAnimationFrame(() => {
@@ -302,43 +289,6 @@ function VRViewButton() {
       }}
     >
       VR View
-    </button>
-  )
-}
-
-// Flat View — only shown in window mode (volume is 3D-only). Toggles
-// preview3D off so the camera drops to the flat head-on plate; active
-// styling kicks in when we're already in that state.
-function FlatViewButton() {
-  const sceneMode = useStore((s) => s.scene.sceneMode)
-  const preview3D = useStore((s) => s.scene.preview3D)
-  const updateScene = useStore((s) => s.updateScene)
-  if (sceneMode === 'volume') return null
-  const active = !preview3D
-  const onClick = () => {
-    updateScene({ preview3D: active ? true : false })
-    requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
-    })
-  }
-  return (
-    <button
-      onClick={onClick}
-      title={active ? 'Switch back to the wearer\'s VR view' : 'Switch to a flat head-on view of the window'}
-      className="vp-btn"
-      style={{
-        width: 'auto',
-        height: 28,
-        paddingLeft: 12, paddingRight: 12,
-        whiteSpace: 'nowrap',
-        border: active ? '1px solid #4a86ff' : '1px solid #2e2e2e',
-        background: active ? 'rgba(10, 132, 255, 0.18)' : 'rgba(21, 21, 21, 0.88)',
-        backdropFilter: 'blur(8px)',
-        color: active ? '#ffffff' : '#cfcfd1',
-        fontSize: 11
-      }}
-    >
-      Flat View
     </button>
   )
 }
@@ -387,7 +337,6 @@ function CameraEntityViewButton() {
 export default function ViewportOverlay() {
   return (
     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10 pointer-events-auto">
-      <FlatViewButton />
       <VRViewButton />
       <CameraEntityViewButton />
       <ZoomSlider />

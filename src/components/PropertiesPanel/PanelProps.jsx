@@ -67,6 +67,124 @@ function WindowBehaviorsPlaceholder() {
   )
 }
 
+// On-tap action picker for SwiftUI Buttons. Live in preview: clicks
+// dispatch the configured action against the store. Currently
+// supports navigating between windows (the primary use-case the user
+// asked for) and flipping/setting a toggle. The action schema is open
+// — adding a new type means a new switch case in `runTapAction` and a
+// new option here.
+const TAP_ACTION_OPTIONS = [
+  { value: 'none',           label: 'No action' },
+  { value: 'navigateWindow', label: 'Open window' },
+  { value: 'navigateTab',    label: 'Switch tab' },
+  { value: 'flipToggle',     label: 'Flip toggle' },
+  { value: 'setToggle',      label: 'Set toggle' },
+  { value: 'presentSheet',   label: 'Show sheet' },
+  { value: 'dismiss',        label: 'Dismiss sheet' }
+]
+
+function TapActionSection({ item }) {
+  const updateItem = useStore((s) => s.updateItem)
+  const items      = useStore((s) => s.items)
+  const action = item.tapAction || { type: 'none' }
+  const setAction = (patch) => {
+    const merged = { ...action, ...patch }
+    updateItem(item.id, { tapAction: merged.type === 'none' ? null : merged })
+  }
+
+  const windows = items.filter((it) => it.type === 'window')
+  const tabViewStacks = items.filter((it) => it.type === 'stack' && it.stackType === 'tabView')
+  const togglePanels  = items.filter((it) => it.type === 'panel' && it.panelType === 'toggle')
+  const sheetPanels   = items.filter((it) => it.type === 'panel' && ['sheet', 'popover', 'alert'].includes(it.panelType))
+
+  return (
+    <Section title="On Tap" defaultOpen={true}>
+      <div className="space-y-1.5">
+        <div className="text-[9px] text-textMute leading-snug">
+          Runs in preview when the wearer taps this button. Compiles into a
+          SwiftUI <span className="text-textBase">action: { }</span> closure on export.
+        </div>
+        <Row label="Action">
+          <Select
+            value={action.type}
+            options={TAP_ACTION_OPTIONS}
+            onChange={(t) => setAction({ type: t })}
+          />
+        </Row>
+        {action.type === 'navigateWindow' && (
+          <Row label="Window">
+            <Select
+              value={action.windowId || ''}
+              options={[
+                { value: '', label: '— Pick a window —' },
+                ...windows.map((w) => ({ value: w.id, label: w.name || 'Window' }))
+              ]}
+              onChange={(v) => setAction({ windowId: v || null })}
+            />
+          </Row>
+        )}
+        {action.type === 'navigateTab' && (
+          <>
+            <Row label="TabView">
+              <Select
+                value={action.stackId || ''}
+                options={[
+                  { value: '', label: '— Pick a TabView —' },
+                  ...tabViewStacks.map((s) => ({ value: s.id, label: s.name || 'TabView' }))
+                ]}
+                onChange={(v) => setAction({ stackId: v || null })}
+              />
+            </Row>
+            <Row label="Tab #">
+              <input
+                type="number"
+                min={0}
+                value={action.tab ?? 0}
+                onChange={(e) => setAction({ tab: parseInt(e.target.value, 10) || 0 })}
+                className="field w-16"
+              />
+            </Row>
+          </>
+        )}
+        {(action.type === 'flipToggle' || action.type === 'setToggle') && (
+          <>
+            <Row label="Toggle">
+              <Select
+                value={action.panelId || ''}
+                options={[
+                  { value: '', label: '— Pick a toggle —' },
+                  ...togglePanels.map((p) => ({ value: p.id, label: p.name || 'Toggle' }))
+                ]}
+                onChange={(v) => setAction({ panelId: v || null })}
+              />
+            </Row>
+            {action.type === 'setToggle' && (
+              <Row label="Value">
+                <div className="segmented flex-1">
+                  <button className={action.value ? 'active' : ''} onClick={() => setAction({ value: true })}>On</button>
+                  <button className={!action.value ? 'active' : ''} onClick={() => setAction({ value: false })}>Off</button>
+                </div>
+              </Row>
+            )}
+          </>
+        )}
+        {(action.type === 'presentSheet' || action.type === 'dismiss') && (
+          <Row label="Panel">
+            <Select
+              value={action.panelId || ''}
+              options={[
+                { value: '', label: '— Pick a sheet/popover/alert —' },
+                ...sheetPanels.map((p) => ({ value: p.id, label: p.name || p.panelType }))
+              ]}
+              onChange={(v) => setAction({ panelId: v || null })}
+            />
+          </Row>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 export function PanelProps({ item, scene }) {
   const updateItem      = useStore((s) => s.updateItem)
   const renameItem      = useStore((s) => s.renameItem)
@@ -91,13 +209,14 @@ export function PanelProps({ item, scene }) {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar">
-      {/* Object — the everyday "what is this" header. Name lives here
-          alongside the figma / fixed frame picker, mirroring the 3D
-          entity inspector where Object holds name + kind + transform
-          in one place. The per-type Inspector continues to render as
-          its own section below since each type has 5–10 fields and
-          packing them into Object too would make this header heavy. */}
-      <Section title={titleCase} defaultOpen={true}>
+      {/* Object — the panel-level "what is this" header. Name + frame
+          live here for every panel kind so the user always finds them
+          in the same place. Per-type inspectors below own the
+          control-specific fields (Slider value range, Button style,
+          etc.). The header is named "Object" rather than the panel's
+          type so it doesn't collide with the inspector's own section
+          (e.g. Slider used to have two "Slider" dropdowns). */}
+      <Section title={`Object — ${titleCase}`} defaultOpen={true}>
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
@@ -158,11 +277,15 @@ export function PanelProps({ item, scene }) {
 
       {meta.useSymbol && <SymbolSection item={item} updateItem={updateItem} />}
 
-      {/* Behaviors — placeholder mirroring the 3D inspector. Real
-          window-level interactions will fill these in later; for now
-          the section is a visual seam so designers can see where
-          they'll go and the editor reads consistent across types. */}
-      <WindowBehaviorsPlaceholder />
+      {/* Buttons own a real On-Tap section that maps to the SwiftUI
+          `Button(action:)` closure on export and runs live in preview.
+          Other panels still get the Behaviors placeholder so the
+          inspector reads consistent across types — it'll grow real
+          functionality as more interaction kinds get wired. */}
+      {item.panelType === 'button'
+        ? <TapActionSection item={item} />
+        : <WindowBehaviorsPlaceholder />
+      }
     </div>
   )
 }

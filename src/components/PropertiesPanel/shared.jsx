@@ -189,10 +189,15 @@ export function AppearanceSection({ item, updateItem, scene }) {
 
 // ---- Text section (shared by text/button/slideshow/ticker) -------------
 
-export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTitle = 'Text', includeBody = true, includeAlign = true, includeWeight = true, isText = false }) {
+export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTitle = 'Text', includeBody = true, includeAlign = true, includeWeight = true, isText = false, embedded = false }) {
   const scheme = scene?.designScheme || 'light'
+  // `embedded` skips the outer <Section> so the caller can render the
+  // text controls inline within another section header — used by the
+  // consolidated Button inspector where label text sits below the
+  // style pickers in one merged "Button" dropdown.
+  const Wrapper = embedded ? (({ children }) => <>{children}</>) : (({ children }) => <Section title={sectionTitle}>{children}</Section>)
   return (
-    <Section title={sectionTitle}>
+    <Wrapper>
       {includeBody && (
         <Row>
           <textarea
@@ -254,7 +259,7 @@ export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTi
           </div>
         </Row>
       )}
-    </Section>
+    </Wrapper>
   )
 }
 
