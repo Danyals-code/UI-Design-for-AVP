@@ -15,7 +15,8 @@ Xcode, a Mac, or a headset.
 
 - **Tabs → Windows → Panels → Controls.** A scene is modelled the same way
   SwiftUI models a visionOS app: tabs act as top-level pages, windows are
-  floating surfaces inside a tab, and panels contain stacks / controls.
+  floating surfaces inside a tab (the default new window is 1200 × 800 pt),
+  and panels contain stacks / controls.
 - **Window and Volume modes.** Switch between a flat window canvas (the
   default design surface) and a volumetric placeholder that represents a
   VolumetricWindowGroup.
@@ -50,6 +51,25 @@ npm run preview   # serve the built app
 ```
 
 Requires Node 18+.
+
+## Documentation map
+
+Three complementary docs live at the repo root:
+
+- **[README.md](README.md)** *(this file)* — install / run / build, the
+  high-level architecture, and the doc map below.
+- **[FEATURES.md](FEATURES.md)** — the user-visible surface area. What
+  the app *does* — panels, viewport controls, templates, keyboard
+  shortcuts. Update in the same commit as any user-facing change.
+- **[VIEWS.md](VIEWS.md)** — the maintainer's map of every SwiftUI-
+  flavoured view the designer can place: every panel type, stack type,
+  window/entity factory, with defaults and the canonical SwiftUI emit
+  pattern. Use this as the comparison baseline when changing how a
+  view works or what its defaults are.
+
+When you change behaviour: update FEATURES. When you change defaults
+or add a view type: update VIEWS. When you change install / build /
+architecture: update README.
 
 ## Project Layout
 

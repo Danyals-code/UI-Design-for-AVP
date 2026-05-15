@@ -97,10 +97,28 @@ export const makeTab = (overrides = {}) => ({
   ...overrides
 })
 
+// Counter for default WindowGroup IDs. SwiftUI `WindowGroup(id:)` needs a
+// stable, unique string per group; we mint one here so every new window
+// ships with a non-colliding default. Users can rename freely from the
+// inspector. Decoupled from the item-id counter so a user-renamed group
+// won't drift when items are reseeded (e.g. paste, undo).
+let windowGroupCounter = 1
+export const nextWindowGroupId = () => `Window${windowGroupCounter++}`
+
 export const makeWindow = (overrides = {}) => ({
   id: nextId('window'),
   type: 'window',
   name: 'Window',
+  // SwiftUI WindowGroup identifier — passed to `openWindow(id:)` from
+  // button tap actions and used by the WindowGroupTabBar to label each
+  // pill. Defaults to a fresh `WindowN` so every new window can be
+  // opened by name from the start; users can rename to anything
+  // unique. The SwiftUI exporter emits `WindowGroup(id: "<groupId>")`.
+  windowGroupId: nextWindowGroupId(),
+  // Per-window navigation chrome — the WindowGroupTabBar3D capsule (see
+  // SceneTree.jsx) renders one pill per window with this icon and the
+  // window's name as the pill label.
+  tabIcon: 'rectangle',     // SF Symbol name shown in the navigation pill
   parentId: null,
   visible: true,
   collapsed: false,
@@ -470,6 +488,14 @@ export const DEFAULT_SCENE = {
   // so the design layout is preserved.
   primaryWindowId: null,
   activeWindowId:  null,
+  // Window-group navigation state. `activeWindowGroupId` is the
+  // currently-selected pill in the leading-edge navigation capsule;
+  // `openWindowItemIds` is the ordered list of window items currently
+  // spawned (rendered side-by-side in preview). Both start null/[]
+  // and are populated lazily — clicking a pill or firing an
+  // `.openWindow(id:)` action seeds them on first use.
+  activeWindowGroupId: null,
+  openWindowItemIds:   [],
   // Lighting — designer-controllable ambient + key light. Defaults are
   // tuned so a fresh scene reads bright and well-lit without the user
   // needing to load an HDRI. The Scene → Lighting inspector exposes

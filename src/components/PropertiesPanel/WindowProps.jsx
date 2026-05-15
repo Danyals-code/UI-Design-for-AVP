@@ -35,6 +35,32 @@ export function WindowProps({ item }) {
         <Row label="Name">
           <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
         </Row>
+        {/* SwiftUI WindowGroup id — used by `openWindow(id:)` tap actions
+            and by the WindowGroupTabBar to identify this window. Defaults
+            to a fresh "WindowN" at creation. Must be unique within the
+            scene; collisions are surfaced as a one-line warning below. */}
+        <Row label="Group ID">
+          <input
+            value={item.windowGroupId || ''}
+            onChange={(e) => updateItem(item.id, { windowGroupId: e.target.value })}
+            className="field flex-1"
+            placeholder="Window1"
+            spellCheck={false}
+          />
+        </Row>
+        <Row label="Tab Icon">
+          <input
+            value={item.tabIcon || ''}
+            onChange={(e) => updateItem(item.id, { tabIcon: e.target.value || null })}
+            className="field flex-1"
+            placeholder="rectangle"
+            spellCheck={false}
+          />
+        </Row>
+        <div className="text-[9px] text-textMute leading-snug -mt-0.5 mb-1">
+          Used by the leading-edge navigation capsule and the
+          <span className="text-textBase"> .openWindow(id:)</span> action.
+        </div>
         <Row label="Primary">
           <div className="segmented flex-1">
             <button

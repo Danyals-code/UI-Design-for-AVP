@@ -1,5 +1,5 @@
-import { useRef, useMemo } from 'react'
-import { useThree } from '@react-three/fiber'
+import { useRef, useMemo, useState } from 'react'
+import { useThree, useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
@@ -382,7 +382,7 @@ function TabBar3D({ stack, children, w, h, scene }) {
 
 // ---- Window renderer ----
 
-function Window3D({ window: win, items }) {
+function Window3D({ window: win, items, previewPosition }) {
   const scene = useStore((s) => s.scene)
   const selectedId = useStore((s) => s.selectedId)
   const select = useStore((s) => s.select)
@@ -515,40 +515,70 @@ function Window3D({ window: win, items }) {
   const isVolumetric = win.windowStyle === 'volumetric'
   const showBaseplate = !isVolumetric || win.volumeBaseplateVisibility === 'visible'
 
-  // Preview behaviour: only the active window/volume is shown, snapped
-  // to the wearer's default frame. Non-active items hide entirely so a
-  // multi-item editor layout doesn't show every plate at once. On
-  // preview exit each item snaps back to its stored editor `position`.
-  // Window mode snaps to chest height + 1m forward (the SwiftUI window
-  // default). Volume mode snaps to chest height at world centre (the
-  // volumetric stage default). Both modes are treated identically —
-  // the user's mental model is "preview = experience the active item",
-  // regardless of whether it's a window or a volume.
+  // Preview behaviour: the parent SceneTree filters the rendered set to
+  // `scene.openWindowItemIds` and computes a side-by-side `previewPosition`
+  // for each one. When that prop is null in preview the window is not in
+  // the open set — render nothing. Hook calls happen BEFORE this early
+  // return so React always sees the same hook order on every render
+  // (rules-of-hooks).
   const isPreviewActive = scene.previewMode
-  let activeId = scene.activeWindowId
-  if (!activeId) {
-    // Fall back to the primary window, otherwise the first window in
-    // document order — never null, so a fresh scene previews cleanly.
-    const winItems = items.filter((it) => it.type === 'window')
-    activeId = scene.primaryWindowId || (winItems[0]?.id ?? null)
-  }
-  const isActiveInPreview = isPreviewActive && activeId === win.id
-  if (isPreviewActive && !isActiveInPreview) {
-    return null
-  }
-  // Snap target differs per mode. Window plates sit 1m in front of the
-  // wearer at chest height; volume stages sit at world origin (the
-  // floor) and their child entities already carry chest-height local
-  // Y, so an extra Y bump on the container would land the content
-  // above the camera. Both match the camera pose in Canvas3D so the
-  // active item lands dead-centre in the gaze.
   const isVolumeScene = scene.sceneMode === 'volume'
   const previewPos = isPreviewActive
-    ? (isVolumeScene ? [0, 0, 0] : [0, 1.4, -1.0])
+    ? (isVolumeScene ? [0, 0, 0] : previewPosition)
     : win.position
 
+  // Smoothly lerp the rendered position toward `previewPos` in preview
+  // mode. When the open-window set changes (a button spawns a same-id
+  // window, or the user clicks a different pill), the remaining windows
+  // on the row glide into their new slots instead of snapping. Lerp is
+  // imperative on the group ref so we don't pay a React re-render per
+  // frame. Editor mode skips the lerp so dragging stays exact.
+  const positionRef = useRef()
+  const initialPosRef = useRef(null)
+  useFrame((_, delta) => {
+    if (!isPreviewActive) return
+    const g = positionRef.current
+    if (!g || !previewPos) return
+    const [tx, ty, tz] = previewPos
+    const cur = g.position
+    const dist = Math.hypot(cur.x - tx, cur.y - ty, cur.z - tz)
+    if (dist < 0.0005) {
+      cur.set(tx, ty, tz)
+      return
+    }
+    // ~140ms ease-out at 60fps.
+    const k = Math.min(1, delta * 12)
+    cur.set(
+      cur.x + (tx - cur.x) * k,
+      cur.y + (ty - cur.y) * k,
+      cur.z + (tz - cur.z) * k
+    )
+  })
+
+  if (isPreviewActive && !previewPosition) {
+    // Reset the seed so the next preview-mount animates from scratch.
+    initialPosRef.current = null
+    return null
+  }
+
+  // Compute the seed position on first render only — gives the group's
+  // <group position=...> a sensible starting point so the lerp animates
+  // into place instead of teleporting on mount.
+  if (initialPosRef.current === null) {
+    if (isPreviewActive && previewPos) {
+      // Slight offset to the right so the spawn-on-right action reads
+      // as a slide-in from the trailing edge.
+      initialPosRef.current = [previewPos[0] + 0.3, previewPos[1], previewPos[2]]
+    } else {
+      initialPosRef.current = previewPos
+    }
+  }
+  // In editor mode we don't lerp — keep the group's position pinned to
+  // `previewPos` (the stored design position) so dragging stays exact.
+  const renderPos = isPreviewActive ? initialPosRef.current : previewPos
+
   return (
-    <group position={previewPos}>
+    <group ref={positionRef} position={renderPos}>
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
@@ -796,6 +826,183 @@ function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHe
   )
 }
 
+// ---- Window-group tab bar (floating, left of the active window) -------
+//
+// Vertical capsule of pills, one per unique `windowGroupId` in the active
+// tab. The pill's icon comes from the *first* (representative) window of
+// that group; its label is the representative window's name.
+//
+// Sizing (visionOS-style, per user spec):
+//   - 44pt icon chip (collapsed default)
+//   - 12pt outer padding on all sides
+//   - 12pt gap between chips
+//   - Total height = 2·pad + N·44 + (N-1)·12 = 12 + 56·N pt
+//   - Collapsed width  = 44 + 2·pad = 68 pt
+//   - Expanded width   = 150 pt (preview-mode hover only) — labels appear
+//     to the right of each icon; the bar's left edge stays anchored.
+//
+// Click a pill to switch the active group: the open-window set resets to
+// just that group's primary representative, so opened side-by-side
+// instances from any other group disappear (matches the user's
+// "switch tab and both disappear" expectation).
+
+function WindowGroupTabBar3D({ groups, activeGroupId, anchorPosition, anchorWidth, scene, onSelect, lane = 'inner' }) {
+  const [hovered, setHovered] = useState(false)
+  // Hover-expand is preview-only. In editor mode the bar stays compact —
+  // pill click switches the design view but expanding into labels would
+  // crowd the chrome the user is positioning.
+  const expandedTarget = hovered && !!scene.previewMode
+
+  // Sizing constants (visionOS spec from the user):
+  //   - 44×44pt icon chip
+  //   - 12pt padding on all four sides
+  //   - 12pt gap between chips
+  //   - Outer corner radius = 34pt (matches the collapsed half-width so
+  //     the bar reads as a true capsule; preserved when expanded so the
+  //     left rim still looks like a half-circle next to the icons)
+  //   - Collapsed bar width  = 44 + 24 = 68pt
+  //   - Expanded bar width   = 150pt (preview-mode hover only)
+  const TAB_SIZE_PT = 44
+  const PAD_PT = 12
+  const GAP_PT = 12
+  const COLLAPSED_W_PT = TAB_SIZE_PT + PAD_PT * 2
+  const EXPANDED_W_PT  = 150
+  const CORNER_PT      = 34
+  const tabH = ptToUnits(TAB_SIZE_PT)
+  const tabW = ptToUnits(TAB_SIZE_PT)
+  const padding = ptToUnits(PAD_PT)
+  const gap = ptToUnits(GAP_PT)
+  const collapsedBarW = ptToUnits(COLLAPSED_W_PT)
+  const expandedBarW  = ptToUnits(EXPANDED_W_PT)
+  const targetBarW = expandedTarget ? expandedBarW : collapsedBarW
+
+  // Animated width — lerps toward the target every frame so the bar
+  // glides between the 68pt and 150pt states instead of snapping. Same
+  // pattern used by Panel3D for hover lift/scale. We only call setState
+  // while the value is still travelling toward the target; once it
+  // snaps to the target React stops re-rendering.
+  const [animBarW, setAnimBarW] = useState(collapsedBarW)
+  useFrame((_, delta) => {
+    if (Math.abs(targetBarW - animBarW) < 0.0001) return
+    setAnimBarW((prev) => {
+      const diff = targetBarW - prev
+      if (Math.abs(diff) < 0.0001) return targetBarW
+      // Ease-out lerp tuned to ~120ms full travel at 60fps.
+      const k = Math.min(1, delta * 14)
+      const next = prev + diff * k
+      // Snap when we're within half a pt of the target so we stop
+      // re-rendering on the very last few frames.
+      return Math.abs(targetBarW - next) < ptToUnits(0.5) ? targetBarW : next
+    })
+  })
+
+  const barW = animBarW
+  const barH = groups.length * tabH + Math.max(0, groups.length - 1) * gap + padding * 2
+  const tint = scene.tintColor || '#007aff'
+  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+  const gapFromWindow = ptToUnits(24)
+  const laneOffset = lane === 'outer' ? collapsedBarW + ptToUnits(12) : 0
+
+  // The bar's left edge stays anchored when it expands — the right edge
+  // is the one that moves outward to reveal labels. So the centre shifts
+  // right by (animBarW - collapsedBarW) / 2 as it grows.
+  const xCenter = anchorPosition[0] - anchorWidth / 2 - gapFromWindow - collapsedBarW / 2 - laneOffset
+  const x = xCenter + (barW - collapsedBarW) / 2
+  const y = anchorPosition[1]
+  const z = anchorPosition[2]
+
+  // Fixed 34pt outer corner radius — keeps the left half a perfect
+  // half-circle in both states (44pt chip + 12pt outer pad = 34pt
+  // radius). Capped to half the bar height so a 1-pill bar still reads
+  // as a capsule.
+  const cornerRadius = Math.min(ptToUnits(CORNER_PT), barH / 2)
+  const bgShape = useMemo(
+    () => roundedRectShape(barW, barH, cornerRadius),
+    [barW, barH, cornerRadius]
+  )
+
+  // Label fade-in: opacity tracks the bar's progress from collapsed to
+  // expanded so labels swell in alongside the expansion instead of
+  // popping when expanded toggles.
+  const expandProgress = (barW - collapsedBarW) / (expandedBarW - collapsedBarW)
+  const labelOpacity = Math.max(0, Math.min(1, expandProgress))
+
+  return (
+    <group
+      position={[x, y, z]}
+      onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
+      onPointerOut={() => setHovered(false)}
+    >
+      <mesh position={[0, 0, -0.005]}>
+        <shapeGeometry args={[bgShape]} />
+        <meshBasicMaterial
+          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          transparent
+          opacity={0.88}
+        />
+      </mesh>
+
+      {groups.map((g, i) => {
+        const yOffset = barH / 2 - padding - tabH / 2 - i * (tabH + gap)
+        const active = g.id === activeGroupId
+        const glyph = getSymbolGlyph(g.icon)
+        // The active tint chip extends rightward as the bar expands so
+        // it always sits behind the full icon+label run. Inner area =
+        // animBarW - 2*padding (matches the inner gutter). When fully
+        // collapsed the chip is exactly the 44pt icon square; when
+        // expanded it covers icon + label with the same height + rounded
+        // ends (a small capsule). Always centred at x=0 inside the bar.
+        const chipW = Math.max(tabW, barW - padding * 2)
+        const chipShape = roundedRectShape(chipW, tabH, tabH / 2)
+        // Pin icon to the left of the bar; the label butts directly
+        // against the icon's right edge (no horizontal gap).
+        const iconX = -barW / 2 + padding + tabW / 2
+        const labelX = iconX + tabW / 2  // right edge of icon
+        return (
+          <group
+            key={g.id}
+            position={[0, yOffset, 0.005]}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              onSelect(g.id)
+            }}
+          >
+            {active && (
+              <mesh position={[0, 0, -0.001]}>
+                <shapeGeometry args={[chipShape]} />
+                <meshBasicMaterial color={tint} transparent opacity={0.18} />
+              </mesh>
+            )}
+            <Text
+              position={[iconX, 0, 0.001]}
+              fontSize={ptToUnits(22)}
+              color={active ? tint : dimColor}
+              anchorX="center"
+              anchorY="middle"
+            >
+              {glyph}
+            </Text>
+            {labelOpacity > 0.01 && (
+              <Text
+                position={[labelX, 0, 0.001]}
+                font={getInterFont('medium')}
+                fontSize={ptToUnits(13)}
+                color={active ? tint : dimColor}
+                fillOpacity={labelOpacity}
+                anchorX="left"
+                anchorY="middle"
+                maxWidth={ptToUnits(EXPANDED_W_PT - PAD_PT - TAB_SIZE_PT - PAD_PT)}
+              >
+                {g.label}
+              </Text>
+            )}
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
 // ---- Root ----
 
 export default function SceneTree() {
@@ -803,6 +1010,7 @@ export default function SceneTree() {
   const activeTabId = useStore((s) => s.activeTabId)
   const scene = useStore((s) => s.scene)
   const selectTab = useStore((s) => s.selectTab)
+  const setActiveWindowGroup = useStore((s) => s.setActiveWindowGroup)
 
   // Only windows belonging to the active Tab render. Inactive tabs keep their
   // windows in the data but don't paint in the 3D scene.
@@ -814,20 +1022,102 @@ export default function SceneTree() {
   )
   const tabs = items.filter((it) => it.type === 'tab')
 
-  // Anchor the page-tab sidebar to the leftmost window of the active tab so
-  // it reads as "attached to the window group" — matching the user's mental
-  // model of "tab nav bar on the left of the window".
-  const anchor = windows.reduce(
-    (acc, w) => (!acc || w.position[0] < acc.position[0] ? w : acc),
-    null
-  )
+  // Dedupe by windowGroupId. Each unique id becomes one pill on the
+  // navigation capsule; the first matching window in document order is
+  // the "representative" and supplies the pill's icon + label.
+  const groups = (() => {
+    const seen = new Map()
+    for (const w of windows) {
+      const gid = w.windowGroupId || w.name || w.id
+      if (!seen.has(gid)) {
+        seen.set(gid, {
+          id: gid,
+          icon: w.tabIcon || 'rectangle',
+          label: w.name || gid,
+          firstItemId: w.id
+        })
+      }
+    }
+    return Array.from(seen.values())
+  })()
+
+  // Resolve the active group id. If the scene hasn't set one yet, fall
+  // back to the first group's id so a fresh scene previews cleanly.
+  const activeGroupId = scene.activeWindowGroupId || groups[0]?.id || null
+
+  // Resolve the open-window set for preview mode.
+  //   - If the scene has explicit `openWindowItemIds`, honour it.
+  //   - Otherwise default to the primary representative of the active
+  //     group (one window open, ready for openWindow() to extend it).
+  const openIds = (() => {
+    if (scene.openWindowItemIds && scene.openWindowItemIds.length > 0) {
+      return scene.openWindowItemIds.filter((id) =>
+        windows.some((w) => w.id === id)
+      )
+    }
+    const primary = scene.primaryWindowId
+      || groups.find((g) => g.id === activeGroupId)?.firstItemId
+      || windows[0]?.id
+      || null
+    return primary ? [primary] : []
+  })()
+
+  // In preview, lay the open windows out as one centred row at chest
+  // height, 60pt gap between plates. In editor, each window stays at its
+  // stored design position so the canvas reads as the layout the user
+  // is authoring. `previewPosByItem` is `{ [itemId]: [x, y, z] | null }`
+  // — null entries get hidden in preview (Window3D returns null).
+  const previewPosByItem = (() => {
+    if (!scene.previewMode) return new Map()
+    const openWindows = openIds
+      .map((id) => windows.find((w) => w.id === id))
+      .filter(Boolean)
+    if (openWindows.length === 0) return new Map()
+    const gap = ptToUnits(60)
+    const totalW = openWindows.reduce((acc, w) => acc + w.size[0], 0)
+                 + Math.max(0, openWindows.length - 1) * gap
+    const baseY = 1.4
+    const baseZ = -1.0
+    const map = new Map()
+    let cursor = -totalW / 2
+    for (const w of openWindows) {
+      map.set(w.id, [cursor + w.size[0] / 2, baseY, baseZ])
+      cursor += w.size[0] + gap
+    }
+    return map
+  })()
+
+  // Anchor the navigation capsule to the leftmost rendered window:
+  //   - In preview, that's the first window in the open set (already at
+  //     a known x).
+  //   - In editor, that's the leftmost design position.
+  const anchor = scene.previewMode
+    ? (() => {
+        const firstId = openIds[0]
+        const w = windows.find((x) => x.id === firstId)
+        if (!w) return null
+        const pos = previewPosByItem.get(w.id) || w.position
+        return { position: pos, size: w.size }
+      })()
+    : windows.reduce(
+        (acc, w) => (!acc || w.position[0] < acc.position[0] ? w : acc),
+        null
+      )
+
+  const showWindowGroupBar = groups.length >= 2
+  const showPageTabBar = tabs.length >= 2
 
   return (
     <>
       {windows.map((w) => (
-        <Window3D key={w.id} window={w} items={items} />
+        <Window3D
+          key={w.id}
+          window={w}
+          items={items}
+          previewPosition={previewPosByItem.get(w.id) || null}
+        />
       ))}
-      {tabs.length >= 2 && anchor && (
+      {showPageTabBar && anchor && (
         <PageTabBar3D
           tabs={tabs}
           activeTabId={activeTabId}
@@ -836,6 +1126,17 @@ export default function SceneTree() {
           anchorHeight={anchor.size[1]}
           scene={scene}
           selectTab={selectTab}
+        />
+      )}
+      {showWindowGroupBar && anchor && (
+        <WindowGroupTabBar3D
+          groups={groups}
+          activeGroupId={activeGroupId}
+          anchorPosition={anchor.position}
+          anchorWidth={anchor.size[0]}
+          scene={scene}
+          onSelect={setActiveWindowGroup}
+          lane={showPageTabBar ? 'outer' : 'inner'}
         />
       )}
     </>

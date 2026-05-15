@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt } from '../appleSystem'
+import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt, computeButtonFramePt, BUTTON_SIZES } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { EntityChildren } from './Entity3D'
@@ -253,6 +253,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   //   3. panel.size — explicit user-set frame.
   //   4. auto-estimate from text content (legacy fallback).
   const size = (() => {
+    // Button: height locked to the Size preset, width grows with the label
+    // so a longer string still fits on one line with 12pt side padding.
+    // Runs BEFORE the resolvedSize check so the parent stack's auto-layout
+    // doesn't crush a long-label button back down to the preset width.
+    // See computeButtonFramePt in appleSystem.js for the math.
+    if (panelType === 'button') {
+      const [wPt, hPt] = computeButtonFramePt(panel)
+      return [ptToUnits(wPt), ptToUnits(hPt)]
+    }
     if (resolvedSize && Array.isArray(resolvedSize)) return resolvedSize
     const isTextLike = panelType === 'text' || panelType === 'link'
     if (isTextLike) {
@@ -588,9 +597,17 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder
   const isComplex = ['list', 'table', 'menu', 'progress', 'slider', 'stepper', 'gauge', 'search'].includes(panelType)
 
-  const baseFontSize = panel.textStyle
-    ? ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 17)
-    : (panel.fontSize || 0.15)
+  // Buttons read their font size from the `BUTTON_SIZES` preset that
+  // matches `panel.buttonSize`. The Label section's text-style picker
+  // doesn't apply to buttons — the Size dropdown is the single control
+  // for the button's text point size (15 / 17 / 19 pt at small /
+  // regular / large). Other panel types still resolve through
+  // `textStyle` then fall back to `fontSize`.
+  const baseFontSize = panelType === 'button'
+    ? ptToUnits(BUTTON_SIZES[panel.buttonSize]?.fontPt ?? 17)
+    : panel.textStyle
+      ? ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 17)
+      : (panel.fontSize || 0.15)
   const finalFontSize = baseFontSize
   // For text/link, swap to an italic font file when .italic() is on —
   // troika's `fontStyle` prop only takes effect if the font file itself
@@ -601,7 +618,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     (panelType === 'text' || panelType === 'link') && !!modSummary.italic
   )
 
-  const anchorX = panel.textAlign === 'left' ? 'left'
+  // Buttons are always centred on both axes — they have no alignment
+  // control in the inspector. Every other panel honours `panel.textAlign`.
+  const anchorX = panelType === 'button'
+    ? 'center'
+    : panel.textAlign === 'left'  ? 'left'
     : panel.textAlign === 'right' ? 'right'
     : 'center'
 
@@ -609,8 +630,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // edge so textAlign is visually honoured (not just anchored at the center
   // going outward). A tiny inset keeps the glyphs from kissing the border
   // on non-Text panels (button, picker etc.). Pure text/link panels have no
-  // inset — the panel box already equals the text's bounds.
-  const textInset = (panelType === 'text' || panelType === 'link') ? 0 : ptToUnits(4)
+  // inset — the panel box already equals the text's bounds. Buttons follow
+  // the visionOS Figma kit spec: 12pt side padding on each edge (see
+  // BUTTON_TEXT_INSET_PT in appleSystem.js).
+  const textInset = (panelType === 'text' || panelType === 'link')
+    ? 0
+    : panelType === 'button'
+      ? ptToUnits(12)
+      : ptToUnits(4)
   // Buttons with a leading SF Symbol (`Label(_, systemImage:)`) need
   // the text shifted right past the icon so they don't overlap. The
   // icon sits at `-size[0]/2 + 12pt` and renders at ~`finalFontSize *
@@ -619,10 +646,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // centred within the remaining width.
   const hasLeadingSymbol = panelType === 'button' && panel.symbolName && SF_SYMBOLS[panel.symbolName]
   const symbolOffset = hasLeadingSymbol ? ptToUnits(28) : 0
-  const textX =
-    panel.textAlign === 'left'  ? -size[0] / 2 + textInset + symbolOffset
-  : panel.textAlign === 'right' ?  size[0] / 2 - textInset
-  : symbolOffset / 2
+  const textX = panelType === 'button'
+    ? symbolOffset / 2
+    : panel.textAlign === 'left'  ? -size[0] / 2 + textInset + symbolOffset
+    : panel.textAlign === 'right' ?  size[0] / 2 - textInset
+    : symbolOffset / 2
 
   // Text-specific modifiers (.italic, .underline, .strikethrough, .lineLimit,
   // .lineSpacing, .tracking, .textCase) come from the ordered modifier stack
@@ -1882,12 +1910,13 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
               fillOpacity={modOpacity}
               anchorX={anchorX}
               anchorY="middle"
-              maxWidth={size[0]}
-              textAlign={panel.textAlign || 'center'}
+              maxWidth={panelType === 'button' ? undefined : size[0]}
+              textAlign={panelType === 'button' ? 'center' : (panel.textAlign || 'center')}
               letterSpacing={letterSpacing}
               lineHeight={lineHeight}
-              maxLines={lineLimit}
+              maxLines={panelType === 'button' ? 1 : lineLimit}
               overflowWrap="break-word"
+              whiteSpace={panelType === 'button' ? 'nowrap' : undefined}
             >
               {rendered}
             </Text>
