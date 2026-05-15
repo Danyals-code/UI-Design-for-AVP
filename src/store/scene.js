@@ -82,6 +82,79 @@ export const createSceneSlice = (set, get) => ({
     return { scene: { ...s.scene, activeWindowId: id } }
   }),
 
+  // Click a pill in the WindowGroupTabBar: switch active group and
+  // reset the open set to just the primary representative of that
+  // group. All previously-open windows from other groups disappear
+  // (matches the user's "switch to other tab and both disappear"
+  // expectation). Not undoable — navigation isn't an editor edit.
+  setActiveWindowGroup: (gid) => set((s) => {
+    if (!gid) return s
+    const primary = s.items.find(
+      (it) => it.type === 'window' && it.windowGroupId === gid && it.parentId === s.activeTabId
+    )
+    if (!primary) return s
+    return {
+      scene: {
+        ...s.scene,
+        activeWindowGroupId: gid,
+        openWindowItemIds: [primary.id],
+        activeWindowId: primary.id
+      }
+    }
+  }),
+
+  // The `.openWindow(id:)` environment action. The button's tap action
+  // stores the *item id* the user picked in the inspector; firing the
+  // action looks up that item and:
+  //   - if its windowGroupId matches the currently-active group, appends
+  //     the item to `openWindowItemIds` (so it spawns alongside the
+  //     existing windows on the right) — matches SwiftUI's "open another
+  //     instance of this WindowGroup" behaviour.
+  //   - if it belongs to a different group, switches the active group and
+  //     replaces the open set with just that one item.
+  // No-op if the item is already in the open set (a second tap on the
+  // same button doesn't duplicate the window).
+  openWindowByItem: (itemId) => set((s) => {
+    const target = s.items.find((it) => it.id === itemId && it.type === 'window')
+    if (!target) return s
+    const targetGid = target.windowGroupId || target.name || target.id
+    // Resolve the *effective* active group and open set. The scene
+    // doesn't seed these on initial load (a fresh design has no notion
+    // of "which group is active") — the renderer computes defaults
+    // from the items each frame. The first tap action lands while the
+    // scene fields are still null, so we mirror the renderer's
+    // resolution here to ensure the very first openWindow call counts
+    // the already-rendered main window as "already open" and APPENDS
+    // the new item, rather than replacing it.
+    const primary = s.items.find((it) => it.id === s.scene.primaryWindowId && it.type === 'window')
+      || s.items.find((it) => it.type === 'window' && it.parentId === s.activeTabId)
+    const activeGid = s.scene.activeWindowGroupId
+      || primary?.windowGroupId
+      || null
+    let open = s.scene.openWindowItemIds && s.scene.openWindowItemIds.length > 0
+      ? s.scene.openWindowItemIds
+      : (primary ? [primary.id] : [])
+    if (targetGid === activeGid) {
+      if (open.includes(itemId)) return s
+      return {
+        scene: {
+          ...s.scene,
+          activeWindowGroupId: activeGid,
+          openWindowItemIds: [...open, itemId],
+          activeWindowId: itemId
+        }
+      }
+    }
+    return {
+      scene: {
+        ...s.scene,
+        activeWindowGroupId: targetGid,
+        openWindowItemIds: [itemId],
+        activeWindowId: itemId
+      }
+    }
+  }),
+
   // Preview-only: NavigationSplitView selection routing. Clicking a
   // sidebar row in preview dispatches this with the row's navTag; the
   // NavigationSplitView root's `activeDestination` updates and the
@@ -125,9 +198,10 @@ export const createSceneSlice = (set, get) => ({
     switch (action.type) {
       case 'navigateWindow': {
         if (!action.windowId) return
-        const target = state.items.find((it) => it.id === action.windowId && it.type === 'window')
-        if (!target) return
-        set((s) => ({ scene: { ...s.scene, activeWindowId: action.windowId } }))
+        // Delegate to openWindowByItem so a tap on a button that targets
+        // a same-group window spawns it alongside the existing windows
+        // (instead of replacing). Different-group taps still switch.
+        get().openWindowByItem(action.windowId)
         return
       }
       case 'navigateTab': {

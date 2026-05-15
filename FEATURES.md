@@ -4,10 +4,16 @@ Living catalog of everything this app can do today. Treat this as the
 authoritative reference — when a feature is added, removed, or changed,
 update this file in the same commit so it never drifts from reality.
 
-The companion [README.md](README.md) is the getting-started guide
-(install, run, build); this file is the surface area.
+Three docs at the repo root work together:
 
-> **Last updated:** 2026-05-11
+- [README.md](README.md) — install / run / build (getting started).
+- **[FEATURES.md](FEATURES.md)** *(this file)* — user-visible surface.
+- [VIEWS.md](VIEWS.md) — maintainer reference: every panel/stack/window
+  factory, with defaults and SwiftUI emit patterns. The "what does this
+  view *do* and what are its defaults" map. Update whenever you add or
+  change a view type, default, or design-system constant.
+
+> **Last updated:** 2026-05-15
 
 ---
 
@@ -118,7 +124,8 @@ app). In preview, a Reset Camera pill + Exit pill replace it.
   / `VOLUME_PRESETS`.
 
 ### Default sizes
-- Window: `800 × 600 pt` (Apple's canonical `.defaultSize` example).
+- Window: `1200 × 800 pt` (Regular preset — the default frame for a new
+  window and the fallback when no window is selected).
 - Volume: `0.6 × 0.4 × 0.6 m` (medium preset, translates via
   1360pt = 1m).
 - Other presets (wide / tall / compact / square / small / large) live
@@ -202,6 +209,27 @@ Tab (page)
 - Window-level metadata: padding, corner radius, material, ornaments,
   spatial (immersion / hover / resizability / gestures), environment.
 - Drag in 3D to reposition (suppressed in Preview Mode).
+- Every window owns a **Group ID** (SwiftUI `WindowGroup(id:)`). A
+  fresh window mints a unique `WindowN` id automatically; users can
+  rename it from the inspector. Button tap actions of type **Open
+  Window (.openWindow)** target a window by this id.
+- When the active tab resolves to 2+ unique Group IDs, a vertical
+  **navigation capsule** floats on the leading edge with one pill per
+  unique id (multiple windows that share an id collapse to one pill —
+  matching a SwiftUI WindowGroup). The capsule auto-updates as windows
+  are added, removed, or renamed.
+  - 44×44pt icon chip per pill. 12pt padding on all sides + 12pt
+    between chips (so 3 pills = 180pt tall). Icon comes from the
+    Tab Icon field of the group's first window.
+  - In Preview mode, hovering the capsule expands it from 68pt wide
+    to 150pt and reveals a label beside each icon. The left edge
+    stays anchored; the right edge moves outward.
+  - Click a pill to switch groups — the open-window set resets to
+    that group's primary window (any previously-spawned same-id
+    side-by-side instances disappear).
+  - The `.openWindow(id:)` tap action *appends* a same-group window
+    to the open set (spawning it on the right with a 60pt gap to the
+    previous plate), or switches groups for a different-id target.
 
 ### Stacks
 Stack types (`STACK_TYPES` in [src/appleSystem.js](src/appleSystem.js)):
@@ -219,12 +247,22 @@ br, bl]` — matches SwiftUI's `UnevenRoundedRectangle`), ornament anchor,
 scrollable flag, modifiers.
 
 ### Panels
-Every SwiftUI primitive lives here (~55 types — full list in
+Every SwiftUI primitive lives here (~55 types — full list and per-type
+defaults in [VIEWS.md](VIEWS.md), source in
 [src/panels/registry.js](src/panels/registry.js)):
 - **Text / typography:** text, link, label, ticker
 - **Controls:** button, toggle, segmented, picker, datepicker,
   colorpicker, slider, stepper, gauge, progress, search, textfield,
   securefield, texteditor
+  - **Button** is sized by a `Size` picker (Small `65×32` / Regular
+    `86×44` / Large `101×52` pt) and a `Style` picker (Capsule — 100pt
+    radius, or Rounded Rect — 16pt radius). Width/height are not
+    manually editable. Text size tracks the size selection (15 / 17 /
+    19 pt) and side padding is a fixed 12pt. If a label is longer than
+    the preset width, the button grows wider (height stays locked) so
+    the text stays on a single line with the 12pt padding intact.
+  - **Segmented control** is a Picker with `.pickerStyle(.segmented)` —
+    Items field (comma-separated) + Selected index.
 - **Lists:** list, table, menu, outlinegroup, form, groupbox
 - **Media:** image, asyncimage, slideshow
 - **Layout primitives:** spacer, divider
@@ -321,9 +359,11 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 - **Object** (collapsed): name + frame mode (Figma-style for shapes,
   Layout-style for controls, none for ornaments).
 - **Per-type inspector:** every panel type has its own section — Text,
-  Button Style + Shape + Size + Role + Tint, Toggle Value + Label,
+  Button Size + Style + Role + Tint (W/H are not editable; the Size
+  picker is the only way to change the frame), Toggle Value + Label,
   Picker options, Slider min/max/step, Image URL + fit, List rows,
-  Table columns, Datepicker mode, SF Symbol picker, etc.
+  Table columns, Datepicker mode, SF Symbol picker, etc. See
+  [VIEWS.md](VIEWS.md) for per-type fields and SwiftUI emit patterns.
 - **Modifiers:** modifier stack.
 - **Styles:** control-size + per-control style picker (toggleStyle,
   pickerStyle, …). Hidden for buttons and toggles whose own inspector

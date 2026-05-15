@@ -58,12 +58,13 @@ export const TEXT_STYLE_ORDER = [
 export const textStyleDefaultWeight = (style) =>
   TEXT_STYLES[style]?.weight ?? 'regular'
 
-// visionOS window sizes. Defaults follow the canonical Apple example
-// `.defaultSize(width: 800, height: 600)` so freshly-created windows
-// drop into the same proportions Apple's templates use. Other presets
-// stay around for designers who want a different starting frame.
+// visionOS window sizes. The Regular preset is the default frame for a
+// freshly-created window (or when no window is selected) — 1200×800
+// gives a comfortably wide landscape canvas that matches the proportions
+// most visionOS reference apps ship with. Other presets stay around for
+// designers who want a different starting frame.
 export const WINDOW_PRESETS = {
-  regular:  { label: 'Regular',  width: 800,  height: 600 },
+  regular:  { label: 'Regular',  width: 1200, height: 800 },
   wide:     { label: 'Wide',     width: 1280, height: 720 },
   tall:     { label: 'Tall',     width: 720,  height: 1080 },
   compact:  { label: 'Compact',  width: 640,  height: 480 },
@@ -125,6 +126,77 @@ export const ORNAMENT_DEFAULTS = {
 // Gap between the window edge and the attached ornament.
 // visionOS bottom ornaments overlap the window edge by 20 pt (WWDC23 #10076).
 export const ORNAMENT_GAP = 20 // pt
+
+// Button size presets. visionOS surfaces three fixed sizes; each one
+// determines the button frame, the text point size, and (via the renderer)
+// the leading SF-Symbol inset. Side padding is a constant 12pt, baked into
+// the renderer in `Panel3D.jsx`. The numbers below are the single source of
+// truth — the inspector reads them when the user picks a size, the canvas
+// reads them when rendering, and the SwiftUI exporter reads them when
+// emitting `.frame()` (when an override is needed).
+export const BUTTON_SIZES = {
+  small:   { label: 'Small',   width:  65, height: 32, fontPt: 15 },
+  regular: { label: 'Regular', width:  86, height: 44, fontPt: 17 },
+  large:   { label: 'Large',   width: 101, height: 52, fontPt: 19 }
+}
+export const BUTTON_SIZE_ORDER = ['small', 'regular', 'large']
+
+// Button shape presets — drives corner radius only. Capsule renders as a
+// pill (radius 100pt — effectively the full half-height, which visually
+// caps both ends at the spec). Rounded Rect uses a 16pt radius — the
+// visionOS Figma kit's secondary button shape.
+export const BUTTON_SHAPES = {
+  capsule:          { label: 'Capsule',     radiusPt: 100 },
+  roundedRectangle: { label: 'Rounded Rect', radiusPt:  16 }
+}
+export const BUTTON_SHAPE_ORDER = ['capsule', 'roundedRectangle']
+
+// Fixed text inset (side padding) inside every button, applied by the
+// renderer to the text's horizontal placement. Matches the Apple Figma
+// kit's 12pt edge-to-glyph spec.
+export const BUTTON_TEXT_INSET_PT = 12
+
+// Measure a string's width in points using a canvas 2D context with
+// Inter (the font the canvas renders with via troika). Buttons use this
+// to grow their frame so a longer label still fits on a single line
+// with the 12pt side padding intact. The 0.58-glyph-advance fallback is
+// only used during SSR / when `document` isn't available — the renderer
+// always runs in the browser so the canvas path is the live one.
+let _btnMeasureCanvas = null
+export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
+  if (!text) return 0
+  if (typeof document === 'undefined') return text.length * fontSizePt * 0.58
+  if (!_btnMeasureCanvas) _btnMeasureCanvas = document.createElement('canvas')
+  const ctx = _btnMeasureCanvas.getContext('2d')
+  if (!ctx) return text.length * fontSizePt * 0.58
+  const cssWeight = weight === 'bold' ? 700
+    : weight === 'semibold' ? 600
+    : weight === 'medium' ? 500 : 400
+  ctx.font = `${cssWeight} ${fontSizePt}px Inter, system-ui, sans-serif`
+  return ctx.measureText(text).width
+}
+
+// Resolve a button panel's *effective* frame in points. Height is locked
+// to its `buttonSize` preset; width is **always** `textWidth + 2×12pt`
+// padding (plus a small reserve when there's a leading SF Symbol) so
+// the padding stays exactly 12pt on each side regardless of label
+// length. A short label shrinks the button; a long label grows it. The
+// only floor is the preset height — keeps an empty button from
+// collapsing to a 24pt sliver while it's being authored.
+export function computeButtonFramePt(panel) {
+  const sizeKey = panel?.buttonSize || 'regular'
+  const preset  = BUTTON_SIZES[sizeKey] || BUTTON_SIZES.regular
+  const fontPt  = preset.fontPt
+  // +1pt safety margin on the measured width — troika's text layout
+  // and canvas 2D's advance metric can disagree by a fraction at the
+  // tail of the last glyph, and we'd rather over-pad by half a pt than
+  // wrap a label.
+  const labelW  = measureTextWidthPt(panel?.text || '', fontPt, panel?.fontWeight) + 1
+  // Leading-symbol reserve: icon glyph (~fontPt × 1.1) + 4pt gap.
+  const symbolReserve = panel?.symbolName ? fontPt * 1.1 + 4 : 0
+  const needed = labelW + symbolReserve + BUTTON_TEXT_INSET_PT * 2
+  return [Math.max(preset.height, needed), preset.height]
+}
 
 // SwiftUI button styles.
 // `automatic` is the visionOS default — it resolves to a glass-bordered

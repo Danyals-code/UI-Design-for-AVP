@@ -75,7 +75,10 @@ function WindowBehaviorsPlaceholder() {
 // new option here.
 const TAP_ACTION_OPTIONS = [
   { value: 'none',           label: 'No action' },
-  { value: 'navigateWindow', label: 'Open window' },
+  // SwiftUI `@Environment(\.openWindow)` action — opens (or focuses) the
+  // WindowGroup matching the target window's `windowGroupId` as a
+  // side-by-side window in the wearer's space.
+  { value: 'navigateWindow', label: 'Open Window (.openWindow)' },
   { value: 'navigateTab',    label: 'Switch tab' },
   { value: 'flipToggle',     label: 'Flip toggle' },
   { value: 'setToggle',      label: 'Set toggle' },
@@ -117,7 +120,15 @@ function TapActionSection({ item }) {
               value={action.windowId || ''}
               options={[
                 { value: '', label: '— Pick a window —' },
-                ...windows.map((w) => ({ value: w.id, label: w.name || 'Window' }))
+                ...windows.map((w) => ({
+                  value: w.id,
+                  // Show both the human name and the SwiftUI WindowGroup
+                  // id (the string that ends up in `openWindow(id:)`).
+                  // Falls back to the sanitised name for legacy windows.
+                  label: w.windowGroupId
+                    ? `${w.name || 'Window'} · ${w.windowGroupId}`
+                    : (w.name || 'Window')
+                }))
               ]}
               onChange={(v) => setAction({ windowId: v || null })}
             />

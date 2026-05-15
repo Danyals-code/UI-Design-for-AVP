@@ -137,12 +137,20 @@ export const PANELS = {
 
   button: {
     defaults: {
-      // 164×60 pill — the Vision Pro "Capsule" button shape Apple uses in
-      // their reference UI. cornerRadius=30 makes both ends fully rounded.
-      size: [ptToUnits(164), ptToUnits(60)],
+      // Fixed-size button. visionOS buttons ship at three standard sizes —
+      // small (65×32), regular (86×44), large (101×52). The corner radius
+      // is driven by `buttonShape`: 100pt for capsule (effectively a pill)
+      // or 16pt for the rounded-rect treatment. Side padding (text inset)
+      // is fixed at 12pt — see the renderer in Panel3D.jsx. Width/height
+      // are NOT user-editable; the size selector is the only way to
+      // change them, which keeps every button on the canvas matching one
+      // of the three Apple-spec frames.
+      size: [ptToUnits(86), ptToUnits(44)],
+      buttonSize: 'regular',             // 'small' | 'regular' | 'large'
+      buttonShape: 'capsule',            // 'capsule' | 'roundedRectangle'
       color: '#b7b6b1',
       colorToken: 'designButton',
-      cornerRadius: ptToUnits(30),       // capsule
+      cornerRadius: ptToUnits(100),      // capsule by default (100pt)
       text: 'Button',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
@@ -205,8 +213,12 @@ export const PANELS = {
         if (!a || !a.type) return '// no action'
         if (a.type === 'navigateWindow') {
           const tgt = a.windowId ? lookupItem(a.windowId) : null
-          const name = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '') : 'Window'
-          return `openWindow(id: "${name}")`
+          // Use the window's `windowGroupId` — the same string the
+          // exporter emits as `WindowGroup(id: "...")`. Falling back
+          // to the sanitised name keeps legacy save files working.
+          const gid = tgt?.windowGroupId
+            || (tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '') : 'Window')
+          return `openWindow(id: "${gid}")`
         }
         if (a.type === 'navigateTab') {
           return `selectedTab = ${a.tab ?? 0}`

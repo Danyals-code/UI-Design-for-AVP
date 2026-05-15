@@ -15,8 +15,11 @@ import {
 import {
   TextSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
+import { SemanticColorPicker } from '../components/PropertiesPanel/primitives'
+import { resolveSemantic } from '../appleSystem'
 import {
   BUTTON_BORDER_SHAPES, CONTROL_SIZES,
+  BUTTON_SIZES, BUTTON_SIZE_ORDER, BUTTON_SHAPES, BUTTON_SHAPE_ORDER,
   DATE_PICKER_STYLES, PROGRESS_VIEW_STYLES, GAUGE_STYLES,
   MENU_STYLES, MENU_ORDER, MENU_INDICATOR_VISIBILITY,
   FORM_STYLES, GROUP_BOX_STYLES, DISCLOSURE_GROUP_STYLES,
@@ -24,7 +27,8 @@ import {
   PICKER_STYLES, TOGGLE_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
   SYMBOL_RENDERING_MODES,
   KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
-  DATE_COMPONENTS, IMAGE_SCALES
+  DATE_COMPONENTS, IMAGE_SCALES,
+  ptToUnits
 } from '../appleSystem'
 
 // ---- shared mini-inspectors -------------------------------------------
@@ -239,66 +243,122 @@ export const INSPECTORS = {
     </>
   ),
 
-  button: (ctx) => (
-    // One unified "Button" section. Previously split across "Button
-    // Style" + "Label" which split related controls (the button's
-    // visual style and the text on it) across two dropdowns. Style
-    // pickers sit up top; the label-text + font controls sit below
-    // under a small sub-heading so they're easy to scan.
-    <Section title="Button" defaultOpen={true}>
-      <Row label="Style">
-        <Select
-          value={ctx.item.buttonStyle || 'automatic'}
-          options={Object.entries(BUTTON_STYLES).map(([k, v]) => ({ value: k, label: v.label }))}
-          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonStyle: v })}
-        />
-      </Row>
-      <Row label="Shape">
-        <Select
-          value={ctx.item.buttonBorderShape || 'automatic'}
-          options={BUTTON_BORDER_SHAPES}
-          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonBorderShape: v })}
-        />
-      </Row>
-      <Row label="Size">
-        <Select
-          value={ctx.item.controlSize || 'regular'}
-          options={CONTROL_SIZES}
-          onChange={(v) => ctx.updateItem(ctx.item.id, { controlSize: v })}
-        />
-      </Row>
-      <Row label="Role">
-        <Select
-          value={ctx.item.buttonRole || 'none'}
-          options={[
-            { value: 'none',        label: 'None' },
-            { value: 'destructive', label: 'Destructive' },
-            { value: 'cancel',      label: 'Cancel' }
-          ]}
-          onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
-        />
-      </Row>
-      <Row label="Tint">
-        <ColorRow
-          value={ctx.item.tint || '#0a84ff'}
-          onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
-        />
-        {ctx.item.tint && (
-          <button
-            className="btn btn-ghost text-[9px]"
-            title="Use system tint"
-            onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
-          >×</button>
-        )}
-      </Row>
+  button: (ctx) => {
+    // Simplified Button inspector. The button has only two structural
+    // controls — Size (small/regular/large) and Style (Capsule/Rounded
+    // Rect). Each picker writes a small set of derived fields so the
+    // canvas, the SwiftUI exporter, and the renderer always agree on
+    // the frame, font size, and corner radius.
+    //
+    // Width / height are NOT user-editable here. The button's frame
+    // tracks the Size selection so every button on the canvas matches
+    // one of the three Apple-spec sizes. PanelProps reads
+    // PANEL_META.button.frameMode === 'none' to hide the Object frame
+    // rows for buttons.
+    const applySize = (key) => {
+      const s = BUTTON_SIZES[key] || BUTTON_SIZES.regular
+      ctx.updateItem(ctx.item.id, {
+        buttonSize: key,
+        size: [ptToUnits(s.width), ptToUnits(s.height)],
+        fontSize: ptToUnits(s.fontPt),
+        controlSize: key === 'small' ? 'small' : key === 'large' ? 'large' : 'regular'
+      })
+    }
+    const applyShape = (key) => {
+      const s = BUTTON_SHAPES[key] || BUTTON_SHAPES.capsule
+      ctx.updateItem(ctx.item.id, {
+        buttonShape: key,
+        buttonBorderShape: key,
+        cornerRadius: ptToUnits(s.radiusPt)
+      })
+    }
+    return (
+      <Section title="Button" defaultOpen={true}>
+        <Row label="Size">
+          <Select
+            value={ctx.item.buttonSize || 'regular'}
+            options={BUTTON_SIZE_ORDER.map((k) => ({
+              value: k,
+              label: `${BUTTON_SIZES[k].label} (${BUTTON_SIZES[k].width}×${BUTTON_SIZES[k].height})`
+            }))}
+            onChange={applySize}
+          />
+        </Row>
+        <Row label="Style">
+          <Select
+            value={ctx.item.buttonShape || 'capsule'}
+            options={BUTTON_SHAPE_ORDER.map((k) => ({
+              value: k,
+              label: BUTTON_SHAPES[k].label
+            }))}
+            onChange={applyShape}
+          />
+        </Row>
+        <Row label="Role">
+          <Select
+            value={ctx.item.buttonRole || 'none'}
+            options={[
+              { value: 'none',        label: 'None' },
+              { value: 'destructive', label: 'Destructive' },
+              { value: 'cancel',      label: 'Cancel' }
+            ]}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
+          />
+        </Row>
+        <Row label="Tint">
+          <ColorRow
+            value={ctx.item.tint || '#0a84ff'}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
+          />
+          {ctx.item.tint && (
+            <button
+              className="btn btn-ghost text-[9px]"
+              title="Use system tint"
+              onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
+            >×</button>
+          )}
+        </Row>
 
-      {/* Label text + typography. Embedded as a sub-block so the user
-          doesn't have to expand another dropdown to edit the button's
-          text or font. */}
-      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Label</div>
-      <TextSection {...ctx} sectionTitle="Label" includeBody embedded />
-    </Section>
-  ),
+        {/* Label sub-section. Buttons always render the label centred
+            on both axes, so there's no alignment picker; the text size
+            is locked to the Size dropdown above, so there's no Style
+            picker either. Only the text body, its weight, and its colour
+            are user-editable here. */}
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Label</div>
+        <Row>
+          <textarea
+            value={ctx.item.text || ''}
+            onChange={(e) => ctx.updateItem(ctx.item.id, { text: e.target.value })}
+            rows={2}
+            className="field resize-none"
+            placeholder="Button label"
+          />
+        </Row>
+        <Row label="Weight">
+          <Select
+            value={ctx.item.fontWeight || 'semibold'}
+            options={[
+              { value: 'regular',  label: 'Regular' },
+              { value: 'medium',   label: 'Medium' },
+              { value: 'semibold', label: 'Semibold' },
+              { value: 'bold',     label: 'Bold' }
+            ]}
+            onChange={(v) => ctx.updateItem(ctx.item.id, { fontWeight: v })}
+          />
+        </Row>
+        <Row label="Color">
+          <SemanticColorPicker
+            token={ctx.item.textColorToken}
+            onChange={(t) => {
+              const scheme = ctx.scene?.designScheme || 'light'
+              if (t) ctx.updateItem(ctx.item.id, { textColorToken: t, textColor: resolveSemantic(t, scheme) })
+              else   ctx.updateItem(ctx.item.id, { textColorToken: null })
+            }}
+          />
+        </Row>
+      </Section>
+    )
+  },
 
   toggle: ({ item, updateItem }) => (
     <Section title="Toggle">
@@ -1251,6 +1311,10 @@ export const PANEL_META = {
   text: figmaFrame,
   link: { ...figmaFrame, useSymbol: true },
   list: { ...explicitFrame, lockHeight: true, lockHeightHint: 'Height is auto — grows with the row count at the style\'s fixed row height.' },
+  // Buttons are sized by the Size selector inside the Button inspector
+  // — frameMode 'none' hides the Object section's width/height fields
+  // so the only way to change a button's dimensions is via that picker.
+  button: { frameMode: 'none', hasFill: false },
   // Default for everything else: explicit frame + has fill
 }
 

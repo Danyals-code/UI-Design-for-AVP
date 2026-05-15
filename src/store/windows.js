@@ -33,18 +33,24 @@ export const createWindowsSlice = (set, get) => ({
     const windows = s.items.filter(
       (it) => it.type === 'window' && it.parentId === parentTabId
     )
-    let x = 0, y = 2.5, z = -4.5
+    // Mint the new window first so the layout math can use its actual
+    // size (caller overrides may have changed the default frame).
+    const w = makeWindow({ parentId: parentTabId, ...overrides })
+    let [x, y, z] = w.position
     if (windows.length > 0) {
       let rightmost = windows[0]
       for (const win of windows) {
         if (win.position[0] > rightmost.position[0]) rightmost = win
       }
-      const gap = 0.3
-      x = rightmost.position[0] + (rightmost.size[0] / 2) + gap + 3.2
+      // Sit the new window flush against the rightmost one with a 60pt
+      // visible gap between the plates' edges. Centre-to-centre math:
+      //   newX = oldX + oldW/2 + gap + newW/2
+      const gap = ptToUnits(60)
+      x = rightmost.position[0] + rightmost.size[0] / 2 + gap + w.size[0] / 2
       y = rightmost.position[1]
       z = rightmost.position[2]
+      w.position = [x, y, z]
     }
-    const w = makeWindow({ parentId: parentTabId, position: [x, y, z], ...overrides })
     return { items: [...s.items, w], selectedId: w.id }
   }),
 
