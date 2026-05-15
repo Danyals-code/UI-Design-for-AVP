@@ -29,6 +29,137 @@ function TemplateThumb({ kind }) {
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
         </svg>
       )
+    // ---- New HIG-aligned window templates ----
+    case 'welcome':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* hero icon */}
+          <circle cx="80" cy="22" r="6" fill={accent} stroke="none" opacity="0.3" />
+          <circle cx="80" cy="22" r="3.5" fill={accent} stroke="none" />
+          {/* title + subtitle */}
+          <rect x="50" y="34" width="60" height="6" rx="1.5" fill="#ffffff" stroke="none" />
+          <rect x="40" y="44" width="80" height="3" rx="1" fill={grey} stroke="none" />
+          <rect x="46" y="50" width="68" height="3" rx="1" fill={grey} stroke="none" />
+          {/* primary CTA */}
+          <rect x="64" y="60" width="32" height="8" rx="4" fill={accent} stroke="none" />
+        </svg>
+      )
+    case 'browse':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* large title */}
+          <rect x="14" y="12" width="46" height="7" rx="1.5" fill="#ffffff" stroke="none" />
+          {/* search field */}
+          <rect x="14" y="24" width="132" height="7" rx="3.5" fill={fill} stroke="none" />
+          {/* 2x2 category grid */}
+          {[
+            { x: 14, y: 36, c: '#bf5af2' },
+            { x: 82, y: 36, c: '#ff375f' },
+            { x: 14, y: 56, c: '#ff453a' },
+            { x: 82, y: 56, c: '#40cbe0' }
+          ].map((card, i) => (
+            <g key={i}>
+              <rect x={card.x} y={card.y} width="64" height="14" rx="2.5" fill={fill} stroke="none" />
+              <circle cx={card.x + 7} cy={card.y + 7} r="3" fill={card.c} stroke="none" />
+              <rect x={card.x + 14} y={card.y + 5} width="32" height="4" rx="1" fill={stroke} stroke="none" />
+            </g>
+          ))}
+        </svg>
+      )
+    case 'player':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* artwork */}
+          <rect x="64" y="10" width="32" height="32" rx="4" fill="#1e3a8a" stroke="none" />
+          <circle cx="80" cy="26" r="3" fill="#ffffff" stroke="none" opacity="0.85" />
+          {/* track + artist */}
+          <rect x="58" y="45" width="44" height="4" rx="1" fill="#ffffff" stroke="none" />
+          <rect x="64" y="52" width="32" height="3" rx="1" fill={grey} stroke="none" />
+          {/* scrubber */}
+          <rect x="46" y="60" width="68" height="2" rx="1" fill={fill} stroke="none" />
+          <rect x="46" y="60" width="28" height="2" rx="1" fill={accent} stroke="none" />
+          <circle cx="74" cy="61" r="2" fill="#ffffff" stroke="none" />
+          {/* transport */}
+          <circle cx="62" cy="69" r="2.5" fill={grey} stroke="none" />
+          <circle cx="80" cy="69" r="3.5" fill={accent} stroke="none" />
+          <circle cx="98" cy="69" r="2.5" fill={grey} stroke="none" />
+        </svg>
+      )
+    case 'profile':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* avatar */}
+          <circle cx="80" cy="22" r="9" fill={grey} stroke="none" />
+          {/* name + role */}
+          <rect x="60" y="34" width="40" height="5" rx="1" fill="#ffffff" stroke="none" />
+          <rect x="50" y="42" width="60" height="3" rx="1" fill={grey} stroke="none" />
+          {/* stat chips */}
+          {[34, 64, 94].map((x, i) => (
+            <g key={i}>
+              <rect x={x} y="48" width="26" height="14" rx="2.5" fill={fill} stroke="none" />
+              <rect x={x + 8} y="51" width="10" height="4" rx="1" fill="#ffffff" stroke="none" />
+              <rect x={x + 5} y="57" width="16" height="2" rx="1" fill={grey} stroke="none" />
+            </g>
+          ))}
+          {/* actions */}
+          <rect x="56" y="65" width="22" height="5" rx="2.5" fill={accent} stroke="none" />
+          <rect x="82" y="65" width="22" height="5" rx="2.5" fill={fill} stroke={stroke} strokeWidth="0.5" />
+        </svg>
+      )
+    case 'article':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* eyebrow */}
+          <rect x="16" y="10" width="18" height="3" rx="0.5" fill={accent} stroke="none" />
+          {/* headline (2 lines) */}
+          <rect x="16" y="16" width="120" height="6" rx="1.5" fill="#ffffff" stroke="none" />
+          <rect x="16" y="25" width="80" height="6" rx="1.5" fill="#ffffff" stroke="none" />
+          {/* byline */}
+          <rect x="16" y="35" width="62" height="2.5" rx="0.5" fill={grey} stroke="none" />
+          {/* hero image */}
+          <rect x="16" y="42" width="128" height="18" rx="2" fill={fill} stroke="none" />
+          <circle cx="34" cy="51" r="2.5" fill={grey} stroke="none" />
+          <path d="M16 60L40 50L60 56L88 46L120 56L144 60" stroke={grey} strokeWidth="0.8" fill="none" />
+          {/* body lines */}
+          <rect x="16" y="63" width="128" height="2" rx="0.5" fill={grey} stroke="none" />
+          <rect x="16" y="68" width="96"  height="2" rx="0.5" fill={grey} stroke="none" />
+        </svg>
+      )
+    case 'settings':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />
+          {/* account header */}
+          <rect x="12" y="11" width="136" height="14" rx="3" fill={fill} stroke="none" />
+          <circle cx="22" cy="18" r="4.5" fill={grey} stroke="none" />
+          <rect x="32" y="14" width="46" height="3" rx="0.5" fill="#ffffff" stroke="none" />
+          <rect x="32" y="19" width="32" height="2.5" rx="0.5" fill={grey} stroke="none" />
+          <path d="M138 16l3 2-3 2" stroke={grey} strokeWidth="0.8" fill="none" />
+          {/* preferences (group of 3 toggles) */}
+          <rect x="12" y="29" width="136" height="22" rx="3" fill={fill} stroke="none" />
+          {[33, 40, 47].map((y, i) => (
+            <g key={i}>
+              <rect x="18" y={y - 1} width="3" height="3" rx="0.5" fill={['#ff453a','#ff9f0a','#0a84ff'][i]} stroke="none" />
+              <rect x="24" y={y - 0.5} width="60" height="2.5" rx="0.5" fill="#ffffff" stroke="none" />
+              <rect x="132" y={y - 1.5} width="10" height="3.5" rx="1.5" fill={i === 0 ? accent : grey} stroke="none" />
+            </g>
+          ))}
+          {/* about (group of 3 info rows) */}
+          <rect x="12" y="55" width="136" height="14" rx="3" fill={fill} stroke="none" />
+          {[59, 64].map((y, i) => (
+            <g key={i}>
+              <rect x="18" y={y - 0.5} width="3" height="3" rx="0.5" fill={grey} stroke="none" />
+              <rect x="24" y={y} width="60" height="2" rx="0.5" fill="#ffffff" stroke="none" />
+              <path d={`M138 ${y}l2 1-2 1`} stroke={grey} strokeWidth="0.6" fill="none" />
+            </g>
+          ))}
+        </svg>
+      )
     case 'musicPlayer':
       return (
         <svg {...common}>

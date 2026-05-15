@@ -233,11 +233,23 @@ export default function App() {
             if (useStore.getState().pendingDropAsset) e.preventDefault()
           }}
           onDrop={(e) => {
-            const assetId = useStore.getState().pendingDropAsset
-                         || e.dataTransfer.getData('application/x-asset-id')
-            if (!assetId) return
             e.preventDefault()
-            useStore.getState().spawnAssetIntoScene?.(assetId)
+            // Resolve the asset record. `pendingDropAsset` carries the
+            // full record (set on dragstart); the JSON dataTransfer is
+            // the cross-frame fallback. ID-only is the last-resort path.
+            let asset = useStore.getState().pendingDropAsset
+            if (!asset || typeof asset === 'string') {
+              const json = e.dataTransfer.getData('application/x-asset-record')
+              if (json) {
+                try { asset = JSON.parse(json) } catch { asset = null }
+              }
+            }
+            if (!asset) {
+              const id = e.dataTransfer.getData('application/x-asset-id')
+              if (id) asset = id   // spawnAssetIntoScene falls back to id-lookup
+            }
+            if (!asset) return
+            useStore.getState().spawnAssetIntoScene?.(asset)
             useStore.getState().clearPendingDropAsset?.()
           }}
         >

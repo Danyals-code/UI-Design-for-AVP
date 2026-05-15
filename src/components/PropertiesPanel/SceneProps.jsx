@@ -6,7 +6,10 @@
 
 import { useState } from 'react'
 import { Row, Section, ColorRow, Select, NumField, Slider } from './primitives'
-import { HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES } from '../../appleSystem'
+import {
+  HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES,
+  SCENE_COLOR_GROUPS, SCENE_COLOR_LABELS, DEFAULT_SCENE_COLORS
+} from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
 
 // drei <Environment> built-in presets. None of these need an asset
@@ -230,6 +233,18 @@ export function SceneProps({ scene, updateScene }) {
       </Section>
 
       {/*
+        Project-wide colour palette. Mirrors the visionOS Figma kit's
+        "Color styles" panel (Text / Controls / Views / Windows /
+        Separators / Colors). Editing a token here re-themes every
+        item in the scene that references that token — text panels
+        bound to `primary`, controls bound to `controlSelected`, etc.
+        Per-panel pickers (Layout → Fill, Text → Color, …) select
+        which token an item points at; this section owns the actual
+        hex values.
+      */}
+      <SceneColorsSection scene={scene} updateScene={updateScene} />
+
+      {/*
         Window / Volume picker lives in the viewport overlay (top-right)
         so it sits next to 2D/3D and Zoom — the controls users reach for
         in the same workflow. Immersive Space is a less-frequent choice
@@ -303,5 +318,48 @@ export function SceneProps({ scene, updateScene }) {
         </div>
       </Section>
     </div>
+  )
+}
+
+// Project-wide color palette editor. One sub-section per category from
+// SCENE_COLOR_GROUPS — each token shows a swatch + hex field. The
+// "Reset" link in the section header restores the visionOS-kit defaults.
+function SceneColorsSection({ scene, updateScene }) {
+  const palette = scene.colors || {}
+  const setColor = (token, hex) =>
+    updateScene({ colors: { ...palette, [token]: hex } })
+  const resetAll = () =>
+    updateScene({ colors: { ...DEFAULT_SCENE_COLORS } })
+  return (
+    <Section
+      title="Colors"
+      action={
+        <button
+          className="text-[9px] text-textMute hover:text-text uppercase tracking-wider"
+          onClick={resetAll}
+          title="Reset every token to the visionOS defaults"
+        >Reset</button>
+      }
+    >
+      <div className="text-[10px] text-textMute leading-relaxed mb-2">
+        Project palette. Pickers across the inspector reference these
+        tokens — re-tune a value here to re-theme the whole scene.
+      </div>
+      {SCENE_COLOR_GROUPS.map((group) => (
+        <div key={group.key} className="mb-3 last:mb-0">
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">
+            {group.label}
+          </div>
+          {group.tokens.map((token) => (
+            <Row key={token} label={SCENE_COLOR_LABELS[token] || token} labelWidth={120}>
+              <ColorRow
+                value={palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'}
+                onChange={(v) => setColor(token, v)}
+              />
+            </Row>
+          ))}
+        </div>
+      ))}
+    </Section>
   )
 }

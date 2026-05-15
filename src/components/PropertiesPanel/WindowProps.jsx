@@ -11,7 +11,7 @@ import {
   POINTS_PER_METER
 } from '../../appleSystem'
 import {
-  Row, Section, NumField, IntField, PtField,
+  Row, Section, NumField, IntField, PtField, Slider,
   ColorRow, Select, SemanticColorPicker
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
@@ -162,6 +162,32 @@ export function WindowProps({ item }) {
         <Row label="Fallback">
           <ColorRow value={item.color} onChange={(v) => updateItem(item.id, { color: v, colorToken: null })} />
         </Row>
+        {/* Frosted-glass blur — toggles a visionOS-style blur over the
+            window. The canvas softens the plate toward white and adds a
+            faint frost rim; export maps to `.background(.regularMaterial)`
+            with the configured blur radius. */}
+        <Row label="Blur">
+          <div className="segmented flex-1">
+            <button
+              className={item.blur ? 'active' : ''}
+              onClick={() => updateItem(item.id, { blur: true })}
+              title="Frosted glass — softens the backdrop"
+            >On</button>
+            <button
+              className={!item.blur ? 'active' : ''}
+              onClick={() => updateItem(item.id, { blur: false })}
+            >Off</button>
+          </div>
+        </Row>
+        {item.blur && (
+          <Row label="Amount">
+            <Slider
+              value={item.blurAmount ?? 12}
+              min={0} max={40} step={1} suffix="pt"
+              onChange={(v) => updateItem(item.id, { blurAmount: v })}
+            />
+          </Row>
+        )}
       </Section>
 
       {/* Volume-specific metadata — only consulted when this window is

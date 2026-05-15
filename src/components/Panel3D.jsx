@@ -5,7 +5,14 @@ import * as THREE from 'three'
 import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS, LIST_STYLES, computeListHeightPt, computeButtonFramePt, BUTTON_SIZES } from '../appleSystem'
+import {
+  resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS,
+  LIST_STYLES, computeListHeightPt, computeButtonFramePt, BUTTON_SIZES,
+  NAVBAR_STYLE_SPECS,
+  NAVBAR_SIDE_PADDING_PT, NAVBAR_ITEM_PT, NAVBAR_ITEM_GAP_PT,
+  NAVBAR_AVATAR_PT, NAVBAR_SEARCH_W_PT,
+  NAVBAR_BACK_CAPSULE_W_PT, NAVBAR_BACK_ICON_TEXT_GAP_PT
+} from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { EntityChildren } from './Entity3D'
@@ -320,17 +327,17 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const scheme = scene.designScheme || 'light'
 
   const fillColor = panel.colorToken
-    ? resolveSemantic(panel.colorToken, scheme)
+    ? resolveSemantic(panel.colorToken, scene)
     : (panel.color || '#ffffff')
 
   const textColor = (() => {
     if (panelType === 'text') {
       return panel.colorToken
-        ? resolveSemantic(panel.colorToken, scheme)
+        ? resolveSemantic(panel.colorToken, scene)
         : (panel.color || '#000000')
     }
     if (panel.textColorToken)
-      return resolveSemantic(panel.textColorToken, scheme)
+      return resolveSemantic(panel.textColorToken, scene)
     return panel.textColor || '#000000'
   })()
 
@@ -535,6 +542,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const inOrnamentChrome = parent && parent.type === 'stack' && (
     parent.ornament != null || parent.stackType === 'toolbar' || parent.stackType === 'toolbarItem' || parent.stackType === 'toolbarItemGroup'
   )
+  // Navbar is window chrome — it has no background fill of its own;
+  // each chip inside the overlay draws its own glass capsule, and the
+  // wrapping plate sits transparent over the window's glass.
+  if (panelType === 'navbar') {
+    resolvedFillOpacity = 0.0
+  }
   if (panelType === 'button') {
     if (inOrnamentChrome && buttonStyle !== 'borderedProminent' && buttonStyle !== 'destructive') {
       resolvedFillOpacity = 0.0
@@ -542,7 +555,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       // on the ornament's glass without inheriting the button's own
       // fill colour.
       if (panel.textColorToken == null && panel.textColor == null) {
-        resolvedTextColor = resolveSemantic('primary', scheme)
+        resolvedTextColor = resolveSemantic('primary', scene)
       }
     } else if (buttonStyle === 'plain') {
       // If the template/user supplied an explicit color (hex literal,
@@ -560,7 +573,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       resolvedFill = scene.tintColor || '#007aff'
       resolvedTextColor = '#ffffff'
     } else if (buttonStyle === 'destructive') {
-      resolvedFill = resolveSemantic('systemRed', scheme)
+      resolvedFill = resolveSemantic('systemRed', scene)
       resolvedTextColor = '#ffffff'
     }
   }
@@ -594,7 +607,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // text (the cross is enough); `text` panels with an empty body keep
   // showing their type name as a hint.
   const imagePlaceholder = panelType === 'image' && !panel.imageUrl && !panel.text
-  const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder
+  // Once an image is loaded, suppress the default "Image" label overlay —
+  // the user dragged in real media, so painting the placeholder caption
+  // on top would be noise. The empty-state path (no imageUrl yet) keeps
+  // the label so the panel still reads as an Image affordance.
+  const imageHasMedia = (panelType === 'image' || panelType === 'asyncimage') && !!panel.imageUrl
+  const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder && !imageHasMedia
   const isComplex = ['list', 'table', 'menu', 'progress', 'slider', 'stepper', 'gauge', 'search'].includes(panelType)
 
   // Buttons read their font size from the `BUTTON_SIZES` preset that
@@ -689,7 +707,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
             <Text
               position={[0, 0, 0.002]}
               fontSize={ptToUnits(12)}
-              color={resolveSemantic('primary', scheme)}
+              color={resolveSemantic('primary', scene)}
               anchorX="center"
               anchorY="middle"
               maxWidth={segW * 0.9}
@@ -794,8 +812,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
 
   // ---- Alert overlay (title + message + buttons row) ----
   const alertOverlay = panelType === 'alert' && (() => {
-    const primary = resolveSemantic('primary', scheme)
-    const secondary = resolveSemantic('secondary', scheme)
+    const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
     const msg = panel.alertMessage || ''
     const btns = panel.alertButtons || ['OK']
     const btnH = ptToUnits(36)
@@ -812,7 +830,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         {/* Separator above buttons */}
         <mesh position={[0, btnY + btnH / 2 + ptToUnits(4), 0.003]}>
           <planeGeometry args={[size[0] * 0.92, ptToUnits(0.5)]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+          <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
         </mesh>
         {btns.map((label, i) => {
           const x = -size[0] / 2 + ptToUnits(16) + btnW * (i + 0.5)
@@ -835,23 +853,210 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         <group position={[iconCx, 0, 0.005]}>
           <mesh>
             <ringGeometry args={[iconSize * 0.8, iconSize, 24]} />
-            <meshBasicMaterial color={resolveSemantic('secondary', scheme)} />
+            <meshBasicMaterial color={resolveSemantic('secondary', scene)} />
           </mesh>
           <mesh position={[iconSize * 0.9, -iconSize * 0.9, 0]} rotation={[0, 0, -Math.PI / 4]}>
             <planeGeometry args={[iconSize * 1.2, ptToUnits(1.5)]} />
-            <meshBasicMaterial color={resolveSemantic('secondary', scheme)} />
+            <meshBasicMaterial color={resolveSemantic('secondary', scene)} />
           </mesh>
         </group>
         <Text
           position={[iconCx + ptToUnits(18), 0, 0.005]}
           fontSize={finalFontSize}
-          color={resolveSemantic('secondary', scheme)}
+          color={resolveSemantic('secondary', scene)}
           anchorX="left"
           anchorY="middle"
           maxWidth={size[0] - ptToUnits(50)}
         >
           {panel.text || 'Search'}
         </Text>
+      </>
+    )
+  })()
+
+  // ---- Navigation Bar ----
+  //
+  // Six fixed styles (see NAVBAR_STYLE_SPECS). The bar is laid out in
+  // pt with everything centred vertically:
+  //   - Side padding: 24pt (clamped by NAVBAR_SIDE_PADDING_PT)
+  //   - Items are 44pt tall, 16pt apart in a group
+  //   - Title sits left-aligned next to the leading slot (or centred
+  //     in the back/leadingTrailing variants).
+  // Each interactive item draws a soft glass capsule + glyph; the
+  // editor renders them as flat affordances (no live state — these are
+  // chrome, not buttons the wearer pinches).
+  const navbarOverlay = panelType === 'navbar' && (() => {
+    const spec = NAVBAR_STYLE_SPECS[panel.navbarStyle] || NAVBAR_STYLE_SPECS.trailingButtons
+    const pad      = ptToUnits(NAVBAR_SIDE_PADDING_PT)
+    const itemSize = ptToUnits(NAVBAR_ITEM_PT)
+    const gap      = ptToUnits(NAVBAR_ITEM_GAP_PT)
+    const avatar   = ptToUnits(NAVBAR_AVATAR_PT)
+    const searchW  = ptToUnits(NAVBAR_SEARCH_W_PT)
+    const backCapW = ptToUnits(NAVBAR_BACK_CAPSULE_W_PT)
+    const iconTextGap = ptToUnits(NAVBAR_BACK_ICON_TEXT_GAP_PT)
+    const primary    = resolveSemantic('primary', scene)
+    const controlBg  = resolveSemantic('controlIdle', scene)
+
+    // ---- Glass-capsule chip helper ----
+    const Chip = ({ x, w, h = itemSize, radius, children }) => (
+      <group position={[x, 0, 0.005]}>
+        <mesh>
+          <shapeGeometry args={[roundedRectShape(w, h, radius ?? h / 2)]} />
+          <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+        </mesh>
+        {children}
+      </group>
+    )
+
+    // ---- Glyph helper (SF Symbol → text mesh, falls back to label) ----
+    const Glyph = ({ name, label, position, fontSize = ptToUnits(18), color = primary }) => {
+      const sym = name ? SF_SYMBOLS[name] : null
+      const text = sym?.glyph || label || '•'
+      return (
+        <Text position={position} font={getInterFont('regular')} fontSize={fontSize} color={color} anchorX="center" anchorY="middle">
+          {text}
+        </Text>
+      )
+    }
+
+    // ---- Leading slot ----
+    const leadingItems = []
+    let leadingRightEdge = -size[0] / 2 + pad        // x-coordinate where trailing-of-leading content ends
+    if (spec.leading === 'avatar') {
+      const cx = -size[0] / 2 + pad + avatar / 2
+      leadingItems.push(
+        <group key="avatar" position={[cx, 0, 0.005]}>
+          <mesh>
+            <circleGeometry args={[avatar / 2, 32]} />
+            <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+          </mesh>
+          <Glyph name="person" label="A" position={[0, 0, 0.002]} />
+        </group>
+      )
+      leadingRightEdge = cx + avatar / 2
+    } else if (spec.leading === 'backCircle') {
+      const cx = -size[0] / 2 + pad + itemSize / 2
+      leadingItems.push(
+        <group key="backC" position={[cx, 0, 0.005]}>
+          <mesh>
+            <circleGeometry args={[itemSize / 2, 32]} />
+            <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+          </mesh>
+          <Glyph name="chevron.left" position={[0, 0, 0.002]} />
+        </group>
+      )
+      leadingRightEdge = cx + itemSize / 2
+    } else if (spec.leading === 'backCapsule') {
+      const cx = -size[0] / 2 + pad + backCapW / 2
+      // Icon + "Back" label, 2pt gap between glyph and text. The user
+      // spec measures from the chevron-glyph centre to the text origin —
+      // we approximate by anchoring both off the chip centre.
+      leadingItems.push(
+        <Chip key="backCap" x={cx} w={backCapW} radius={itemSize / 2}>
+          <Glyph name="chevron.left" position={[-iconTextGap / 2 - ptToUnits(10), 0, 0.002]} fontSize={ptToUnits(15)} />
+          <Text position={[iconTextGap / 2 + ptToUnits(2), 0, 0.002]} font={getInterFont('semibold')} fontSize={ptToUnits(15)} color={primary} anchorX="left" anchorY="middle">
+            Back
+          </Text>
+        </Chip>
+      )
+      leadingRightEdge = cx + backCapW / 2
+    } else if (spec.leading === 'buttons') {
+      const arr = panel.leadingButtons || []
+      let x = -size[0] / 2 + pad + itemSize / 2
+      arr.forEach((btn, i) => {
+        leadingItems.push(
+          <group key={`l-${btn.id || i}`} position={[x, 0, 0.005]}>
+            <mesh>
+              <circleGeometry args={[itemSize / 2, 32]} />
+              <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+            </mesh>
+            <Glyph name={btn.symbolName} label={btn.label} position={[0, 0, 0.002]} />
+          </group>
+        )
+        x += itemSize + gap
+      })
+      leadingRightEdge = -size[0] / 2 + pad + (arr.length > 0 ? arr.length * itemSize + (arr.length - 1) * gap : 0)
+    }
+
+    // ---- Trailing slot ----
+    const trailingItems = []
+    let trailingLeftEdge = size[0] / 2 - pad
+    if (spec.trailing === 'avatar') {
+      const cx = size[0] / 2 - pad - avatar / 2
+      trailingItems.push(
+        <group key="t-avatar" position={[cx, 0, 0.005]}>
+          <mesh>
+            <circleGeometry args={[avatar / 2, 32]} />
+            <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+          </mesh>
+          <Glyph name="person" label="A" position={[0, 0, 0.002]} />
+        </group>
+      )
+      trailingLeftEdge = cx - avatar / 2
+    } else if (spec.trailing === 'search') {
+      const cx = size[0] / 2 - pad - searchW / 2
+      trailingItems.push(
+        <Chip key="t-search" x={cx} w={searchW} radius={itemSize / 2}>
+          <Glyph name="magnifyingglass" position={[-searchW / 2 + ptToUnits(20), 0, 0.002]} fontSize={ptToUnits(15)} color={resolveSemantic('secondary', scene)} />
+          <Text position={[-searchW / 2 + ptToUnits(38), 0, 0.002]} font={getInterFont('regular')} fontSize={ptToUnits(15)} color={resolveSemantic('secondary', scene)} anchorX="left" anchorY="middle">
+            Search
+          </Text>
+        </Chip>
+      )
+      trailingLeftEdge = cx - searchW / 2
+    } else if (spec.trailing === 'buttons') {
+      const arr = panel.trailingButtons || []
+      // Render right-to-left so the last button hugs the trailing pad.
+      let x = size[0] / 2 - pad - itemSize / 2
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const btn = arr[i]
+        trailingItems.push(
+          <group key={`t-${btn.id || i}`} position={[x, 0, 0.005]}>
+            <mesh>
+              <circleGeometry args={[itemSize / 2, 32]} />
+              <meshBasicMaterial color={controlBg} transparent opacity={0.55} />
+            </mesh>
+            <Glyph name={btn.symbolName} label={btn.label} position={[0, 0, 0.002]} />
+          </group>
+        )
+        x -= itemSize + gap
+      }
+      trailingLeftEdge = arr.length > 0
+        ? size[0] / 2 - pad - (arr.length * itemSize + (arr.length - 1) * gap)
+        : size[0] / 2 - pad
+    }
+
+    // ---- Title ---- bold, 29pt (visionOS NavBar spec). The renderer
+    // uses Inter Bold and 29-pt sizing across every style; alignment
+    // (left vs centre) is driven by spec.titleAlign.
+    const titleColor = primary
+    const TITLE_FONT_PT = 29
+    const titleEl = spec.titleAlign === 'center'
+      ? (
+        <Text key="title" position={[0, 0, 0.005]} font={getInterFont('bold')} fontSize={ptToUnits(TITLE_FONT_PT)} color={titleColor} anchorX="center" anchorY="middle">
+          {panel.title || 'Title'}
+        </Text>
+      )
+      : (
+        <Text
+          key="title"
+          position={[leadingRightEdge + (leadingItems.length > 0 ? ptToUnits(12) : 0), 0, 0.005]}
+          font={getInterFont('bold')}
+          fontSize={ptToUnits(TITLE_FONT_PT)}
+          color={titleColor}
+          anchorX="left"
+          anchorY="middle"
+          maxWidth={trailingLeftEdge - leadingRightEdge - ptToUnits(24)}
+        >
+          {panel.title || 'Title'}
+        </Text>
+      )
+
+    return (
+      <>
+        {leadingItems}
+        {trailingItems}
+        {titleEl}
       </>
     )
   })()
@@ -868,9 +1073,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const gap = ptToUnits(style.gap)
     const innerW = size[0] - inset * 2
     const startY = size[1] / 2 - padY
-    const primary = resolveSemantic('primary', scheme)
-    const secondary = resolveSemantic('secondary', scheme)
-    const separator = resolveSemantic('tertiary', scheme)
+    const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const separator = resolveSemantic('tertiary', scene)
     const tint = scene.tintColor || '#007aff'
     const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
     const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
@@ -891,7 +1096,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         {groupCardShape && (
           <mesh position={[0, startY - (rows.length * rowH) / 2, -0.001]}>
             <shapeGeometry args={[groupCardShape]} />
-            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scheme)} transparent opacity={0.95} />
+            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scene)} transparent opacity={0.95} />
           </mesh>
         )}
         {/* Bordered-style outer ring */}
@@ -934,13 +1139,13 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           // conventions in Shortcuts / News / Settings.
           const symbol = r.systemImage ? SF_SYMBOLS[r.systemImage] : null
           const iconTint = r.tint
-            ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scheme))
+            ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scene))
             : (scene.tintColor || '#007aff')
           const hasIcon = !!symbol
           const textStartX = -innerW / 2 + (hasIcon ? ptToUnits(42) : ptToUnits(12))
           // Optional row highlight pill (`.listRowBackground(...)` in SwiftUI).
           const hlColor = r.background
-            ? (r.background.startsWith('#') ? r.background : resolveSemantic(r.background, scheme))
+            ? (r.background.startsWith('#') ? r.background : resolveSemantic(r.background, scene))
             : null
           const highlightShape = hlColor
             ? roundedRectShape(innerW - ptToUnits(8), rowH - ptToUnits(6), ptToUnits(10))
@@ -964,7 +1169,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                   <meshBasicMaterial
                     color={resolveSemantic(
                       style.showBg ? 'tertiarySystemBackground' : 'secondarySystemBackground',
-                      scheme
+                      scene
                     )}
                     transparent
                     opacity={style.roundedRows ? 0.9 : 0.0}
@@ -1066,9 +1271,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const headerH = ptToUnits(30)
     const rowH = rows.length > 0 ? (innerH - headerH) / rows.length : 0
     const colW = cols.length > 0 ? innerW / cols.length : innerW
-    const primary = resolveSemantic('primary', scheme)
-    const secondary = resolveSemantic('secondary', scheme)
-    const sep = resolveSemantic('tertiary', scheme)
+    const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const sep = resolveSemantic('tertiary', scene)
     const startX = -innerW / 2
     const startY = innerH / 2
     return (
@@ -1076,7 +1281,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         {/* Header fill */}
         <mesh position={[0, startY - headerH / 2, -0.001]}>
           <planeGeometry args={[innerW, headerH]} />
-          <meshBasicMaterial color={resolveSemantic('systemFill', scheme)} />
+          <meshBasicMaterial color={resolveSemantic('systemFill', scene)} />
         </mesh>
         {/* Column headers */}
         {cols.map((c, i) => (
@@ -1135,8 +1340,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const pad = ptToUnits(8)
     const rowH = (size[1] - pad * 2) / Math.max(1, items.length)
     const innerW = size[0] - pad * 2
-    const primary = resolveSemantic('primary', scheme)
-    const sep = resolveSemantic('tertiary', scheme)
+    const primary = resolveSemantic('primary', scene)
+    const sep = resolveSemantic('tertiary', scene)
     const startY = size[1] / 2 - pad
     return (
       <>
@@ -1208,7 +1413,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       >
         <mesh position={[0, 0, 0.003]}>
           <planeGeometry args={[size[0], trackH]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+          <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
         </mesh>
         <mesh position={[-size[0] / 2 + fillW / 2, 0, 0.004]}>
           <planeGeometry args={[fillW, trackH]} />
@@ -1229,8 +1434,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // previous "one bar with two dividers" treatment came from iOS
   // UIKit and doesn't match the platform.
   const stepperOverlay = panelType === 'stepper' && (() => {
-    const primary = resolveSemantic('primary', scheme)
-    const buttonBg = resolveSemantic('secondarySystemFill', scheme) || '#e3e3e8'
+    const primary = resolveSemantic('primary', scene)
+    const buttonBg = resolveSemantic('secondarySystemFill', scene) || '#e3e3e8'
     const CIRCLE_R = ptToUnits(14)
     // Trailing-edge button cluster: [-] [value] [+], 12pt gap.
     const xPlus  = size[0] / 2 - CIRCLE_R - ptToUnits(4)
@@ -1271,14 +1476,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // ---- Gauge (linear bar with label) ----
   const gaugeOverlay = panelType === 'gauge' && (() => {
     const value = Math.max(0, Math.min(1, panel.value ?? 0.5))
-    const primary = resolveSemantic('primary', scheme)
+    const primary = resolveSemantic('primary', scene)
     const trackH = ptToUnits(6)
     const trackY = -size[1] * 0.25
     return (
       <>
         <mesh position={[0, trackY, 0.003]}>
           <planeGeometry args={[size[0] * 0.85, trackH]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+          <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
         </mesh>
         <mesh position={[-size[0] * 0.425 + size[0] * 0.85 * value / 2, trackY, 0.004]}>
           <planeGeometry args={[size[0] * 0.85 * value, trackH]} />
@@ -1309,7 +1514,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           <mesh key={i} position={[x, 0, 0.001]}>
             <circleGeometry args={[dotSize / 2, 16]} />
             <meshBasicMaterial
-              color={active ? (scene.tintColor || '#007aff') : resolveSemantic('tertiary', scheme)}
+              color={active ? (scene.tintColor || '#007aff') : resolveSemantic('tertiary', scene)}
             />
           </mesh>
         )
@@ -1339,7 +1544,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const iconX = iconOnly ? 0 : -size[0] / 2 + iconR + ptToUnits(4)
     const textX = -size[0] / 2 + tileSize + ptToUnits(12)
     const resolvedTile = tileColor
-      ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scheme))
+      ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scene))
       : null
     const tileShape = resolvedTile && !iconOnly
       ? roundedRectShape(tileSize, tileSize, tileRadius)
@@ -1402,7 +1607,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         {Array.from({ length: lines }).map((_, i) => (
           <mesh key={i} position={[0, size[1] / 2 - ptToUnits(10) - lineH * (i + 1), 0.003]}>
             <planeGeometry args={[size[0] * 0.9, ptToUnits(0.5)]} />
-            <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} transparent opacity={0.5} />
+            <meshBasicMaterial color={resolveSemantic('tertiary', scene)} transparent opacity={0.5} />
           </mesh>
         ))}
       </>
@@ -1410,7 +1615,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   })()
 
   const pickerOverlay = panelType === 'picker' && (() => {
-    const primary = resolveSemantic('primary', scheme)
+    const primary = resolveSemantic('primary', scene)
     return (
       <>
         <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.45}>
@@ -1419,7 +1624,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         <Text position={[size[0] / 2 - ptToUnits(24), 0, 0.005]} font={fontUrl} fontSize={ptToUnits(14)} color={primary} anchorX="right" anchorY="middle">
           {panel.pickerValue || ''}
         </Text>
-        <Text position={[size[0] / 2 - ptToUnits(8), 0, 0.005]} fontSize={ptToUnits(10)} color={resolveSemantic('secondary', scheme)} anchorX="right" anchorY="middle">
+        <Text position={[size[0] / 2 - ptToUnits(8), 0, 0.005]} fontSize={ptToUnits(10)} color={resolveSemantic('secondary', scene)} anchorX="right" anchorY="middle">
           ▾
         </Text>
       </>
@@ -1439,7 +1644,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
 
   const colorpickerOverlay = panelType === 'colorpicker' && (
     <>
-      <Text position={[-size[0] / 2 + ptToUnits(4), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolveSemantic('primary', scheme)} anchorX="left" anchorY="middle">
+      <Text position={[-size[0] / 2 + ptToUnits(4), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolveSemantic('primary', scene)} anchorX="left" anchorY="middle">
         {panel.text || 'Color'}
       </Text>
       <mesh position={[size[0] / 2 - ptToUnits(18), 0, 0.005]}>
@@ -1448,7 +1653,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       </mesh>
       <mesh position={[size[0] / 2 - ptToUnits(18), 0, 0.003]}>
         <ringGeometry args={[ptToUnits(11), ptToUnits(12.5), 32]} />
-        <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+        <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
       </mesh>
     </>
   )
@@ -1469,9 +1674,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     <>
       <mesh position={[0, 0, 0.005]}>
         <ringGeometry args={[ptToUnits(14), ptToUnits(17), 32, 1, 0, Math.PI * 1.5]} />
-        <meshBasicMaterial color={resolveSemantic('secondary', scheme)} />
+        <meshBasicMaterial color={resolveSemantic('secondary', scene)} />
       </mesh>
-      <Text position={[0, -ptToUnits(28), 0.005]} fontSize={ptToUnits(11)} color={resolveSemantic('secondary', scheme)} anchorX="center" anchorY="middle">
+      <Text position={[0, -ptToUnits(28), 0.005]} fontSize={ptToUnits(11)} color={resolveSemantic('secondary', scene)} anchorX="center" anchorY="middle">
         Loading...
       </Text>
     </>
@@ -1481,15 +1686,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     <>
       <mesh position={[0, size[1] * 0.15, 0.005]}>
         <circleGeometry args={[ptToUnits(24), 32]} />
-        <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+        <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
       </mesh>
-      <Text position={[0, size[1] * 0.15, 0.006]} fontSize={ptToUnits(20)} color={resolveSemantic('secondary', scheme)} anchorX="center" anchorY="middle">
+      <Text position={[0, size[1] * 0.15, 0.006]} fontSize={ptToUnits(20)} color={resolveSemantic('secondary', scene)} anchorX="center" anchorY="middle">
         !
       </Text>
-      <Text position={[0, -size[1] * 0.05, 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(18)} color={resolveSemantic('primary', scheme)} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85}>
+      <Text position={[0, -size[1] * 0.05, 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(18)} color={resolveSemantic('primary', scene)} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85}>
         {panel.text || 'No Results'}
       </Text>
-      <Text position={[0, -size[1] * 0.2, 0.005]} font={fontUrl} fontSize={ptToUnits(14)} color={resolveSemantic('secondary', scheme)} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85}>
+      <Text position={[0, -size[1] * 0.2, 0.005]} font={fontUrl} fontSize={ptToUnits(14)} color={resolveSemantic('secondary', scene)} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85}>
         {panel.alertMessage || ''}
       </Text>
     </>
@@ -1498,7 +1703,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // ---- Phase 4 overlays ----
 
   const groupboxOverlay = panelType === 'groupbox' && (
-    <Text position={[-size[0] / 2 + ptToUnits(16), size[1] / 2 - ptToUnits(16), 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(15)} color={resolveSemantic('primary', scheme)} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.85}>
+    <Text position={[-size[0] / 2 + ptToUnits(16), size[1] / 2 - ptToUnits(16), 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(15)} color={resolveSemantic('primary', scene)} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.85}>
       {panel.text || 'GroupBox'}
     </Text>
   )
@@ -1727,7 +1932,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           <Text
             position={[0, h * 0.7, 0]}
             fontSize={ptToUnits(14)}
-            color={resolveSemantic('secondary', scheme)}
+            color={resolveSemantic('secondary', scene)}
             anchorX="center" anchorY="middle"
             font={fontUrl}
           >
@@ -1841,11 +2046,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         <>
           <mesh position={[0, 0, 0.001]}>
             <planeGeometry args={[size[0] - 0.02, 0.004]} />
-            <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+            <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
           </mesh>
           <mesh position={[0, 0, 0.001]} rotation={[0, 0, Math.PI / 2]}>
             <planeGeometry args={[size[1] - 0.02, 0.004]} />
-            <meshBasicMaterial color={resolveSemantic('tertiary', scheme)} />
+            <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
           </mesh>
         </>
       )}
@@ -2027,7 +2232,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         </mesh>
       )}
       {panelType === 'path' && (
-        <Text position={[0, 0, 0.005]} fontSize={ptToUnits(13)} color={resolveSemantic('secondary', scheme)} anchorX="center" anchorY="middle">Custom Path</Text>
+        <Text position={[0, 0, 0.005]} fontSize={ptToUnits(13)} color={resolveSemantic('secondary', scene)} anchorX="center" anchorY="middle">Custom Path</Text>
       )}
       {/* Gradient overlays */}
       {panelType === 'linearGradient' && panel.gradientFrom && panel.gradientTo && (() => {
@@ -2068,6 +2273,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {toggleOverlay}
       {slideshowOverlay}
       {searchOverlay}
+      {navbarOverlay}
       {listOverlay}
       {tableOverlay}
       {menuOverlay}

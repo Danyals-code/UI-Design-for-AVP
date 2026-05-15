@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
 import { roundedRectShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS } from '../appleSystem'
+import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS, NAVBAR_HEIGHT_PT } from '../appleSystem'
 
 const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
 import { getInterFont } from '../fonts'
@@ -32,6 +32,14 @@ function LiquidGlass({
   cornerRadii,
   color,
   fillOpacity = 0.92,
+  // Frosted-glass blur. We approximate a real backdrop blur (which
+  // would need a render-target + Gaussian shader) by adding a soft
+  // white overlay layer on top of the base fill — the more the
+  // amount, the brighter and softer the plate reads. Good enough to
+  // signal "frosted" in the editor; export maps to SwiftUI's
+  // `.background(.regularMaterial)` modifier with the right radius.
+  blur = false,
+  blurAmount = 12,
   hitEvents = {}
   // `material`, `schemeDark`, `capsule` are accepted (but unused) for
   // call-site compatibility with the previous glass implementation.
@@ -50,19 +58,37 @@ function LiquidGlass({
   // corner sidebars (joined NavigationSplitView) creating a visible
   // "ghost" silhouette. Dropping it cleans up the chrome and matches
   // the HIG.
+  //
+  // Blur overlay intensity scales the amount (in pt) into a 0..0.45
+  // alpha range — enough to read as a frost without nuking the
+  // backdrop contrast.
+  const frostOpacity = blur ? Math.min(0.45, Math.max(0, blurAmount) / 80) : 0
   return (
-    <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
-      <shapeGeometry args={[fillShape]} />
-      <meshBasicMaterial
-        color={color}
-        side={THREE.DoubleSide}
-        transparent={fillOpacity < 1}
-        opacity={fillOpacity}
-        polygonOffset
-        polygonOffsetFactor={1}
-        polygonOffsetUnits={1}
-      />
-    </mesh>
+    <group>
+      <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
+        <shapeGeometry args={[fillShape]} />
+        <meshBasicMaterial
+          color={color}
+          side={THREE.DoubleSide}
+          transparent={fillOpacity < 1}
+          opacity={fillOpacity}
+          polygonOffset
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
+        />
+      </mesh>
+      {blur && (
+        <mesh position={[0, 0, 0.0005]} renderOrder={0}>
+          <shapeGeometry args={[fillShape]} />
+          <meshBasicMaterial
+            color="#ffffff"
+            side={THREE.DoubleSide}
+            transparent
+            opacity={frostOpacity}
+          />
+        </mesh>
+      )}
+    </group>
   )
 }
 
@@ -123,7 +149,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     if (!hasBackground) return null
     const token = stack.background || 'glassThick'
     if (token.startsWith('#')) return token
-    return resolveSemantic(token, scene.designScheme || 'light')
+    return resolveSemantic(token, scene)
   })()
 
   const onDown = (e) => {
@@ -230,7 +256,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           position={[-w / 2 + ptToUnits(16), h / 2 - ptToUnits(16), 0.003]}
           font={getInterFont('semibold')}
           fontSize={ptToUnits(13)}
-          color={resolveSemantic('secondary', scene.designScheme || 'light')}
+          color={resolveSemantic('secondary', scene)}
           anchorX="left"
           anchorY="middle"
           maxWidth={w * 0.9}
@@ -244,7 +270,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           position={[-w / 2 + ptToUnits(16), -h / 2 + ptToUnits(12), 0.003]}
           font={getInterFont('regular')}
           fontSize={ptToUnits(11)}
-          color={resolveSemantic('secondary', scene.designScheme || 'light')}
+          color={resolveSemantic('secondary', scene)}
           anchorX="left"
           anchorY="middle"
           maxWidth={w * 0.9}
@@ -261,7 +287,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
             position={[-w / 2 + ptToUnits(28), 0, 0]}
             font={getInterFont('semibold')}
             fontSize={ptToUnits(15)}
-            color={resolveSemantic('primary', scene.designScheme || 'light')}
+            color={resolveSemantic('primary', scene)}
             anchorX="left"
             anchorY="middle"
           >
@@ -270,7 +296,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           <Text
             position={[-w / 2 + ptToUnits(10), 0, 0]}
             fontSize={ptToUnits(12)}
-            color={resolveSemantic('secondary', scene.designScheme || 'light')}
+            color={resolveSemantic('secondary', scene)}
             anchorX="left"
             anchorY="middle"
           >
@@ -285,7 +311,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           position={[0, h / 2 - ptToUnits(24), 0.003]}
           font={getInterFont('bold')}
           fontSize={ptToUnits(20)}
-          color={resolveSemantic('primary', scene.designScheme || 'light')}
+          color={resolveSemantic('primary', scene)}
           anchorX="center"
           anchorY="middle"
           maxWidth={w * 0.85}
@@ -325,7 +351,7 @@ function TabBar3D({ stack, children, w, h, scene }) {
   const tabW = ptToUnits(80)
   const activeIdx = stack.activeTab ?? 0
   const tint = scene.tintColor || '#007aff'
-  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+  const dimColor = resolveSemantic('secondary', scene)
 
   return (
     <group position={[0, barY, 0.01]}>
@@ -333,7 +359,7 @@ function TabBar3D({ stack, children, w, h, scene }) {
       <mesh>
         <shapeGeometry args={[roundedRectShape(w, barH, barH / 2)]} />
         <meshBasicMaterial
-          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          color={resolveSemantic('glassThick', scene)}
           transparent
           opacity={0.88}
         />
@@ -401,7 +427,7 @@ function Window3D({ window: win, items, previewPosition }) {
   const [w, h] = win.size
   const cornerR = win.cornerRadius ?? 0
   const fillColor = win.colorToken
-    ? resolveSemantic(win.colorToken, scene.designScheme || 'light')
+    ? resolveSemantic(win.colorToken, scene)
     : (win.color || '#f2f2f7')
 
   // Outline padding scales with window size. Tuned to read as a thin
@@ -605,6 +631,8 @@ function Window3D({ window: win, items, previewPosition }) {
           color={fillColor}
           fillOpacity={typeof win.fillOpacity === 'number' ? win.fillOpacity : 0.92}
           material={win.material || 'regular'}
+          blur={!!win.blur}
+          blurAmount={win.blurAmount ?? 12}
           schemeDark={scene.designScheme === 'dark'}
           hitEvents={{
             onPointerDown,
@@ -668,6 +696,17 @@ function Window3D({ window: win, items, previewPosition }) {
               ? [fillW ? fitW : intrinsic[0], fillH ? fitH : intrinsic[1]]
               : undefined
             return <Stack3D key={c.id} stack={c} localPosition={pos} items={items} resolvedSize={resolved} />
+          }
+          // Navigation Bar is window chrome — it pins to the top edge,
+          // spans the full window width (bypassing the 14pt content
+          // padding), and locks to 92pt tall. The chip sits just in
+          // front of the window plate (~3mm) so it reads as flush with
+          // the glass rather than floating above the content layer.
+          if (c.type === 'panel' && c.panelType === 'navbar') {
+            const navH = ptToUnits(NAVBAR_HEIGHT_PT)
+            const topY = h / 2 - navH / 2
+            const zNav = scene.preview3D ? 0.003 : 0.002
+            return <Panel3D key={c.id} panel={c} localPosition={[0, topY, zNav]} resolvedSize={[w, navH]} />
           }
           return <Panel3D key={c.id} panel={c} localPosition={pos} />
         })
@@ -756,7 +795,7 @@ function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHe
   const barW = tabW + padding * 2
   const barH = tabs.length * tabH + (tabs.length - 1) * gap + padding * 2
   const tint = scene.tintColor || '#007aff'
-  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+  const dimColor = resolveSemantic('secondary', scene)
   const gapFromWindow = ptToUnits(24)
 
   // Pin to the left edge of the anchor window, vertically centered.
@@ -772,7 +811,7 @@ function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHe
       <mesh position={[0, 0, -0.005]}>
         <shapeGeometry args={[bgShape]} />
         <meshBasicMaterial
-          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          color={resolveSemantic('glassThick', scene)}
           transparent
           opacity={0.88}
         />
@@ -899,7 +938,7 @@ function WindowGroupTabBar3D({ groups, activeGroupId, anchorPosition, anchorWidt
   const barW = animBarW
   const barH = groups.length * tabH + Math.max(0, groups.length - 1) * gap + padding * 2
   const tint = scene.tintColor || '#007aff'
-  const dimColor = resolveSemantic('secondary', scene.designScheme || 'light')
+  const dimColor = resolveSemantic('secondary', scene)
   const gapFromWindow = ptToUnits(24)
   const laneOffset = lane === 'outer' ? collapsedBarW + ptToUnits(12) : 0
 
@@ -936,7 +975,7 @@ function WindowGroupTabBar3D({ groups, activeGroupId, anchorPosition, anchorWidt
       <mesh position={[0, 0, -0.005]}>
         <shapeGeometry args={[bgShape]} />
         <meshBasicMaterial
-          color={resolveSemantic('glassThick', scene.designScheme || 'light')}
+          color={resolveSemantic('glassThick', scene)}
           transparent
           opacity={0.88}
         />

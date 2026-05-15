@@ -10,12 +10,13 @@
 // useTextModifiers, lockHeight, lockHeightHint.
 
 import {
-  Row, Section, IntField, PtField, NumField, Slider, ColorRow, Select
+  Row, Section, IntField, PtField, NumField, Slider, ColorRow, Select,
+  SemanticColorPicker
 } from '../components/PropertiesPanel/primitives'
 import {
-  TextSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
+  TextSection, FigmaFrameSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
-import { SemanticColorPicker } from '../components/PropertiesPanel/primitives'
+import { useStore } from '../store'
 import { resolveSemantic } from '../appleSystem'
 import {
   BUTTON_BORDER_SHAPES, CONTROL_SIZES,
@@ -28,6 +29,7 @@ import {
   SYMBOL_RENDERING_MODES,
   KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
   DATE_COMPONENTS, IMAGE_SCALES,
+  NAVBAR_STYLES, NAVBAR_STYLE_SPECS, NAVBAR_INTERACTIONS,
   ptToUnits
 } from '../appleSystem'
 
@@ -122,10 +124,30 @@ const COLLECTION_VARIANTS = [
 
 // ---- registry ----------------------------------------------------------
 
+// Text inspector — Name + Frame + Text controls merged into ONE section.
+// PANEL_META marks `text` as `mergedIdentity`, which suppresses the
+// generic "Object — Text" section so this is the only header the user
+// sees for a text panel.
+function TextInspector(ctx) {
+  const { item } = ctx
+  const renameItem = useStore((s) => s.renameItem)
+  return (
+    <Section title="Text" defaultOpen={true}>
+      <Row label="Name">
+        <input
+          value={item.name}
+          onChange={(e) => renameItem(item.id, e.target.value)}
+          className="field flex-1"
+        />
+      </Row>
+      <FigmaFrameSection item={item} updateItem={ctx.updateItem} embedded />
+      <TextSection {...ctx} embedded includeBody isText />
+    </Section>
+  )
+}
+
 export const INSPECTORS = {
-  text: (ctx) => (
-    <TextSection {...ctx} sectionTitle="Text" includeBody isText />
-  ),
+  text: (ctx) => <TextInspector {...ctx} />,
 
   // Spec §1.17 — NavigationLink. Two emit modes: value-based (links into
   // a NavigationStack `.navigationDestination(for:)`) and destination-based
@@ -350,8 +372,7 @@ export const INSPECTORS = {
           <SemanticColorPicker
             token={ctx.item.textColorToken}
             onChange={(t) => {
-              const scheme = ctx.scene?.designScheme || 'light'
-              if (t) ctx.updateItem(ctx.item.id, { textColorToken: t, textColor: resolveSemantic(t, scheme) })
+              if (t) ctx.updateItem(ctx.item.id, { textColorToken: t, textColor: resolveSemantic(t, ctx.scene) })
               else   ctx.updateItem(ctx.item.id, { textColorToken: null })
             }}
           />
@@ -461,6 +482,107 @@ export const INSPECTORS = {
       </Row>
     </Section>
   ),
+
+  // Navigation Bar — fixed-height (92pt) chrome strip. The style picker
+  // swaps between 6 visionOS-kit layouts; structural defaults (item
+  // sizes, side padding, item gap) are locked and not user-editable —
+  // the user only edits the title text and the leading/trailing button
+  // arrays for styles that expose them.
+  navbar: ({ item, updateItem }) => {
+    const spec = NAVBAR_STYLE_SPECS[item.navbarStyle] || NAVBAR_STYLE_SPECS.trailingButtons
+    const editButtons = (key, mutator) => {
+      const arr = item[key] || []
+      updateItem(item.id, { [key]: mutator(arr) })
+    }
+    const renderButtonList = (key, label) => {
+      const arr = item[key] || []
+      const addBtn = () => editButtons(key, (a) => [
+        ...a,
+        { id: `nb-${key}-${Date.now()}`, symbolName: 'star', label: '', tapAction: null }
+      ])
+      const updBtn = (i, patch) => editButtons(key, (a) => a.map((b, j) => j === i ? { ...b, ...patch } : b))
+      const delBtn = (i) => editButtons(key, (a) => a.filter((_, j) => j !== i))
+      return (
+        <>
+          <div className="text-[10px] text-textMute uppercase tracking-wider mt-2">{label}</div>
+          {arr.map((btn, i) => (
+            <Row key={btn.id || i} label={`#${i + 1}`}>
+              <input
+                value={btn.symbolName || ''}
+                onChange={(e) => updBtn(i, { symbolName: e.target.value || null })}
+                placeholder="SF Symbol (e.g. gear)"
+                className="field flex-1"
+              />
+              <button className="btn btn-icon btn-ghost" onClick={() => delBtn(i)} title="Remove button">×</button>
+            </Row>
+          ))}
+          <button className="btn w-full justify-center mt-1" onClick={addBtn}>+ Add Button</button>
+        </>
+      )
+    }
+    // Map a position-in-array to a user-readable button name. Used by
+    // the Interaction section's row labels so the user can match the
+    // dropdown to the visual button on the canvas.
+    const btnLabel = (btn, i, side) => {
+      const name = btn.symbolName || btn.label || `Button ${i + 1}`
+      return `${side === 'leading' ? 'L' : 'T'}${i + 1} · ${name}`
+    }
+    const renderInteractionRows = (key, side) => {
+      const arr = item[key] || []
+      return arr.map((btn, i) => (
+        <Row key={`act-${btn.id || i}`} label={btnLabel(btn, i, side)} labelWidth={100}>
+          <Select
+            value={btn.tapAction?.type || 'none'}
+            options={NAVBAR_INTERACTIONS}
+            onChange={(v) => {
+              const next = v === 'none' ? null : { type: v }
+              const updated = arr.map((b, j) => j === i ? { ...b, tapAction: next } : b)
+              updateItem(item.id, { [key]: updated })
+            }}
+          />
+        </Row>
+      ))
+    }
+    const showLeadingInteractions  = spec.leading  === 'buttons'
+    const showTrailingInteractions = spec.trailing === 'buttons'
+    return (
+      <>
+        <Section title="Navigation Bar" defaultOpen={true}>
+          <Row label="Style">
+            <Select
+              value={item.navbarStyle || 'trailingButtons'}
+              options={NAVBAR_STYLES}
+              onChange={(v) => updateItem(item.id, { navbarStyle: v })}
+            />
+          </Row>
+          <Row label="Title">
+            <input
+              value={item.title || ''}
+              onChange={(e) => updateItem(item.id, { title: e.target.value })}
+              placeholder="Title"
+              className="field flex-1"
+            />
+          </Row>
+          <div className="text-[10px] text-textMute leading-snug mt-1">
+            Locked: 92pt tall · 24pt side padding · items 44pt · 16pt gap.
+            Edge-to-edge across the window.
+          </div>
+          {spec.leadingEditable  && renderButtonList('leadingButtons',  'Leading buttons')}
+          {spec.trailingEditable && renderButtonList('trailingButtons', 'Trailing buttons')}
+        </Section>
+        {(showLeadingInteractions || showTrailingInteractions) && (
+          <Section title="Interaction" defaultOpen={false}>
+            <div className="text-[10px] text-textMute leading-snug mb-2">
+              What each navbar button does in preview. Wires to the same
+              action vocabulary as a Button's tap action.
+            </div>
+            {showLeadingInteractions  && renderInteractionRows('leadingButtons',  'leading')}
+            {showTrailingInteractions && renderInteractionRows('trailingButtons', 'trailing')}
+          </Section>
+        )}
+      </>
+    )
+  },
 
   list: ({ item, updateItem, switchPanelType }) => (
     <>
@@ -1297,6 +1419,11 @@ function TransformSection({ item, updateItem }) {
 
 const figmaFrame = { frameMode: 'figma', hasFill: false }
 const explicitFrame = { frameMode: 'explicit', hasFill: true }
+// `mergedIdentity` panels own the Name field inside their own per-type
+// inspector — the generic "Object — X" section is suppressed so the
+// inspector reads as a single tidy section. Text is the canonical case:
+// Name + Frame + Text controls all under one "Text" header.
+const mergedFigmaFrame = { frameMode: 'figma', hasFill: false, mergedIdentity: true }
 
 // Panel types whose SwiftUI emit takes a `systemImage:` argument or otherwise
 // renders an SF Symbol glyph. Only these get the SF Symbol picker — the
@@ -1308,13 +1435,16 @@ const SYMBOL_USERS = new Set([
 ])
 
 export const PANEL_META = {
-  text: figmaFrame,
+  text: mergedFigmaFrame,
   link: { ...figmaFrame, useSymbol: true },
   list: { ...explicitFrame, lockHeight: true, lockHeightHint: 'Height is auto — grows with the row count at the style\'s fixed row height.' },
   // Buttons are sized by the Size selector inside the Button inspector
   // — frameMode 'none' hides the Object section's width/height fields
   // so the only way to change a button's dimensions is via that picker.
   button: { frameMode: 'none', hasFill: false },
+  // Navbar is locked to 92pt height / parent-width — the user only edits
+  // style, title, and the button arrays in the per-type inspector.
+  navbar: { frameMode: 'none', hasFill: false },
   // Default for everything else: explicit frame + has fill
 }
 

@@ -9,6 +9,7 @@ import {
   TEXT_STYLES,
   WINDOW_PRESETS,
   WINDOW_CORNER_RADIUS,
+  buildDefaultSceneColors,
   ptToUnits
 } from '../appleSystem'
 import { panelDefaults } from '../panels/registry'
@@ -130,15 +131,19 @@ export const makeWindow = (overrides = {}) => ({
   // SwiftUI WindowGroup at launch.
   position: [0, 1.4, -1.0],
   material: 'regular',
-  // Solid plate, neutral cool-white. Earlier we tried a 92%-alpha
-  // glass approximation but every R3F render-order edge case made
-  // it look glitchy in the studio scene. Solid reads as "shipping
-  // visionOS plate" cleanly and stays stable when orbited. The
-  // colour itself is the visionOS Glass Regular fill that Apple uses
-  // on default windows.
-  colorToken: 'designWindow',
-  color: '#ecedef',
+  // visionOS glass plate — 50% gray (#808080) at full opacity. The
+  // token windowGlass on the Scene → Colors palette is the single
+  // source of truth for the hex; designers can drop the opacity via
+  // the window's appearance picker if they want a translucent plate.
+  colorToken: 'windowGlass',
+  color: '#808080',
   fillOpacity: 1.0,
+  // Blur — adds a visionOS-style frosted glass effect. The canvas
+  // approximates this by softening the fill toward white and adding
+  // a low-contrast frost rim; on export this maps to `.background(.regularMaterial)`
+  // on the WindowGroup. `blurAmount` is the SwiftUI blur radius in pt.
+  blur: false,
+  blurAmount: 12,
   padding: 14,             // pt — default inner padding for the window content
   spatial: {
     immersionStyle: 'mixed',
@@ -432,11 +437,11 @@ export function seedScene() {
     fontSize: textStyleToFontSize('body'),
     widthMode: 'fill',
     textAlign: 'center',
-    // The design-scheme window uses a #9ea1a2 fill, so semantic 'secondary'
-    // (#8e8e93 in dark) vanishes into the glass. A darker #3a3a3c reads
-    // clearly on both the dark-scheme and light-scheme window colours.
-    colorToken: null,
-    color: '#3a3a3c'
+    // Secondary tracks the Scene → Colors palette, so retuning Secondary
+    // updates every seed text using it. The plate sits over a translucent
+    // glass now (#808080/30%), so the visionOS Secondary tier reads
+    // cleanly against the studio backdrop.
+    colorToken: 'secondary'
   })
   const button = makePanel('button', {
     parentId: stack.id,
@@ -537,5 +542,12 @@ export const DEFAULT_SCENE = {
   upperLimbVisibility: 'automatic',
   preferredSurroundingsEffect: 'none',
   surroundingsColorMultiply: '#000000',
-  immersiveEnvironmentBehavior: 'automatic'
+  immersiveEnvironmentBehavior: 'automatic',
+  // Designer-editable color palette. Seeded from the visionOS Figma kit
+  // (see DEFAULT_SCENE_COLORS in appleSystem.js). Every panel that
+  // carries a `colorToken` resolves through `resolveSemantic(token, scene)`
+  // — so retuning a token here propagates to every consumer (text,
+  // controls, view materials, separators) without touching individual
+  // items. Use Scene → Colors to edit.
+  colors: buildDefaultSceneColors()
 }

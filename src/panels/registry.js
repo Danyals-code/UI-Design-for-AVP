@@ -16,7 +16,10 @@
 // Adding a new panel type now means: add one entry here. The store and the
 // exporter pick it up automatically.
 
-import { TEXT_STYLES, ptToUnits } from '../appleSystem'
+import {
+  TEXT_STYLES, ptToUnits,
+  NAVBAR_HEIGHT_PT
+} from '../appleSystem'
 
 const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?? 17)
 
@@ -393,6 +396,50 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push, escapeString } = ctx
       push(`// .searchable(text: $searchText, prompt: "${escapeString(panel.text || 'Search')}")   // attach on parent view`)
+    }
+  },
+
+  // Navigation Bar — a chrome strip pinned across the top of a window
+  // with one of 6 fixed styles. Width tracks the parent's inner width
+  // (`widthMode: 'fill'`); height is locked at 92pt. Each style picks
+  // a leading slot (avatar / back chip / button group) and a trailing
+  // slot (avatar / search / button group); the title can be either
+  // leading-aligned or centred. See NAVBAR_STYLE_SPECS in appleSystem.js
+  // for the per-style layout rules.
+  navbar: {
+    defaults: {
+      size: [ptToUnits(600), ptToUnits(NAVBAR_HEIGHT_PT)],
+      widthMode: 'fill',           // always fills the parent window width
+      heightMode: 'fixed',          // height locked to 92pt by spec
+      color: '#000000',
+      colorToken: null,             // transparent — sits over the parent's glass
+      cornerRadius: 0,
+      navbarStyle: 'trailingButtons',
+      title: 'Title',
+      // Editable button arrays. Each entry:
+      //   { id, symbolName, label, tapAction }
+      // `symbolName` is an SF Symbol; `label` shows when symbolName is null.
+      // `tapAction` mirrors the Button panel's schema (see Button defaults)
+      // — Interaction picker in the inspector configures it per-button.
+      //
+      // Both arrays seed with sensible defaults so the
+      // `leadingTrailingButtons` style ships with buttons on both sides
+      // out of the box. Other styles that don't read leading still
+      // ignore it, so the extra defaults are harmless.
+      leadingButtons:  [
+        { id: 'nb-l-1', symbolName: 'list.bullet', label: '', tapAction: null }
+      ],
+      trailingButtons: [
+        { id: 'nb-t-1', symbolName: 'magnifyingglass', label: '', tapAction: null },
+        { id: 'nb-t-2', symbolName: 'ellipsis',        label: '', tapAction: null }
+      ]
+    },
+    emit(panel, ctx) {
+      const { push, escapeString } = ctx
+      // No 1:1 SwiftUI primitive — exported as a comment placeholder so
+      // the designer can wire it manually (or via a future toolbar map).
+      push(`// NavigationBar (${panel.navbarStyle}) — title: "${escapeString(panel.title || '')}"`)
+      push(`// TODO: map to .toolbar { ... } modifier on the parent window`)
     }
   },
 

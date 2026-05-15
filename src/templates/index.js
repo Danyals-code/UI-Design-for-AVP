@@ -64,11 +64,505 @@ function blank() {
   return { items: [tab, w, stk], activeTabId: tab.id }
 }
 
-// ---- Music Player ----------------------------------------------------
-// Now Playing card: hero artwork plate, track + artist labels, transport
-// controls (prev / play / next), and a queue list below. Demonstrates
-// stacked layout with mixed widths, SF symbols on buttons, and an
-// inset-grouped list driven from data.
+// =====================================================================
+// Window-mode templates — visionOS HIG aligned, production-ready.
+//
+// Every template uses semantic colour tokens (so Scene → Colors retunes
+// the whole scene), HIG-correct typography ramps, glass plates, and
+// 24pt margins. Symbol-only buttons use `iconOnly` label style; SF
+// Symbol names match Apple's library. Layouts are designed to land
+// directly on a 1200×800 Regular window plate.
+// =====================================================================
+
+// ---- Welcome (onboarding splash) -----------------------------------
+// Hero icon + centred title block + primary CTA. Mirrors the
+// "Welcome to <app>" pattern used by Apple's first-launch flows
+// (Tips, Translate, Reality Composer Pro).
+function welcomeTpl() {
+  const tab = makeTab({ name: 'Welcome', icon: 'sparkles' })
+  const w   = makeWindow({ name: 'Welcome', parentId: tab.id })
+  const root = makeStack({
+    parentId: w.id, name: 'Content',
+    stackType: 'vstack', alignment: 'center', spacing: 28, padding: 56,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const heroBox = makeStack({
+    parentId: root.id, name: 'Hero',
+    stackType: 'vstack', alignment: 'center', spacing: 18, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const icon = makePanel('label', {
+    parentId: heroBox.id, name: 'Hero Icon', text: '',
+    symbolName: 'sparkles', symbolRenderingMode: 'hierarchical',
+    styles: { labelStyle: 'iconOnly' },
+    size: [ptToUnits(96), ptToUnits(96)],
+    colorToken: 'systemBlue'
+  })
+  const titleBlock = makeStack({
+    parentId: heroBox.id, name: 'Titles',
+    stackType: 'vstack', alignment: 'center', spacing: 6, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const title = makePanel('text', {
+    parentId: titleBlock.id, name: 'Title',
+    text: 'Welcome to Vision',
+    textStyle: 'extraLargeTitle', fontSize: textStyleToFontSize('extraLargeTitle'),
+    fontWeight: 'bold', textAlign: 'center',
+    colorToken: 'primary'
+  })
+  const subtitle = makePanel('text', {
+    parentId: titleBlock.id, name: 'Subtitle',
+    text: 'A new way to see, work, and be present — designed for spatial computing.',
+    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    fontWeight: 'regular', textAlign: 'center',
+    colorToken: 'secondary',
+    size: [ptToUnits(520), ptToUnits(72)],
+    widthMode: 'fixed'
+  })
+  const actions = makeStack({
+    parentId: root.id, name: 'Actions',
+    stackType: 'vstack', alignment: 'center', spacing: 12, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const cta = makePanel('button', {
+    parentId: actions.id, name: 'Get Started',
+    text: 'Get Started',
+    buttonSize: 'large', buttonShape: 'capsule',
+    buttonStyle: 'borderedProminent',
+    size: [ptToUnits(220), ptToUnits(52)]
+  })
+  const skip = makePanel('button', {
+    parentId: actions.id, name: 'Skip',
+    text: 'Not Now',
+    buttonStyle: 'plain', buttonSize: 'regular',
+    colorToken: null, color: '#00000000',
+    textColorToken: 'secondary'
+  })
+  return {
+    items: [tab, w, root, heroBox, icon, titleBlock, title, subtitle, actions, cta, skip],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Browse (grid + search) ----------------------------------------
+// Library-style page: page title, search bar, then four category cards
+// arranged as two HStacks (instead of a grid stack — the layout engine
+// honours explicit widths inside hstacks more reliably than fill-grid).
+// Mirrors Music's "Browse" and App Store's category landing.
+function browseTpl() {
+  const tab = makeTab({ name: 'Browse', icon: 'square.grid.2x2' })
+  const w   = makeWindow({ name: 'Browse', parentId: tab.id })
+  const CARD_W = 540, CARD_H = 110, GAP = 16
+  const root = makeStack({
+    parentId: w.id, name: 'Content',
+    stackType: 'vstack', alignment: 'leading', spacing: 16, padding: 24,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const header = makePanel('text', {
+    parentId: root.id, name: 'Page Title',
+    text: 'Browse',
+    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    fontWeight: 'bold', textAlign: 'left',
+    widthMode: 'fill', colorToken: 'primary'
+  })
+  const searchField = makePanel('search', {
+    parentId: root.id, name: 'Search',
+    text: 'Search categories',
+    size: [ptToUnits(2 * CARD_W + GAP), ptToUnits(44)]
+  })
+  const cards = [
+    { name: 'Spatial Photos', symbol: 'photo.on.rectangle.angled', tint: 'systemPurple' },
+    { name: 'Films',          symbol: 'play.rectangle',            tint: 'systemPink' },
+    { name: 'Music',          symbol: 'music.note',                tint: 'systemRed' },
+    { name: 'Environments',   symbol: 'mountain.2.fill',           tint: 'systemTeal' }
+  ]
+  const rowItems = []
+  for (let r = 0; r < 2; r++) {
+    const row = makeStack({
+      parentId: root.id, name: `Row ${r + 1}`,
+      stackType: 'hstack', alignment: 'center', spacing: GAP, padding: 0,
+      widthMode: 'fit', heightMode: 'fit'
+    })
+    rowItems.push(row)
+    for (let c = 0; c < 2; c++) {
+      const cfg = cards[r * 2 + c]
+      const card = makeStack({
+        parentId: row.id, name: cfg.name,
+        stackType: 'vstack', alignment: 'leading', spacing: 12, padding: 18,
+        background: 'glassThin', cornerRadius: ptToUnits(20),
+        size: [ptToUnits(CARD_W), ptToUnits(CARD_H)],
+        widthMode: 'fixed', heightMode: 'fixed'
+      })
+      const icon = makePanel('label', {
+        parentId: card.id, name: `${cfg.name} Icon`, text: '',
+        symbolName: cfg.symbol, symbolRenderingMode: 'hierarchical',
+        styles: { labelStyle: 'iconOnly' },
+        size: [ptToUnits(36), ptToUnits(36)],
+        colorToken: cfg.tint
+      })
+      const lbl = makePanel('text', {
+        parentId: card.id, name: `${cfg.name} Label`,
+        text: cfg.name,
+        textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+        fontWeight: 'semibold', textAlign: 'left',
+        widthMode: 'fit', colorToken: 'primary'
+      })
+      rowItems.push(card, icon, lbl)
+    }
+  }
+  return {
+    items: [tab, w, root, header, searchField, ...rowItems],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Player (Now Playing card) -------------------------------------
+// Hero artwork → title/artist → scrubber → transport row. Refined,
+// minimal — no queue list, no clutter. Sized to land in the middle
+// of a 1200×800 window with breathing room on either side.
+function playerTpl() {
+  const tab = makeTab({ name: 'Player', icon: 'play.circle.fill' })
+  const w   = makeWindow({ name: 'Now Playing', parentId: tab.id })
+  const root = makeStack({
+    parentId: w.id, name: 'Player',
+    stackType: 'vstack', alignment: 'center', spacing: 20, padding: 40,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const artwork = makePanel('image', {
+    parentId: root.id, name: 'Artwork',
+    size: [ptToUnits(260), ptToUnits(260)],
+    cornerRadius: ptToUnits(24),
+    color: '#1c1c1e', colorToken: null,
+    imageUrl: '/samples/images/Sample 02.jpg',
+    imageFit: 'fill'
+  })
+  const meta = makeStack({
+    parentId: root.id, name: 'Track Info',
+    stackType: 'vstack', alignment: 'center', spacing: 4, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const title = makePanel('text', {
+    parentId: meta.id, name: 'Track',
+    text: 'Midnight City',
+    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    fontWeight: 'semibold', textAlign: 'center',
+    widthMode: 'fill', colorToken: 'primary'
+  })
+  const artist = makePanel('text', {
+    parentId: meta.id, name: 'Artist',
+    text: 'M83 · Hurry Up, We’re Dreaming',
+    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const scrubBlock = makeStack({
+    parentId: root.id, name: 'Scrubber',
+    stackType: 'vstack', alignment: 'center', spacing: 4, padding: 0,
+    widthMode: 'fill', heightMode: 'fit',
+    size: [ptToUnits(360), 0]
+  })
+  const slider = makePanel('slider', {
+    parentId: scrubBlock.id, name: 'Progress',
+    sliderValue: 0.42, widthMode: 'fill'
+  })
+  const times = makeStack({
+    parentId: scrubBlock.id, name: 'Times',
+    stackType: 'hstack', alignment: 'center', spacing: 0, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const tNow = makePanel('text', {
+    parentId: times.id, name: 'Elapsed', text: '1:48',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const tEnd = makePanel('text', {
+    parentId: times.id, name: 'Remaining', text: '−2:30',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textAlign: 'right', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const transport = makeStack({
+    parentId: root.id, name: 'Transport',
+    stackType: 'hstack', alignment: 'center', spacing: 28, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const prev = makePanel('button', {
+    parentId: transport.id, name: 'Previous',
+    text: '', symbolName: 'backward.fill',
+    styles: { labelStyle: 'iconOnly' },
+    buttonStyle: 'plain', buttonSize: 'large',
+    colorToken: null, color: '#00000000', textColorToken: 'primary'
+  })
+  const play = makePanel('button', {
+    parentId: transport.id, name: 'Play',
+    text: '', symbolName: 'play.fill',
+    styles: { labelStyle: 'iconOnly' },
+    buttonStyle: 'borderedProminent', buttonShape: 'capsule', buttonSize: 'large',
+    size: [ptToUnits(72), ptToUnits(72)],
+    cornerRadius: ptToUnits(100)
+  })
+  const next = makePanel('button', {
+    parentId: transport.id, name: 'Next',
+    text: '', symbolName: 'forward.fill',
+    styles: { labelStyle: 'iconOnly' },
+    buttonStyle: 'plain', buttonSize: 'large',
+    colorToken: null, color: '#00000000', textColorToken: 'primary'
+  })
+  return {
+    items: [tab, w, root, artwork, meta, title, artist,
+      scrubBlock, slider, times, tNow, tEnd,
+      transport, prev, play, next
+    ],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Profile card --------------------------------------------------
+// People-style detail page: round avatar, name, role line, three
+// stat chips, and a primary "Follow / Message" CTA. Used in
+// Contacts, Find My, People in Messages.
+function profileTpl() {
+  const tab = makeTab({ name: 'Profile', icon: 'person.crop.circle' })
+  const w   = makeWindow({ name: 'Profile', parentId: tab.id })
+  const root = makeStack({
+    parentId: w.id, name: 'Card',
+    stackType: 'vstack', alignment: 'center', spacing: 20, padding: 36,
+    widthMode: 'fill', heightMode: 'fill'
+  })
+  const avatar = makePanel('image', {
+    parentId: root.id, name: 'Avatar',
+    size: [ptToUnits(120), ptToUnits(120)],
+    cornerRadius: ptToUnits(100),
+    color: '#3a3a3c', colorToken: null,
+    imageUrl: '/samples/images/Sample 02.jpg',
+    imageFit: 'fill'
+  })
+  const identity = makeStack({
+    parentId: root.id, name: 'Identity',
+    stackType: 'vstack', alignment: 'center', spacing: 4, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const name = makePanel('text', {
+    parentId: identity.id, name: 'Name', text: 'Avery Chen',
+    textStyle: 'title', fontSize: textStyleToFontSize('title'),
+    fontWeight: 'bold', textAlign: 'center', colorToken: 'primary'
+  })
+  const role = makePanel('text', {
+    parentId: identity.id, name: 'Role', text: 'Spatial Designer · San Francisco',
+    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textAlign: 'center', colorToken: 'secondary'
+  })
+  const stats = makeStack({
+    parentId: root.id, name: 'Stats',
+    stackType: 'hstack', alignment: 'center', spacing: 16, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const statBlock = []
+  ;[
+    { label: 'Projects', value: '24' },
+    { label: 'Followers', value: '1.2k' },
+    { label: 'Following', value: '318' }
+  ].forEach((s, i) => {
+    const chip = makeStack({
+      parentId: stats.id, name: s.label,
+      stackType: 'vstack', alignment: 'center', spacing: 2, padding: 12,
+      background: 'glassThin',
+      cornerRadius: ptToUnits(14),
+      size: [ptToUnits(100), ptToUnits(64)],
+      widthMode: 'fixed', heightMode: 'fixed'
+    })
+    const v = makePanel('text', {
+      parentId: chip.id, name: `${s.label} Value`, text: s.value,
+      textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+      fontWeight: 'semibold', textAlign: 'center', colorToken: 'primary'
+    })
+    const lbl = makePanel('text', {
+      parentId: chip.id, name: `${s.label} Label`, text: s.label,
+      textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+      textAlign: 'center', colorToken: 'secondary'
+    })
+    statBlock.push(chip, v, lbl)
+  })
+  const actions = makeStack({
+    parentId: root.id, name: 'Actions',
+    stackType: 'hstack', alignment: 'center', spacing: 12, padding: 0,
+    widthMode: 'fit', heightMode: 'fit'
+  })
+  const follow = makePanel('button', {
+    parentId: actions.id, name: 'Follow',
+    text: 'Follow', symbolName: 'person.crop.circle.badge.plus',
+    buttonStyle: 'borderedProminent', buttonShape: 'capsule', buttonSize: 'large',
+    size: [ptToUnits(160), ptToUnits(52)]
+  })
+  const message = makePanel('button', {
+    parentId: actions.id, name: 'Message',
+    text: 'Message', symbolName: 'bubble.left',
+    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'large',
+    size: [ptToUnits(160), ptToUnits(52)]
+  })
+  return {
+    items: [tab, w, root, avatar, identity, name, role, stats, ...statBlock, actions, follow, message],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Article (long-form reader) ------------------------------------
+// Reader layout: eyebrow / category, big headline, byline metadata
+// row, hero image, body paragraphs. Width clamped to a comfortable
+// reading measure (~560pt). Pattern: News, Books, Reader Mode.
+function articleTpl() {
+  const tab = makeTab({ name: 'Read', icon: 'doc.text' })
+  const w   = makeWindow({ name: 'Article', parentId: tab.id })
+  const COL_W = 560
+  const root = makeStack({
+    parentId: w.id, name: 'Article',
+    stackType: 'vstack', alignment: 'center', spacing: 14, padding: 24,
+    widthMode: 'fill', heightMode: 'fill', scrollable: true
+  })
+  const column = makeStack({
+    parentId: root.id, name: 'Column',
+    stackType: 'vstack', alignment: 'leading', spacing: 12, padding: 0,
+    size: [ptToUnits(COL_W), ptToUnits(640)],
+    widthMode: 'fixed', heightMode: 'fit'
+  })
+  const eyebrow = makePanel('text', {
+    parentId: column.id, name: 'Category', text: 'DESIGN',
+    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    fontWeight: 'bold', textAlign: 'left',
+    widthMode: 'fill', colorToken: 'systemBlue'
+  })
+  const headline = makePanel('text', {
+    parentId: column.id, name: 'Headline',
+    text: 'Designing for the Spatial Era',
+    textStyle: 'extraLargeTitle2', fontSize: textStyleToFontSize('extraLargeTitle2'),
+    fontWeight: 'bold', textAlign: 'left',
+    widthMode: 'fill', colorToken: 'primary'
+  })
+  const byline = makeStack({
+    parentId: column.id, name: 'Byline',
+    stackType: 'hstack', alignment: 'center', spacing: 8, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const author = makePanel('text', {
+    parentId: byline.id, name: 'Author', text: 'By Avery Chen',
+    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    fontWeight: 'medium', textAlign: 'left',
+    widthMode: 'fit', colorToken: 'primary'
+  })
+  const sep = makePanel('text', {
+    parentId: byline.id, name: 'Sep', text: '·',
+    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    widthMode: 'fit', colorToken: 'tertiary'
+  })
+  const meta = makePanel('text', {
+    parentId: byline.id, name: 'Meta', text: 'May 15 · 6 min read',
+    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textAlign: 'left',
+    widthMode: 'fill', colorToken: 'secondary'
+  })
+  const hero = makePanel('image', {
+    parentId: column.id, name: 'Hero',
+    size: [ptToUnits(COL_W), ptToUnits(260)],
+    widthMode: 'fill',
+    cornerRadius: ptToUnits(16),
+    color: '#2c2c2e', colorToken: null,
+    imageUrl: '/samples/images/Sample 03.jpg',
+    imageFit: 'fill'
+  })
+  const body1 = makePanel('text', {
+    parentId: column.id, name: 'Paragraph',
+    text: 'Vision changes the rules. Surfaces become unbounded, depth becomes a first-class material, and motion suggests presence rather than navigation. The result is software that feels physical without pretending to be — interfaces that breathe with the room rather than blocking it.',
+    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textAlign: 'left', widthMode: 'fill', colorToken: 'primary'
+  })
+  return {
+    items: [tab, w, root, column, eyebrow, headline, byline, author, sep, meta, hero, body1],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Settings / Preferences ----------------------------------------
+// Sectioned list inside a single window. Account header with avatar
+// + name, then two grouped sections: Preferences (toggles) and About
+// (info rows). Mirrors Apple's Settings.app inside a window plate.
+function settingsTpl() {
+  const tab = makeTab({ name: 'Settings', icon: 'gearshape' })
+  const w   = makeWindow({ name: 'Settings', parentId: tab.id })
+  const COL_W = 640
+  const root = makeStack({
+    parentId: w.id, name: 'Settings',
+    stackType: 'vstack', alignment: 'center', spacing: 12, padding: 24,
+    widthMode: 'fill', heightMode: 'fill', scrollable: true
+  })
+  // Account header — small avatar + name + chevron-style "View Profile" link.
+  const account = makeStack({
+    parentId: root.id, name: 'Account',
+    stackType: 'hstack', alignment: 'center', spacing: 14, padding: 14,
+    background: 'glassThin', cornerRadius: ptToUnits(16),
+    size: [ptToUnits(COL_W), ptToUnits(80)],
+    widthMode: 'fixed', heightMode: 'fixed'
+  })
+  const avatar = makePanel('image', {
+    parentId: account.id, name: 'Avatar',
+    size: [ptToUnits(48), ptToUnits(48)],
+    cornerRadius: ptToUnits(100),
+    color: '#3a3a3c', colorToken: null,
+    imageUrl: '/samples/images/Sample 02.jpg',
+    imageFit: 'fill'
+  })
+  const nameCol = makeStack({
+    parentId: account.id, name: 'Name Column',
+    stackType: 'vstack', alignment: 'leading', spacing: 2, padding: 0,
+    widthMode: 'fill', heightMode: 'fit'
+  })
+  const acctName = makePanel('text', {
+    parentId: nameCol.id, name: 'Name', text: 'Avery Chen',
+    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    fontWeight: 'semibold', textAlign: 'left',
+    widthMode: 'fill', colorToken: 'primary'
+  })
+  const acctEmail = makePanel('text', {
+    parentId: nameCol.id, name: 'Email', text: 'avery@example.com',
+    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
+  })
+  const acctChevron = makePanel('label', {
+    parentId: account.id, name: 'Chevron', text: '',
+    symbolName: 'chevron.right', styles: { labelStyle: 'iconOnly' },
+    size: [ptToUnits(16), ptToUnits(16)], colorToken: 'tertiary'
+  })
+  // Preferences section — three toggle rows.
+  const prefList = makePanel('list', {
+    parentId: root.id, name: 'Preferences',
+    listStyle: 'insetGrouped',
+    size: [ptToUnits(COL_W), 0], widthMode: 'fixed',
+    rows: [
+      { title: 'Notifications', subtitle: '', accessory: 'toggle', toggleValue: true,  icon: 'bell.fill',       iconTint: '#ff453a' },
+      { title: 'Sound Effects', subtitle: '', accessory: 'toggle', toggleValue: false, icon: 'speaker.wave.2',  iconTint: '#ff9f0a' },
+      { title: 'Spatial Audio', subtitle: '', accessory: 'toggle', toggleValue: true,  icon: 'airpods',         iconTint: '#0a84ff' }
+    ]
+  })
+  // About section — info rows with right-aligned values.
+  const aboutList = makePanel('list', {
+    parentId: root.id, name: 'About',
+    listStyle: 'insetGrouped',
+    size: [ptToUnits(COL_W), 0], widthMode: 'fixed',
+    rows: [
+      { title: 'Version',         subtitle: '', accessory: 'value', value: '2.0.1', icon: 'info.circle.fill', iconTint: '#8e8e93' },
+      { title: 'Privacy Policy',  subtitle: '', accessory: 'chevron',               icon: 'hand.raised.fill', iconTint: '#30d158' },
+      { title: 'Terms of Service',subtitle: '', accessory: 'chevron',               icon: 'doc.text.fill',    iconTint: '#0a84ff' }
+    ]
+  })
+  return {
+    items: [tab, w, root,
+      account, avatar, nameCol, acctName, acctEmail, acctChevron,
+      prefList, aboutList
+    ],
+    activeTabId: tab.id
+  }
+}
+
+// ---- Legacy: Music Player ------------------------------------------
+// Kept so older saved scenes that reference the previous template
+// keys continue to load. Not surfaced on the splash.
 function musicPlayer() {
   const tab = makeTab({ name: 'Music', icon: 'music.note' })
   const w   = makeWindow({ name: 'Now Playing', parentId: tab.id })
@@ -1650,13 +2144,26 @@ export const TEMPLATES = {
   // as picks (they're not really templates, just empty starters).
   blank:        { mode: 'window', label: 'Blank',          description: 'Empty window with a single fill stack — start from scratch.',                build: blank },
   emptyVolume:  { mode: 'volume', label: 'Empty Volume',   description: 'Volumetric stage with a single world anchor — start from scratch.',          build: emptyVolume },
-  // Window-mode templates surfaced on the splash.
-  musicPlayer:  { mode: 'window', label: 'Music Player',   description: 'Now Playing card with artwork, transport controls, and a queue list.',     build: musicPlayer },
-  smartHome:    { mode: 'window', label: 'Smart Home',     description: 'Dashboard with greeting, room cards, scenes, and quick controls.',         build: smartHome },
-  settings:     { mode: 'window', label: 'Settings',       description: 'Multi-section settings page with search, account header, and toggles.',    build: settings },
-  mailApp:      { mode: 'window', label: 'Mail',           description: 'NavigationSplitView (joined) with sidebar mailboxes and a reading pane.',  build: mailApp },
-  tabBar:       { mode: 'window', label: 'Tab Bar App',    description: 'Bottom Tab Bar ornament with a Home content stub.',                        build: tabBarApp },
-  filesApp:     { mode: 'window', label: 'Files',          description: 'Sidebar with Locations + Tags, and a Recents pane with the empty-state.', build: filesApp },
+  // Window-mode templates surfaced on the splash. Six refined,
+  // production-ready layouts that map directly onto Apple's visionOS
+  // HIG patterns — onboarding splash, category browse, Now Playing
+  // card, profile detail, long-form article, and a sectioned settings
+  // page. Each uses semantic colour tokens so Scene → Colors
+  // re-themes the whole layout in one shot.
+  welcome:      { mode: 'window', label: 'Welcome',        description: 'Onboarding splash — hero icon, centred title block, primary CTA.',          build: welcomeTpl },
+  browse:       { mode: 'window', label: 'Browse',         description: 'Category grid with a search field — Music Browse / App Store landing.',     build: browseTpl },
+  player:       { mode: 'window', label: 'Player',         description: 'Now Playing card: artwork, track meta, scrubber, transport row.',           build: playerTpl },
+  profile:      { mode: 'window', label: 'Profile',        description: 'People-card with avatar, identity, stat chips, and primary actions.',       build: profileTpl },
+  article:      { mode: 'window', label: 'Article',        description: 'Long-form reader: eyebrow, headline, byline, hero image, body copy.',       build: articleTpl },
+  settings:     { mode: 'window', label: 'Settings',       description: 'Sectioned preferences page with account header and grouped toggle rows.',   build: settingsTpl },
+  // Legacy template keys preserved for save-file compatibility — not
+  // surfaced in the splash picker.
+  musicPlayer:  { mode: 'window', label: 'Music Player (legacy)',   description: 'Legacy Now Playing template.',  build: musicPlayer },
+  smartHome:    { mode: 'window', label: 'Smart Home (legacy)',     description: 'Legacy Smart Home dashboard.',  build: smartHome },
+  settingsOld:  { mode: 'window', label: 'Settings (legacy)',       description: 'Legacy Settings template.',     build: settings },
+  mailApp:      { mode: 'window', label: 'Mail (legacy)',           description: 'Legacy Mail template.',         build: mailApp },
+  tabBar:       { mode: 'window', label: 'Tab Bar App (legacy)',    description: 'Legacy Tab Bar template.',      build: tabBarApp },
+  filesApp:     { mode: 'window', label: 'Files (legacy)',          description: 'Legacy Files template.',        build: filesApp },
   // Volume-mode
   productShowcase: { mode: 'volume', label: 'Product Showcase', description: 'Metal hero auto-rotates on a plinth with a pulsing glow ring; tap to scale up.', build: productShowcase },
   solarSystem:     { mode: 'volume', label: 'Solar System',     description: 'Eight planets and the sun lined up with a glowing orbit band. Tap any planet to scale up, sun pulses.', build: solarSystem },
@@ -1671,7 +2178,7 @@ export const TEMPLATES = {
 }
 
 export const TEMPLATE_ORDER_WINDOW = [
-  'musicPlayer', 'smartHome', 'settings', 'mailApp', 'tabBar', 'filesApp'
+  'welcome', 'browse', 'player', 'profile', 'article', 'settings'
 ]
 export const TEMPLATE_ORDER_VOLUME = [
   'productShowcase', 'solarSystem', 'moodLamps', 'gallery', 'spinningShowcase', 'reactiveLights'

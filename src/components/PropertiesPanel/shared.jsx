@@ -70,13 +70,6 @@ export function FigmaFrameSection({ item, updateItem, embedded = false }) {
           />
         </Row>
       )}
-      <div className="text-[10px] text-textMute leading-relaxed mt-1">
-        {item.widthMode === 'fill'
-          ? 'Fills the parent stack\u2019s inner width. Padding still applies.'
-          : item.widthMode === 'fixed'
-          ? 'Uses the explicit size below. Content that overflows is truncated by .lineLimit.'
-          : 'Hugs the content \u2014 the native SwiftUI Text behaviour.'}
-      </div>
     </Wrap>
   )
 }
@@ -144,7 +137,7 @@ export function LayoutSection({ item, updateItem, scene, lockHeight = false, loc
         <SemanticColorPicker
           token={item.colorToken}
           onChange={(t) => {
-            if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scheme) })
+            if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scene) })
             else updateItem(item.id, { colorToken: null })
           }}
         />
@@ -172,7 +165,7 @@ export function AppearanceSection({ item, updateItem, scene }) {
         <SemanticColorPicker
           token={item.colorToken}
           onChange={(t) => {
-            if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scheme) })
+            if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scene) })
             else updateItem(item.id, { colorToken: null })
           }}
         />
@@ -237,10 +230,10 @@ export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTi
           token={isText ? item.colorToken : item.textColorToken}
           onChange={(t) => {
             if (isText) {
-              if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scheme) })
+              if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scene) })
               else updateItem(item.id, { colorToken: null })
             } else {
-              if (t) updateItem(item.id, { textColorToken: t, textColor: resolveSemantic(t, scheme) })
+              if (t) updateItem(item.id, { textColorToken: t, textColor: resolveSemantic(t, scene) })
               else updateItem(item.id, { textColorToken: null })
             }
           }}

@@ -6,6 +6,7 @@ import {
   ProgressIcon, GaugeIcon,
   SearchIcon, ListIcon, TableIcon, MenuIcon,
   SlideshowIcon, TickerIcon,
+  NavBarIcon,
   VStackIcon, HStackIcon, ZStackIcon,
   WindowIcon, SplitViewIcon,
   OrnamentLeading, OrnamentTrailing, OrnamentTop, OrnamentBottom,
@@ -155,6 +156,7 @@ export default function CommandPalette() {
       run: () => isVolume ? addVolume() : addWindow() },
     { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => openWizard('sidebar') },
     // Chrome — ornaments + scene-level tab bar
+    { id: 'navbar',    label: 'Navigation Bar', group: 'Ornaments', Icon: NavBarIcon,    run: () => addPanel('navbar') },
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => openWizard('tabBar') },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => openWizard('toolbar') }
   ], [addPanel, addStack, addWindow, addVolume, addSplitView, addTabBar, addToolbar, addPresentation,

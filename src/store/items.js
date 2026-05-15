@@ -155,6 +155,16 @@ export const createItemsSlice = (set, get) => ({
       if (mode !== 'inside' && tgt.type !== 'window') return s
     }
 
+    // Navigation bars are window chrome and must always sit directly
+    // under a window — never inside a stack. Reject any drop into a
+    // stack (or a sibling-of-stack position whose parent is a stack).
+    if (src.type === 'panel' && src.panelType === 'navbar') {
+      const proposedParent = mode === 'inside'
+        ? tgt
+        : s.items.find((it) => it.id === tgt.parentId) || null
+      if (!proposedParent || proposedParent.type !== 'window') return s
+    }
+
     // An Entity can only land where childKindsAllowedUnder permits its
     // entityKind. For 'inside' drops we check the target directly; for
     // 'before'/'after' we check the target's parent (the entity becomes

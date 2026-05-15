@@ -17,15 +17,24 @@ import { findTargetWindow } from './helpers'
 // stack inside the WindowGroup body, not a child of it.
 const PRIMITIVE_3D = new Set(['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d', 'mesh'])
 
+// Chrome panels that always parent to the window directly. NavigationBar
+// is exported as a `.toolbar { ... }` modifier on the window root; it
+// would never sit inside a content stack in SwiftUI, so we mirror that
+// in the editor — drops/adds always pin it to the active window and
+// render it edge-to-edge across the top.
+const WINDOW_LEVEL_PANELS = new Set(['navbar'])
+
 export const createPanelsSlice = (set, get) => ({
   addPanel: (panelType) => undoable(set, get, (s) => {
     const is3D = PRIMITIVE_3D.has(panelType)
+    const isWindowLevel = WINDOW_LEVEL_PANELS.has(panelType)
     let parentId = null
     const sel = s.items.find((it) => it.id === s.selectedId)
-    if (is3D) {
-      // 3D primitives always parent to the active tab's first Window. They
-      // ignore the current selection's stack — the primitive is a
-      // free-standing scene entity, not stack content.
+    if (is3D || isWindowLevel) {
+      // 3D primitives + window chrome (navbar) always parent to the active
+      // tab's first Window. They never sit inside a content stack — the
+      // navbar exports as a `.toolbar { ... }` modifier on the window
+      // root, and primitives are scene-level entities.
       const win = s.items.find(
         (it) => it.type === 'window' && it.parentId === s.activeTabId
       ) ?? s.items.find((it) => it.type === 'window')
@@ -45,7 +54,9 @@ export const createPanelsSlice = (set, get) => ({
       const firstWindow = s.items.find(
         (it) => it.type === 'window' && it.parentId === s.activeTabId
       ) ?? s.items.find((it) => it.type === 'window')
-      const firstStack = !is3D && firstWindow && s.items.find(
+      // Window-level chrome bypasses the auto-route-into-stack step so it
+      // lands directly on the window even when nothing's selected.
+      const firstStack = !is3D && !isWindowLevel && firstWindow && s.items.find(
         (it) => it.parentId === firstWindow.id && it.type === 'stack'
       )
       parentId = firstStack ? firstStack.id : firstWindow?.id
