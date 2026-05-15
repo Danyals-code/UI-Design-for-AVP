@@ -11,6 +11,39 @@
 
 import { useStore } from '../store'
 
+// Single row in the top-right preview hint panel — one or more keycap
+// chips on the left, the human-readable action label on the right. Kept
+// as a tiny helper so future hand-gesture combos (Click + Hold + W, etc)
+// can be expressed by passing more chips into `keys`.
+function HintRow({ keys, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+        {keys.map((k) => (
+          <span
+            key={k}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              minWidth: 18, height: 18, padding: '0 5px',
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.18)',
+              borderRadius: 4,
+              color: '#f0f0f1',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+              fontSize: 9.5, fontWeight: 600,
+              letterSpacing: 0.4,
+              boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.25)'
+            }}
+          >
+            {k}
+          </span>
+        ))}
+      </div>
+      <span style={{ color: '#cfcfd1' }}>{label}</span>
+    </div>
+  )
+}
+
 export default function PreviewButton() {
   const previewMode = useStore((s) => s.scene.previewMode)
   const updateScene = useStore((s) => s.updateScene)
@@ -83,6 +116,15 @@ export default function PreviewButton() {
     window.dispatchEvent(new CustomEvent('snap-camera-to-default'))
   }
 
+  // Screenshot capture. The actual readback lives inside the Canvas
+  // (ScreenshotBinder in Canvas3D.jsx) so it can pull the GL buffer via
+  // useThree; this just kicks the event. DOM overlays (this button, the
+  // top-right hint panel, the Topbar) sit outside the canvas element
+  // and are automatically excluded from the PNG.
+  const takeScreenshot = () => {
+    window.dispatchEvent(new CustomEvent('request-preview-screenshot'))
+  }
+
   if (previewMode) {
     // Same anchor as the Preview entry button so the user's mouse
     // doesn't have to travel — flipping in / out of preview is a single
@@ -93,6 +135,14 @@ export default function PreviewButton() {
     return (
       <>
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex items-center gap-2">
+          <PillShell onClick={takeScreenshot} title="Save a PNG of the preview canvas (UI overlays are excluded automatically)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              {/* Camera body + lens */}
+              <path d="M2 5h2.5l1-1.5h5L11.5 5H14v8H2z" />
+              <circle cx="8" cy="9" r="2.5" />
+            </svg>
+            Screenshot
+          </PillShell>
           <PillShell onClick={resetCamera} title={isVolume ? 'Snap back to the default VR spawn point' : 'Re-centre the camera on the window'}>
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
               {/* Curved reset arrow */}
@@ -110,45 +160,38 @@ export default function PreviewButton() {
           </PillShell>
         </div>
 
-        {/* Interaction hints — sit just above the bottom edge, centred,
-            non-interactive. Wording adjusts per-mode: volume mode runs
-            the first-person look-around so we surface the camera
-            controls; window mode is largely click-driven so we keep the
-            hint short. */}
+        {/* Interaction hints — top-right panel listing the keyboard / mouse
+            mapping. Designed to scale with future hand-gesture combos
+            (the user explicitly called this out as the seed for keyboard
+            + mouse compounds), so we lay it out as a small key/action
+            table rather than a single one-line strip. */}
         <div
-          className="absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none"
-          style={{ bottom: 44 }}
+          className="absolute top-3 right-3 z-20 pointer-events-none"
         >
           <div
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: 12,
-              padding: '5px 10px',
-              background: 'rgba(21, 21, 21, 0.72)',
-              backdropFilter: 'blur(6px)',
+              display: 'flex', flexDirection: 'column', gap: 6,
+              padding: '10px 12px',
+              minWidth: 196,
+              background: 'rgba(21, 21, 21, 0.78)',
+              backdropFilter: 'blur(8px)',
               border: '1px solid rgba(70, 70, 70, 0.55)',
-              borderRadius: 5,
+              borderRadius: 6,
               color: '#cfcfd1',
-              fontSize: 10, lineHeight: 1.2,
+              fontSize: 10.5, lineHeight: 1.25,
               letterSpacing: 0.2
             }}
           >
-            {isVolume ? (
-              <>
-                <span><kbd className="kbd">Drag</kbd> look around</span>
-                <span style={{ opacity: 0.35 }}>·</span>
-                <span><kbd className="kbd">Right-drag</kbd> pan</span>
-                <span style={{ opacity: 0.35 }}>·</span>
-                <span><kbd className="kbd">Scroll</kbd> move forward</span>
-                <span style={{ opacity: 0.35 }}>·</span>
-                <span><kbd className="kbd">Click</kbd> to interact</span>
-              </>
-            ) : (
-              <>
-                <span><kbd className="kbd">Click</kbd> buttons / panels to interact</span>
-                <span style={{ opacity: 0.35 }}>·</span>
-                <span><kbd className="kbd">Esc</kbd> exit preview</span>
-              </>
-            )}
+            <div style={{ fontWeight: 600, color: '#eaeaea', fontSize: 10, letterSpacing: 0.6, textTransform: 'uppercase', opacity: 0.7, marginBottom: 2 }}>
+              Preview Controls
+            </div>
+            <HintRow keys={['Click']} label="Interact (pinch)" />
+            <HintRow keys={['Mouse']} label="Gaze" />
+            <HintRow keys={['Drag']} label="Look around" />
+            <HintRow keys={['W', 'A', 'S', 'D']} label="Move" />
+            <HintRow keys={['Q', 'E']} label="Up / Down" />
+            <HintRow keys={['Scroll']} label="Forward / back" />
+            <HintRow keys={['Esc']} label="Exit preview" />
           </div>
         </div>
       </>

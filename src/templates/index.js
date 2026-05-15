@@ -655,8 +655,11 @@ function filesApp() {
   // window corner; the right edge sits flush against the detail pane.
   const sidebar = makeStack({
     parentId: root.id, name: 'Sidebar',
-    stackType: 'vstack', alignment: 'leading', spacing: 12, padding: 14,
-    fixedWidth: 280,
+    stackType: 'vstack', alignment: 'leading', spacing: 16, padding: 16,
+    // Apple's visionOS Figma kit ships the sidebar at 320pt wide — see
+    // SidebarItem (6:1512) which is 320×56. The earlier 280pt was an
+    // arbitrary fit; 320pt aligns rows to the kit's metrics.
+    fixedWidth: 320,
     widthMode: 'fixed', heightMode: 'fill',
     background: '#d8d8dc',
     cornerRadius: ptToUnits(WINDOW_CORNER_RADIUS),
@@ -689,9 +692,13 @@ function filesApp() {
 
   // Pinned rows. Width pinned to the sidebar width minus padding so
   // the list doesn't blow past the sidebar's fixed 240pt frame.
+  // Pinned group — Apple's Files renders the top "Recents / Shared"
+  // pair as separate rounded pill rows inside the sidebar gap, same
+  // visual cadence as the section rows below. Sidebar list-style ships
+  // each row in its own pill, matching the Figma SidebarItem (6:1512).
   const pinnedList = makePanel('list', {
     parentId: sidebar.id, name: 'Pinned',
-    size: [ptToUnits(252), ptToUnits(0)],
+    size: [ptToUnits(288), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
       { title: 'Recents', subtitle: '' },
@@ -699,18 +706,23 @@ function filesApp() {
     ]
   })
 
-  // Locations section.
+  // Locations section. Apple's visionOS sidebar headers are weighted
+  // landmarks, not muted captions — headline (17pt) semibold matches
+  // the Figma kit's "Section Heading" style (white text on glass).
+  // Row trailing `value` slots in for the count badge Apple shows on
+  // the right edge of inbox-like rows (the "42" affordance).
   const locationsHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Locations Header', text: 'Locations',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
-    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    fontWeight: 'semibold', widthMode: 'fill',
+    colorToken: 'primary'
   })
   const locationsList = makePanel('list', {
     parentId: sidebar.id, name: 'Locations',
-    size: [ptToUnits(252), ptToUnits(0)],
+    size: [ptToUnits(288), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
-      { title: 'iCloud Drive',           subtitle: '' },
+      { title: 'iCloud Drive',           subtitle: '', value: '42' },
       { title: 'On My Apple Vision Pro', subtitle: '' },
       { title: 'Recently Deleted',       subtitle: '' }
     ]
@@ -719,12 +731,13 @@ function filesApp() {
   // Tags section.
   const tagsHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Tags Header', text: 'Tags',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
-    fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
+    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    fontWeight: 'semibold', widthMode: 'fill',
+    colorToken: 'primary'
   })
   const tagsList = makePanel('list', {
     parentId: sidebar.id, name: 'Tags',
-    size: [ptToUnits(252), ptToUnits(0)],
+    size: [ptToUnits(288), ptToUnits(0)],
     listStyle: 'sidebar',
     rows: [
       { title: 'Red',    subtitle: '' },

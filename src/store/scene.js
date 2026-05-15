@@ -4,6 +4,8 @@
 import { WINDOW_PRESETS, VOLUME_PRESETS, ptToUnits } from '../appleSystem'
 import { undoable } from './undo'
 import { buildTemplate, TEMPLATES } from '../templates'
+import { WIZARDS, hasWizard } from '../wizards/registry'
+import { findTargetWindow } from './helpers'
 
 // Default seed used when switchSceneMode lands on a mode without an
 // explicit template choice. Volume → empty stage, window → blank app.
@@ -79,6 +81,20 @@ export const createSceneSlice = (set, get) => ({
     if (!target) return s
     return { scene: { ...s.scene, activeWindowId: id } }
   }),
+
+  // Preview-only: NavigationSplitView selection routing. Clicking a
+  // sidebar row in preview dispatches this with the row's navTag; the
+  // NavigationSplitView root's `activeDestination` updates and the
+  // renderer hides every detail-slot child whose navTag doesn't match.
+  // Not undoable — preview navigation shouldn't pollute the editor undo
+  // stack.
+  setActiveDestination: (navSplitId, navTag) => set((s) => ({
+    items: s.items.map((it) =>
+      (it.id === navSplitId && it.splitStyle)
+        ? { ...it, activeDestination: navTag }
+        : it
+    )
+  })),
 
   // Designer-set: which window opens first when the user enters
   // preview. Persisted on the scene so re-entering preview always
@@ -159,6 +175,85 @@ export const createSceneSlice = (set, get) => ({
       default:
         return
     }
+  },
+
+  // ---- Add-flow wizards -----------------------------------------------
+  //
+  // `pendingWizard` is the modal UI state. When non-null the
+  // AddWizardDialog renders the schema in WIZARDS[kind] and the user
+  // configures the structural properties (tab count, group/items
+  // hierarchy, etc) up front. Submit calls `submitWizard(params)` which
+  // runs the wizard's `build` or `proxy` to add the configured panels.
+  pendingWizard: null,
+
+  openWizard: (kind) => {
+    if (!hasWizard(kind)) return
+    const spec = WIZARDS[kind]
+    // NavigationSplitView is a top-level shell: a window can host at
+    // most one (SwiftUI's `NavigationSplitView` is a root container,
+    // not a nestable view), and the wizard must place it directly
+    // under the window — never nested inside an existing stack. Bail
+    // here if the active window already has one so the user doesn't
+    // end up with two split shells fighting for the same plate.
+    if (kind === 'sidebar') {
+      const state = get()
+      const win = findTargetWindow(state)
+      if (win) {
+        const hasNavSplit = state.items.some(
+          (it) => it.type === 'stack' && it.parentId === win.id && it.splitStyle
+        )
+        if (hasNavSplit) {
+          // Surface via a window event so a future toast component can
+          // render the message; for now this exits silently so the
+          // wizard doesn't open in a broken state.
+          window.dispatchEvent(new CustomEvent('wizard-blocked', {
+            detail: { kind, reason: 'one-per-window' }
+          }))
+          return
+        }
+      }
+    }
+    set({ pendingWizard: { kind, values: spec.defaults } })
+  },
+
+  cancelWizard: () => set({ pendingWizard: null }),
+
+  submitWizard: (values) => {
+    const pending = get().pendingWizard
+    if (!pending) return
+    const spec = WIZARDS[pending.kind]
+    if (!spec) { set({ pendingWizard: null }); return }
+    // Proxy path: schema delegates entirely to an existing store action
+    // (used by Toolbar — `addToolbar` already builds the slot layout).
+    if (typeof spec.proxy === 'function') {
+      spec.proxy(get(), values)
+      set({ pendingWizard: null })
+      return
+    }
+    // Build path: wizard builder constructs items keyed off the active
+    // window. Wrapped in `undoable` so the user can hit ⌘Z to remove
+    // the whole subtree if the configuration isn't what they wanted.
+    //
+    // `replace: true` from the builder signals a full items-array
+    // rewrite (used by the sidebar wizard to reparent existing window
+    // content into the new Detail column). Otherwise the returned
+    // `items` is appended.
+    undoable(set, get, (s) => {
+      const win = findTargetWindow(s)
+      if (!win) return s
+      const result = spec.build(values, {
+        windowId: win.id,
+        parentId: win.id,
+        items: s.items
+      })
+      if (!result || !result.items) return s
+      const nextItems = result.replace ? result.items : [...s.items, ...result.items]
+      return {
+        items: nextItems,
+        selectedId: result.selectedId || win.id
+      }
+    })
+    set({ pendingWizard: null })
   },
 
   updateScene: (patch) => undoable(set, get, (s) => {

@@ -82,11 +82,12 @@ export const VOLUME_PRESETS = {
 
 // visionOS uses a glass material for window backgrounds. We approximate with
 // a translucent fill + subtle border in the scene.
-// Window outer corner radius: visionOS HIG / Apple Design Resources cite
-// ~46 pt as the system-determined value for the standard glass plate.
-// Not formally published, but consistent across simulator measurements.
-export const WINDOW_CORNER_RADIUS = 46   // pt
-export const WINDOW_BORDER_RADIUS = 46
+// Window outer corner radius: 30pt matches Apple's current visionOS Figma
+// kit (the standard glass plate component and the separated-sidebar
+// plate both ship at 30pt). The earlier 46pt traced to visionOS 1.0
+// simulator measurements that have since drifted to the modern value.
+export const WINDOW_CORNER_RADIUS = 30   // pt
+export const WINDOW_BORDER_RADIUS = 30
 
 // Default inner padding applied to a Window's content stack. Matches the
 // 14pt edge inset used by Apple's reference layouts for a regular visionOS
@@ -95,7 +96,8 @@ export const WINDOW_PADDING = 14
 
 // Default NavigationSplitView sidebar sizing when in 'separated' style —
 // the sidebar becomes a standalone rounded dialogue on the leading edge.
-export const SPLIT_SEPARATED_WIDTH = 370   // pt
+// Apple's visionOS Figma kit ships the separated sidebar at 320pt wide.
+export const SPLIT_SEPARATED_WIDTH = 320   // pt
 export const SPLIT_SEPARATED_RADIUS = 30   // pt
 
 // visionOS ornament placements (attached chrome outside the window).
@@ -108,9 +110,14 @@ export const ORNAMENT_PLACEMENTS = {
   bottom:   { label: 'Bottom Bar' }
 }
 
+// Vertical tab bars (leading / trailing ornaments) follow Apple's visionOS
+// Figma kit — 68pt wide, ~180pt tall for a 3-item icon-only bar, with
+// tight 6pt inter-icon spacing and 8pt outer padding. Height is the
+// ornament's intrinsic size for 3 items; designers grow it by adding
+// tabs (the layout engine hugs the contents in 'fit' mode).
 export const ORNAMENT_DEFAULTS = {
-  leading:  { stackType: 'vstack', width: 60,  height: 320, padding: 12, spacing: 14, name: 'Leading Sidebar' },
-  trailing: { stackType: 'vstack', width: 60,  height: 320, padding: 12, spacing: 14, name: 'Trailing Sidebar' },
+  leading:  { stackType: 'vstack', width: 68,  height: 180, padding: 8,  spacing: 6,  name: 'Leading Sidebar' },
+  trailing: { stackType: 'vstack', width: 68,  height: 180, padding: 8,  spacing: 6,  name: 'Trailing Sidebar' },
   top:      { stackType: 'hstack', width: 320, height: 56,  padding: 10, spacing: 12, name: 'Top Bar' },
   bottom:   { stackType: 'hstack', width: 320, height: 56,  padding: 10, spacing: 12, name: 'Bottom Bar' }
 }
@@ -593,7 +600,7 @@ export const LIST_STYLES = {
   inset:        { label: 'Inset',         rowH: 44, pad: 10, inset: 24, gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 12, showGroupCard: true },
   insetGrouped: { label: 'Inset Grouped', rowH: 48, pad: 6,  inset: 16, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 14, showGroupCard: false },
   grouped:      { label: 'Grouped',       rowH: 44, pad: 20, inset: 0,  gap: 4,  showBg: true,  showSeparators: true,  roundedRows: false, groupRadius: 0,  showGroupCard: false },
-  sidebar:      { label: 'Sidebar',       rowH: 32, pad: 8,  inset: 12, gap: 4,  showBg: false, showSeparators: false, roundedRows: true,  groupRadius: 8,  showGroupCard: false },
+  sidebar:      { label: 'Sidebar',       rowH: 56, pad: 0,  inset: 12, gap: 0,  showBg: false, showSeparators: false, roundedRows: false, groupRadius: 14, showGroupCard: true },
 }
 
 export const LIST_STYLE_ORDER = [

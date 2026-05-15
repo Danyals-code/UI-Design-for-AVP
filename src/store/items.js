@@ -6,8 +6,35 @@ import { undoable } from './undo'
 import { isDescendantOf, findOwningTab, uniqueNameInTab } from './helpers'
 import { childKindsAllowedUnder } from '../realityKit/registry'
 
+// NavigationSplitView's sidebar-slot children (Header, section headers,
+// Group lists) and their descendants are managed via the NavSplitView's
+// inspector instead of the layer tree. Selecting one of them routes
+// back to the owning NavSplitView so the user always edits the whole
+// shell together — never an individual Header HStack or list item.
+function resolveSelectId(items, id) {
+  const target = items.find((it) => it.id === id)
+  if (!target) return id
+  // Walk up until we hit either the NavSplitView root or run out of
+  // ancestors. Any sidebar-slot ancestor (or the item itself) tells us
+  // the click should target the NavSplitView.
+  let cursor = target
+  let foundSlot = cursor.slot === 'sidebar'
+  let nav = null
+  while (cursor) {
+    if (cursor.type === 'stack' && cursor.splitStyle) { nav = cursor; break }
+    if (cursor.slot === 'sidebar') foundSlot = true
+    cursor = items.find((it) => it.id === cursor.parentId) || null
+  }
+  if (foundSlot && nav) return nav.id
+  return id
+}
+
 export const createItemsSlice = (set, get) => ({
-  select:        (id) => set({ selectedId: id, editingId: null }),
+  select: (id) => {
+    const state = get()
+    const next = id ? resolveSelectId(state.items, id) : id
+    set({ selectedId: next, editingId: null })
+  },
   setEditing:    (id) => set({ editingId: id, selectedId: id }),
   clearEditing:  ()   => set({ editingId: null }),
 
@@ -43,6 +70,13 @@ export const createItemsSlice = (set, get) => ({
   removeItem: (id) => undoable(set, get, (s) => {
     const target = s.items.find((it) => it.id === id)
     if (!target) return s
+    // Block individual deletes of NavSplitView sidebar-slot structure
+    // (Header, section headers, Group lists, and their descendants).
+    // The user manages these from the NavSplitView inspector; removing
+    // one piecemeal would orphan the rest. Returning unchanged state
+    // is the safest no-op since `undoable` will then skip a history
+    // entry for the failed delete.
+    if (resolveSelectId(s.items, id) !== id) return s
     // Tab removal preserves the "keep at least one tab" invariant.
     if (target.type === 'tab') {
       const tabs = s.items.filter((it) => it.type === 'tab')

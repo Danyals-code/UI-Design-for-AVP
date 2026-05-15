@@ -240,6 +240,41 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
   const innerW = Math.max(0, sw - padW(pad))
   const innerH = Math.max(0, sh - padH(pad))
   const gap = stackSpacing(stack.spacing)
+
+  // ---- NavigationSplitView slot-based sizing ----
+  // Mirrors the `layoutStack` slot branch: sidebar children claim a
+  // 320pt column (minus inset), detail children claim the remaining
+  // width across the full inner height. Anything with `widthMode: 'fill'`
+  // expands to the column it sits in.
+  if (children.some((c) => c.slot === 'sidebar' || c.slot === 'detail')) {
+    const sideW = ptToUnits(320)
+    const SECTION_PAD_X = ptToUnits(24)
+    const detailW = Math.max(0, innerW - sideW)
+    const isSectionHeader = (c) =>
+      c.type === 'panel' && c.panelType === 'text' && c.slot === 'sidebar' &&
+      typeof c.name === 'string' && /Section .* Header/.test(c.name)
+    for (const c of children) {
+      const slot = c.slot || 'sidebar'
+      const [cw, ch] = computeSize(c, items)
+      const isFillW = (c.type === 'stack' || c.type === 'panel') && c.widthMode === 'fill'
+      const isFillH = c.type === 'stack' && c.heightMode === 'fill'
+      let rw = cw
+      let rh = ch
+      if (slot === 'sidebar') {
+        // Section headers carry pl-24/pr-24 inset → effective width is
+        // sideW minus the 24pt inset (applied on the leading edge only;
+        // the trailing edge crops naturally inside the sidebar bounds).
+        if (isFillW) {
+          rw = isSectionHeader(c) ? Math.max(0, sideW - SECTION_PAD_X) : sideW
+        }
+      } else {
+        rw = isFillW ? detailW : Math.max(cw, detailW)
+        rh = isFillH ? innerH : Math.max(ch, innerH)
+      }
+      out.set(c.id, [rw, rh])
+    }
+    return out
+  }
   // ScrollView contributes to fill-resolution along its scroll axis only.
   const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
@@ -303,6 +338,99 @@ export function layoutStack(stack, items, outerSize = null) {
   const innerW = sw - padW(pad)
   const innerH = sh - padH(pad)
   const gap = stackSpacing(stack.spacing)
+
+  // ---- NavigationSplitView (slot-based layout) ----
+  // Activated when any direct child carries a `slot` field — the user's
+  // new sidebar wizard tags sidebar/detail children explicitly instead
+  // of using wrapper "Sidebar" + "Detail" stacks. Lays out:
+  //   - slot==='sidebar' children as a VStack on the left, 320pt wide
+  //   - slot==='detail'  children stacked at the right column, sharing
+  //     the same x/y (only one rendered at a time per visibility flag).
+  // Backward compat: when no child has a slot field the parent falls
+  // through to the regular HStack path, so existing addSplitView /
+  // Mail / Files templates that use wrapper Sidebar+Detail stacks
+  // keep their old layout.
+  if (children.some((c) => c.slot === 'sidebar' || c.slot === 'detail')) {
+    const sidebarChildren = children.filter((c) => (c.slot || 'sidebar') === 'sidebar')
+    const detailChildren  = children.filter((c) => c.slot === 'detail')
+    const sideW    = ptToUnits(320)            // Apple visionOS kit sidebar width
+    const detailW  = Math.max(0, innerW - sideW)
+    const out = new Map()
+
+    // Sidebar column: flows top-down. Items now handle their own
+    // horizontal padding (no outer inset on the slot) so they match
+    // Apple's Figma metrics exactly:
+    //   Header (HStack)         — 92pt high, pl-28 pr-20 (its own paddingEdges)
+    //   Section Header (text)   — pt-12 px-24 — we add 12pt top gap + offset X
+    //   Sidebar Item (list row) — px-12, 56pt rowH (handled by LIST_STYLES.sidebar)
+    const sidebarX0 = -innerW / 2 + sideW / 2
+    const SECTION_TOP_GAP = ptToUnits(12)
+    const SECTION_PAD_X   = ptToUnits(24)
+
+    // Per-item gap rules — Apple's spec has zero inter-item gap except
+    // a 12pt breathing space above each section heading (after the
+    // first one). The Header HStack already carries its own height so
+    // it absorbs its own bottom spacing.
+    const isSectionHeader = (c) =>
+      c.type === 'panel' && c.panelType === 'text' && c.slot === 'sidebar' &&
+      typeof c.name === 'string' && /Section .* Header/.test(c.name)
+
+    // Apply scroll offset from the NavSplitView root. Clamped against
+    // the overflow distance: total content height − available height.
+    const scrollY = Math.max(0, Number(stack.sidebarScrollY) || 0)
+
+    // Compute child sizes once.
+    const sidebarSizes = sidebarChildren.map((c) => {
+      const [cw, ch] = computeSize(c, items)
+      return [cw, ch]
+    })
+
+    // First pass — total content height (without scroll).
+    let total = 0
+    for (let i = 0; i < sidebarChildren.length; i++) {
+      const c = sidebarChildren[i]
+      if (i > 0 && isSectionHeader(c)) total += SECTION_TOP_GAP
+      total += sidebarSizes[i][1]
+    }
+    const maxScroll = Math.max(0, total - innerH)
+    const effectiveScroll = Math.min(scrollY, maxScroll)
+
+    // Second pass — emit positions; skip items that fall entirely
+    // outside the visible band (above innerH/2 or below -innerH/2).
+    // That gives a basic "auto-scroll" overflow clip — the user wheel
+    // updates `sidebarScrollY` and items slide off the top/bottom.
+    let sy = innerH / 2 + effectiveScroll
+    for (let i = 0; i < sidebarChildren.length; i++) {
+      const c = sidebarChildren[i]
+      const [, ch] = sidebarSizes[i]
+      if (i > 0 && isSectionHeader(c)) sy -= SECTION_TOP_GAP
+      const itemTop = sy
+      const itemBottom = sy - ch
+      const cy = sy - ch / 2
+      sy = itemBottom
+      const visibleTop = innerH / 2
+      const visibleBottom = -innerH / 2
+      if (itemBottom > visibleTop || itemTop < visibleBottom) continue
+      // Section headers honour Apple's pl-24 / pr-24 inset by nudging
+      // their X anchor leftward (so the title hugs the 24pt-from-left
+      // edge instead of centring inside the column).
+      const isText = c.type === 'panel' && c.panelType === 'text'
+      const xOffset = isSectionHeader(c) ? SECTION_PAD_X : 0
+      // z=0.01 lifts items in front of the sidebar plate (which sits at
+      // z=0.002 with depthWrite off). Without this lift the items
+      // z-fight with the plate when both occupy the same plane.
+      out.set(c.id, [sidebarX0 + xOffset, cy, 0.01])
+    }
+
+    // Detail column unchanged — single right-column anchor. Same z-lift
+    // so the detail destination renders above the window plate plane.
+    const detailX = innerW / 2 - detailW / 2
+    for (const c of detailChildren) {
+      out.set(c.id, [detailX, 0, 0.01])
+    }
+
+    return out
+  }
 
   // Disclosure collapsed: no children rendered
   if (stack.stackType === 'disclosure' && !stack.expanded) return new Map()

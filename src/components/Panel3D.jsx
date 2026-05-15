@@ -339,11 +339,24 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   }, [size[0], size[1], cornerRadius])
 
   const parent = useStore((s) => s.items.find((it) => it.id === panel.parentId))
+  // NavigationSplitView sidebar-slot pieces (Header, Section Headers,
+  // Group Lists, and their descendants) must NOT be individually drag-
+  // gable or reorderable — they're owned by the NavSplitView inspector.
+  // Walk up the parent chain; if any ancestor is slot='sidebar' or this
+  // panel itself sits inside the sidebar slot, lock all canvas drag.
+  const isSidebarStructural = (() => {
+    let cursor = panel
+    while (cursor) {
+      if (cursor.slot === 'sidebar') return true
+      cursor = items.find((it) => it.id === cursor.parentId) || null
+    }
+    return false
+  })()
   // A panel can be freely *positioned* only when not inside a stack (windows
   // or top-level). Inside a stack, the layout engine owns the position —
   // instead we allow drag-to-reorder: the user drags the panel up/down (or
   // left/right for HStack) and on release we swap slots via moveItem.
-  const canDrag = !parent || parent.type === 'window'
+  const canDrag = !isSidebarStructural && (!parent || parent.type === 'window')
   const parentStackType = parent?.type === 'stack' ? parent.stackType : null
   const reorderAxis =
     parentStackType === 'vstack' || parentStackType === 'lazyvstack' ||
@@ -353,7 +366,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       : (parentStackType === 'hstack' || parentStackType === 'lazyhstack')
         ? 'x'
         : null
-  const canReorder = reorderAxis !== null
+  const canReorder = reorderAxis !== null && !isSidebarStructural
 
   // Hover cursor — picks the right shape for the current mode. In
   // preview, interactive controls (buttons with a tapAction, toggles,
@@ -863,6 +876,21 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         {rows.map((r, i) => {
           const cy = startY - rowH / 2 - i * (rowH + gap)
           const hasSub = !!r.subtitle
+          // Preview-only: clicking a row carrying a `navTag` navigates
+          // the parent NavigationSplitView to its matching destination.
+          // Walks up from the List panel to find the NavSplitView root
+          // (a stack with `splitStyle` set), then dispatches the
+          // routing action against it.
+          const onRowDown = (e) => {
+            if (!scene.previewMode || !r.navTag) return
+            let cursor = items.find((it) => it.id === panel.parentId)
+            while (cursor && !(cursor.type === 'stack' && cursor.splitStyle)) {
+              cursor = items.find((it) => it.id === cursor.parentId)
+            }
+            if (!cursor) return
+            e.stopPropagation()
+            useStore.getState().setActiveDestination(cursor.id, r.navTag)
+          }
           // Per-row rounded card (sidebar / carousel / elliptical).
           const rowCard = style.roundedRows
             ? roundedRectShape(
@@ -890,7 +918,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
             ? roundedRectShape(innerW - ptToUnits(8), rowH - ptToUnits(6), ptToUnits(10))
             : null
           return (
-            <group key={i} position={[0, cy, 0]}>
+            <group key={i} position={[0, cy, 0]} onPointerDown={onRowDown}>
+              {/* Invisible click receiver so clicks anywhere on the row
+                  (including the empty space between icon and chevron)
+                  reach onRowDown — three.js only delivers pointer events
+                  to descendants that own geometry, so an empty group
+                  would only fire on the text glyphs / card mesh. */}
+              {r.navTag && (
+                <mesh position={[0, 0, 0.002]}>
+                  <planeGeometry args={[innerW, rowH - (style.gap ? ptToUnits(2) : 0)]} />
+                  <meshBasicMaterial transparent opacity={0} />
+                </mesh>
+              )}
               {rowCard && (
                 <mesh position={[0, 0, -0.001]}>
                   <shapeGeometry args={[rowCard]} />
@@ -940,9 +979,25 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
                   maxWidth={innerW * 0.78}
                 >{r.subtitle}</Text>
               )}
+              {/* Trailing value (count badge / detail string). Apple's
+                  visionOS sidebar shows a right-aligned secondary number
+                  on inbox-like rows ("42"). When a row carries `value`,
+                  we render it on the trailing edge and suppress the
+                  chevron so the two don't fight. */}
+              {r.value && (
+                <Text
+                  position={[innerW / 2 - ptToUnits(12), 0, 0]}
+                  font={fontUrl}
+                  fontSize={ptToUnits(15)}
+                  color={secondary}
+                  anchorX="right"
+                  anchorY="middle"
+                >{r.value}</Text>
+              )}
               {/* Trailing chevron — omitted on sidebar/carousel/elliptical where
-                  rows look like cards, not navigation links. */}
-              {!style.roundedRows && (
+                  rows look like cards, not navigation links, and also when a
+                  `value` is present so the two affordances don't overlap. */}
+              {!style.roundedRows && !r.value && (
                 <Text
                   position={[innerW / 2 - ptToUnits(8), 0, 0]}
                   fontSize={ptToUnits(14)}
@@ -1777,7 +1832,24 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
 
       {showDefaultLabel && (() => {
         const textY = panelType === 'slideshow' ? size[1] * 0.05 : 0
-        const rendered = applyCase(panel.text || (panelType === 'image' ? 'Image' : panelType === 'slideshow' ? 'Slideshow' : ''))
+        const rawText = applyCase(panel.text || (panelType === 'image' ? 'Image' : panelType === 'slideshow' ? 'Slideshow' : ''))
+        // Manual ellipsis when `lineLimit === 1` + truncationMode === 'tail'.
+        // drei's `<Text>` with `maxLines={1}` clips without appending an
+        // ellipsis, which makes a truncated SwiftUI title look broken.
+        // Estimate the char budget from the frame width and the average
+        // glyph advance, then trim with an ellipsis if the string exceeds it.
+        const wantTailTrunc = panel.lineLimit === 1 && (panel.truncationMode || 'tail') === 'tail'
+        const rendered = (() => {
+          if (!wantTailTrunc) return rawText
+          // Conservative glyph advance (0.62 ≈ wide-glyph weighted) so we
+          // err on the side of truncating early rather than letting text
+          // bleed past the frame. The ellipsis itself reserves one slot.
+          const glyphAdv = finalFontSize * 0.62 + letterSpacing
+          const innerW = Math.max(0, size[0] - textInset * 2)
+          const budget = Math.floor(innerW / Math.max(0.0001, glyphAdv))
+          if (rawText.length <= budget) return rawText
+          return rawText.slice(0, Math.max(1, budget - 2)) + '…'
+        })()
         // For text/link, shadow is drawn as a second Text copy behind the main
         // one — a flat rectangle shadow looks wrong behind transparent glyphs.
         const textShadow = hasShadow && (panelType === 'text' || panelType === 'link') && (

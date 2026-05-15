@@ -213,6 +213,37 @@ function ModeHandler() {
   return null
 }
 
+// ScreenshotBinder — listens for `request-preview-screenshot` and writes
+// a PNG of the current WebGL framebuffer to a download. Lives inside the
+// Canvas so it can grab `gl` from useThree. We force a synchronous
+// render right before the readback so the buffer captures the *current*
+// scene rather than whatever the renderer most recently presented.
+// DOM overlays (preview pills, top-right hint panel, Topbar) are not
+// part of the WebGL canvas, so they're excluded automatically.
+function ScreenshotBinder() {
+  const { gl, scene, camera } = useThree()
+  useEffect(() => {
+    const onShoot = () => {
+      try {
+        gl.render(scene, camera)
+        const url = gl.domElement.toDataURL('image/png')
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        const a = document.createElement('a')
+        a.download = `visionos-preview-${ts}.png`
+        a.href = url
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } catch (err) {
+        console.error('Screenshot failed:', err)
+      }
+    }
+    window.addEventListener('request-preview-screenshot', onShoot)
+    return () => window.removeEventListener('request-preview-screenshot', onShoot)
+  }, [gl, scene, camera])
+  return null
+}
+
 // Syncs the zoom slider (in the DOM overlay) with the OrbitControls camera
 // distance. Uses the OrbitControls 'end' event + a ref-based guard to
 // prevent feedback loops with damping-enabled controls.
@@ -317,7 +348,11 @@ function Canvas3D() {
         antialias: true,
         powerPreference: 'high-performance',
         toneMapping: THREE.ACESFilmicToneMapping,
-        outputColorSpace: THREE.SRGBColorSpace
+        outputColorSpace: THREE.SRGBColorSpace,
+        // Required for the preview-mode "Screenshot" button: without it,
+        // `domElement.toDataURL()` returns a blank PNG because the browser
+        // is free to discard the drawing buffer after each present.
+        preserveDrawingBuffer: true
       }}
       dpr={[1, 1.75]}
       // Debounce the resize observer — when the user drags a side-panel
@@ -475,6 +510,7 @@ function Canvas3D() {
 
       <ModeHandler />
       <ZoomController />
+      <ScreenshotBinder />
 
       <OrbitControls
         makeDefault
