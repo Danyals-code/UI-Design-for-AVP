@@ -8,17 +8,34 @@
 // / back along the look direction. No pointer-lock — using mouse
 // directly means the user can still hover their cursor over interactive
 // panels exactly as they would on real hardware with gaze + pinch.
+//
+// WASD walks the camera in the yaw plane (forward/back/strafe) and
+// Q/E lift or lower it in world space — UE5-style fly controls so the
+// wearer can sim walking around their content. Keys are read from
+// `e.code` so they stay on the WASD physical keys regardless of the
+// user's keyboard layout.
 
 import { useEffect, useRef } from 'react'
-import { useThree } from '@react-three/fiber'
+import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-export default function FirstPersonControls({ enabled = true, lookSensitivity = 0.0035, panSensitivity = 0.005, walkSensitivity = 0.0025 }) {
+export default function FirstPersonControls({
+  enabled = true,
+  lookSensitivity = 0.0035,
+  panSensitivity = 0.005,
+  walkSensitivity = 0.0025,
+  // WASD / QE speed in metres/second. 1.5 reads as a relaxed walking
+  // pace at the visionOS scale (windows are ~1m wide, room is ~6m).
+  walkSpeed = 1.5
+}) {
   const { camera, gl } = useThree()
   const stateRef = useRef({
     yaw: 0, pitch: 0,
     dragging: false, mode: 'rotate',
-    lastX: 0, lastY: 0
+    lastX: 0, lastY: 0,
+    // Physical-key flags (driven by `e.code`, so Dvorak / AZERTY users
+    // still get WASD on the same physical keys).
+    keys: { w: false, a: false, s: false, d: false, q: false, e: false }
   })
 
   useEffect(() => {
@@ -117,12 +134,44 @@ export default function FirstPersonControls({ enabled = true, lookSensitivity = 
 
     const onContextMenu = (e) => { e.preventDefault() }
 
+    // WASD walks the camera; QE lifts / lowers it. Reading `e.code` keeps
+    // the binding pinned to the physical WASD cluster on every layout.
+    // Repeat events are ignored — we just need the "is held" flag.
+    const codeToKey = {
+      KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyQ: 'q', KeyE: 'e'
+    }
+    const onKeyDown = (ev) => {
+      // Don't steal keys when the user is typing into the inspector,
+      // command palette, or any text input that happens to have focus.
+      const t = ev.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      const k = codeToKey[ev.code]
+      if (!k) return
+      s.keys[k] = true
+      // Block the browser from scrolling the page when the canvas isn't
+      // the focused element (W/S would otherwise scroll the document).
+      ev.preventDefault()
+    }
+    const onKeyUp = (ev) => {
+      const k = codeToKey[ev.code]
+      if (!k) return
+      s.keys[k] = false
+    }
+    // Blur clears every held key so we don't keep flying after the user
+    // tabs away from the window.
+    const onBlur = () => {
+      Object.keys(s.keys).forEach((k) => { s.keys[k] = false })
+    }
+
     dom.addEventListener('pointerdown', onPointerDown)
     dom.addEventListener('pointermove', onPointerMove)
     dom.addEventListener('pointerup',   endDrag)
     dom.addEventListener('pointercancel', endDrag)
     dom.addEventListener('wheel', onWheel, { passive: false })
     dom.addEventListener('contextmenu', onContextMenu)
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
 
     return () => {
       dom.removeEventListener('pointerdown', onPointerDown)
@@ -131,10 +180,37 @@ export default function FirstPersonControls({ enabled = true, lookSensitivity = 
       dom.removeEventListener('pointercancel', endDrag)
       dom.removeEventListener('wheel', onWheel)
       dom.removeEventListener('contextmenu', onContextMenu)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
       window.removeEventListener('snap-camera-to-default', onResynced)
       window.removeEventListener('snap-camera-to-entity', onResynced)
     }
   }, [enabled, camera, gl, lookSensitivity, panSensitivity, walkSensitivity])
+
+  // Per-frame WASD / QE translation. Forward / strafe use a yaw-only
+  // basis so looking down doesn't pitch the camera into the floor as
+  // you walk — UE5's editor cam behaves the same way. Q / E always
+  // move along world up so head height is intuitive.
+  useFrame((_, dt) => {
+    if (!enabled) return
+    const s = stateRef.current
+    const k = s.keys
+    if (!k.w && !k.a && !k.s && !k.d && !k.q && !k.e) return
+
+    const yawOnly = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), s.yaw)
+    const fwd   = new THREE.Vector3(0, 0, -1).applyQuaternion(yawOnly)
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(yawOnly)
+    const upW   = new THREE.Vector3(0, 1, 0)
+
+    const step = walkSpeed * dt
+    if (k.w) camera.position.addScaledVector(fwd,   step)
+    if (k.s) camera.position.addScaledVector(fwd,  -step)
+    if (k.d) camera.position.addScaledVector(right, step)
+    if (k.a) camera.position.addScaledVector(right,-step)
+    if (k.e) camera.position.addScaledVector(upW,   step)
+    if (k.q) camera.position.addScaledVector(upW,  -step)
+  })
 
   return null
 }

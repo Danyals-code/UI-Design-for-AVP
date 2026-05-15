@@ -267,12 +267,12 @@ export const PANELS = {
       textAlign: 'left',
       textColor: '#000000',
       textColorToken: 'primary',
-      // Apple HIG visionOS toggles use the system blue (.tint), not
-      // the iOS-stock green — see the HIG reference screenshot. The
-      // green tint shipped a UIKit reflex; on visionOS the
-      // affirmative state is `systemBlue`.
-      color: '#0a84ff',
-      colorToken: 'systemBlue',
+      // visionOS toggles use system green for the ON state — Apple's
+      // official visionOS Figma kit ships the switch in `#32d74b` /
+      // systemGreen, matching the iOS/iPadOS treatment rather than the
+      // tinted blue we previously defaulted to.
+      color: '#30d158',
+      colorToken: 'systemGreen',
       cornerRadius: 0,
       toggleOn: true
     },
@@ -362,16 +362,20 @@ export const PANELS = {
 
   search: {
     defaults: {
-      size: [ptToUnits(320), ptToUnits(36)],
+      // Matches Apple's visionOS Figma kit: 305×44, radius 12. Apple's
+      // search field is the same dimensions as the text field — only the
+      // leading mic affordance differs.
+      size: [ptToUnits(305), ptToUnits(44)],
       color: '#e3e3e8',
       colorToken: 'systemFill',
-      cornerRadius: ptToUnits(18),
+      cornerRadius: ptToUnits(12),
       text: 'Search',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',          // visionOS body weight
-      textColor: '#8e8e93',
-      textColorToken: 'secondary',
+      // Labels/Secondary on glass — see textfield rationale.
+      textColor: '#545454',
+      textColorToken: null,
       textAlign: 'left'
     },
     emit(panel, ctx) {
@@ -809,16 +813,21 @@ export const PANELS = {
 
   textfield: {
     defaults: {
-      size: [ptToUnits(280), ptToUnits(40)],
+      // Matches Apple's visionOS Figma kit: 305×44, radius 12, placeholder
+      // text in #545454 on the recessed glass plate.
+      size: [ptToUnits(305), ptToUnits(44)],
       color: '#e3e3e8',
       colorToken: 'systemFill',
-      cornerRadius: ptToUnits(10),
+      cornerRadius: ptToUnits(12),
       text: 'Placeholder',
       textfieldValue: '',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      textColor: '#8e8e93',
-      textColorToken: 'secondary',
+      // Apple's visionOS placeholder is `#545454` (Labels/Secondary on glass),
+      // not the iOS-stock `secondary` (#8e8e93). Clear the token so the
+      // explicit hex wins over scheme resolution.
+      textColor: '#545454',
+      textColorToken: null,
       // Spec §1.3 — keyboardType, textContentType, submitLabel,
       // autocorrectionDisabled, textInputAutocapitalization, axis, lineLimit.
       keyboardType: 'default',
@@ -863,16 +872,20 @@ export const PANELS = {
 
   securefield: {
     defaults: {
-      size: [ptToUnits(280), ptToUnits(40)],
+      // Matches Apple's visionOS Figma kit: 305×44, radius 16. SecureField
+      // deliberately uses a larger corner radius than TextField (16 vs 12)
+      // in Apple's kit — kept here so the two read as distinct.
+      size: [ptToUnits(305), ptToUnits(44)],
       color: '#e3e3e8',
       colorToken: 'systemFill',
-      cornerRadius: ptToUnits(10),
+      cornerRadius: ptToUnits(16),
       text: 'Password',
       dotCount: 8,
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
-      textColor: '#000000',
-      textColorToken: 'primary',
+      // Apple's visionOS kit shows the dots in #545454, not pure black.
+      textColor: '#545454',
+      textColorToken: null,
       // SecureField forces `.textContentType(.password)` and disables
       // selection per spec §1.3 — these are runtime-enforced; we still
       // expose `submitLabel` since visionOS surfaces it on the keyboard.

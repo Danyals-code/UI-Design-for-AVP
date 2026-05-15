@@ -89,7 +89,20 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const outerSize = resolvedSize || null
   const childPositions = useMemo(() => layoutStack(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
   const childSizes     = useMemo(() => resolvedChildSizes(stack, items, outerSize), [stack, items, outerSize?.[0], outerSize?.[1]])
-  const children = items.filter((c) => c.parentId === stack.id && isEffectivelyVisible(items, c.id))
+  const children = items.filter((c) => {
+    if (c.parentId !== stack.id) return false
+    if (!isEffectivelyVisible(items, c.id)) return false
+    // Preview-mode NavigationSplitView routing: only the destination
+    // whose `navTag` matches the parent's `activeDestination` renders.
+    // Editor mode honours the user's per-destination visibility flags
+    // so all toggled-on destinations stay visible side-by-side for
+    // authoring. Sidebar-slot children are always shown.
+    if (scene.previewMode && stack.splitStyle && c.slot === 'detail') {
+      const active = stack.activeDestination
+      if (active && c.navTag && c.navTag !== active) return false
+    }
+    return true
+  })
 
   const hasBackground = stack.ornament != null || stack.background != null
   // Allow a stack to override its background corner radius (e.g. the
@@ -119,8 +132,45 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     select(stack.id)
   }
 
+  // NavigationSplitView wheel scroll. Total content height of the
+  // sidebar slot vs available height (≈ inner window height) drives
+  // the max scroll. Persisted on the stack so the user's scroll state
+  // round-trips through undo and serialization. Wheel events bubble
+  // from any descendant of the NavSplitView group up to this handler
+  // — so row clicks still work because `onPointerDown` and `onWheel`
+  // are separate event channels in three-fiber.
+  const updateItem = useStore((s) => s.updateItem)
+  const onSidebarWheel = (e) => {
+    if (!stack.splitStyle) return
+    // Only handle wheel when the pointer is over the sidebar half of
+    // the NavSplitView. Sidebar is the leftmost 320pt.
+    const localX = e.point.x - (localPosition?.[0] || 0)
+    const sidebarRightEdge = -w / 2 + ptToUnits(320)
+    if (localX > sidebarRightEdge) return
+    // Compute total sidebar content height to clamp scroll.
+    const sidebarKids = items.filter((c) => c.parentId === stack.id && (c.slot || 'sidebar') === 'sidebar' && isEffectivelyVisible(items, c.id))
+    let total = 0
+    let firstSection = true
+    for (const c of sidebarKids) {
+      const isSec = c.type === 'panel' && c.panelType === 'text' &&
+                    typeof c.name === 'string' && /Section .* Header/.test(c.name)
+      if (isSec && !firstSection) total += ptToUnits(12)
+      if (isSec) firstSection = false
+      const [, ch] = computeSize(c, items)
+      total += ch
+    }
+    const maxScroll = Math.max(0, total - h)
+    if (maxScroll === 0) return
+    e.stopPropagation()
+    const cur = Number(stack.sidebarScrollY) || 0
+    const next = Math.max(0, Math.min(maxScroll, cur + e.deltaY * 0.0015))
+    if (Math.abs(next - cur) > 0.0001) {
+      updateItem(stack.id, { sidebarScrollY: next })
+    }
+  }
+
   return (
-    <group position={localPosition || [0, 0, 0]}>
+    <group position={localPosition || [0, 0, 0]} onWheel={stack.splitStyle ? onSidebarWheel : undefined}>
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
@@ -140,6 +190,31 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           capsule={stack.ornament != null}
         />
       )}
+
+      {/* NavigationSplitView sidebar plate. The wizard build dropped
+          the wrapper Sidebar Stack (it carried this plate before), so
+          we render the lighter-gray panel here. Joined rounds only the
+          leading edges (`unevenRoundedRectShape(tl, tr, bl, br)` — not
+          an array!); separated rounds all four. We sit it 0.005 above
+          the NavSplitView's own z plane so it stacks cleanly above the
+          window plate but well behind the sidebar items. */}
+      {stack.splitStyle && (() => {
+        const sideW = ptToUnits(320)
+        const separated = stack.splitStyle === 'separated'
+        const r = ptToUnits(30)
+        // unevenRoundedRectShape takes (w, h, tl, tr, bl, br) — flat
+        // args, NOT an array. Joined sidebar rounds the leading edges
+        // (top-left + bottom-left), the trailing edges stay flush.
+        const shape = separated
+          ? roundedRectShape(sideW, h, r)
+          : unevenRoundedRectShape(sideW, h, r, 0, r, 0)
+        return (
+          <mesh position={[-w / 2 + sideW / 2, 0, 0.002]} renderOrder={-1}>
+            <shapeGeometry args={[shape]} />
+            <meshBasicMaterial color="#d8d8dc" depthWrite={false} />
+          </mesh>
+        )
+      })()}
 
       {/* Scrollbar indicator for scrollable stacks */}
       {stack.scrollable && (

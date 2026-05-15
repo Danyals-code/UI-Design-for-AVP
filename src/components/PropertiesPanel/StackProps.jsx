@@ -82,6 +82,7 @@ export function StackProps({ item }) {
                 >Toolbar</button>
               </div>
             </Row>
+            <NavSplitHeaderRow item={item} />
           </>
         ) : (
           <Row label="Kind">
@@ -101,14 +102,15 @@ export function StackProps({ item }) {
             </div>
           </Row>
         )}
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Layout</div>
-        <Row label="Align">
+        {!isSplit && <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Layout</div>}
+        {!isSplit && <Row label="Align">
           <StackAlignmentPicker
             stackType={item.stackType}
             value={item.alignment}
             onChange={(v) => updateItem(item.id, { alignment: v })}
           />
-        </Row>
+        </Row>}
+        {!isSplit && (<>
         {item.stackType !== 'zstack' && (
           <Row label="Spacing">
             {/*
@@ -325,7 +327,9 @@ export function StackProps({ item }) {
         <div className="text-[10px] text-textMute leading-relaxed mt-1">
           {STACK_TYPES[item.stackType]?.description}
         </div>
+        </>)}
       </Section>
+      {isSplit && <NavSplitConfig item={item} />}
 
       {item.stackType === 'section' && (
         <Section title="Section">
@@ -437,7 +441,7 @@ export function StackProps({ item }) {
 
       {/* Frame moved into the Layout section above as a Size sub-block. */}
 
-      <Section title="Ornament" defaultOpen={false}>
+      {!isSplit && <Section title="Ornament" defaultOpen={false}>
         <div className="text-[9px] text-textMute mb-1">attachmentAnchor — required (spec §1.26)</div>
         {/*
           Spec §1.26 / §3.4 — `OrnamentAttachmentAnchor` factories are
@@ -526,13 +530,13 @@ export function StackProps({ item }) {
             onChange={(v) => updateItem(item.id, { material: v })}
           />
         </Row>
-      </Section>
+      </Section>}
 
       {/* Scroll View was its own section; rolled into Layout as a sub-
           option so a designer doesn't have to expand a second header
           just to flip a one-knob scrollable on/off. */}
 
-      <Section title="Environment" defaultOpen={false}>
+      {!isSplit && <Section title="Environment" defaultOpen={false}>
         <Row label="Font"><Select value={item.environment?.font || ''} options={[{ value: '', label: '— Inherit —' }, ...TEXT_STYLE_ORDER.map((k) => ({ value: k, label: TEXT_STYLES[k].label }))]} onChange={(v) => updateItem(item.id, { environment: { ...item.environment, font: v || null } })} /></Row>
         <Row label="Foreground"><SemanticColorPicker token={item.environment?.foregroundStyle} onChange={(t) => updateItem(item.id, { environment: { ...item.environment, foregroundStyle: t } })} /></Row>
         <Row label="Direction">
@@ -542,11 +546,499 @@ export function StackProps({ item }) {
           </div>
         </Row>
         <Row label="Locale"><input value={item.environment?.locale || ''} onChange={(e) => updateItem(item.id, { environment: { ...item.environment, locale: e.target.value } })} className="field flex-1" placeholder="en-US" /></Row>
-      </Section>
+      </Section>}
 
-      <ModifierStack item={item} updateItem={updateItem} />
+      {!isSplit && <ModifierStack item={item} updateItem={updateItem} />}
       {/* Info section removed — the internal ID was developer plumbing
           that didn't help the user and added a header to scroll past. */}
     </div>
+  )
+}
+
+// ---- NavigationSplitView inspector --------------------------------------
+//
+// Drives the structural pieces the sidebar wizard creates. The user
+// asked for these to live in the inspector instead of the layer tree —
+// the tree shows only the NavSplitView + its destination stacks, and
+// the header, section headings, and item counts are edited here.
+//
+// All edits mutate the underlying items in the store directly so the
+// renderer continues to draw from the items array (no data-model
+// rewrite required). When an item count changes we keep the sidebar
+// list rows in sync with destination stacks (one navTag-linked pair
+// per nav link).
+
+// Inline trash button used for inspector delete actions. Same visual
+// language as the eye toggle so the row chrome reads as a small,
+// production-ready icon cluster rather than a sprinkle of × glyphs.
+function TrashButton({ onClick, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="btn btn-ghost"
+      style={{ width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = '#ff453a' }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = '' }}
+    >
+      <svg width="11" height="12" viewBox="0 0 14 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 4h10M5 4V2.5C5 2 5.5 1.5 6 1.5h2c.5 0 1 .5 1 1V4M3.5 4l.5 9c.05.7.6 1.5 1.5 1.5h4c.9 0 1.45-.8 1.5-1.5L11.5 4M6 7v5M8 7v5" />
+      </svg>
+    </button>
+  )
+}
+
+// Small +-button used to add items / groups inline. Matches the visual
+// weight of the eye + trash buttons so the action cluster stays even.
+function PlusButton({ onClick, title, label, fill = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="btn btn-ghost"
+      style={{
+        height: 22, padding: label ? '0 8px 0 6px' : 0,
+        width: label ? 'auto' : 22,
+        display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'center',
+        background: fill ? 'rgba(255,255,255,0.06)' : 'transparent',
+        border: fill ? '1px solid rgba(255,255,255,0.10)' : 'none',
+        borderRadius: 5
+      }}
+    >
+      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <path d="M6 2v8M2 6h8" />
+      </svg>
+      {label && <span style={{ fontSize: 10.5 }}>{label}</span>}
+    </button>
+  )
+}
+
+// Small eye-button used inline next to NavSplitView header / item rows.
+function EyeToggle({ on, onClick, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="btn btn-ghost"
+      style={{ width: 22, height: 22, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      {on ? (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" />
+          <circle cx="8" cy="8" r="2" />
+        </svg>
+      ) : (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+          <path d="M2 2l12 12" />
+          <path d="M1 8s2.5-5 7-5c1.2 0 2.3.3 3.2.8" />
+          <path d="M15 8s-2.5 5-7 5c-1.2 0-2.3-.3-3.2-.8" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+// Header row inside the NavSplitView "Foundation" section. Combines the
+// header visibility toggle, the title input, and the Edit-button
+// visibility toggle into a single row — per user spec, no separate
+// "Show header" segmented control.
+function NavSplitHeaderRow({ item }) {
+  const items = useStore((s) => s.items)
+  const updateItem = useStore((s) => s.updateItem)
+  const header = items.find((c) => c.parentId === item.id && c.name === 'Header' && c.slot === 'sidebar')
+  if (!header) return null
+  const headerKids = items.filter((c) => c.parentId === header.id)
+  const headerTitle = headerKids.find((c) => c.name === 'Title')
+  const editButton  = headerKids.find((c) => c.name === 'Edit')
+  const showHeader  = header.visible !== false
+  const showEdit    = editButton ? editButton.visible !== false : false
+  return (
+    <Row label="Header">
+      <EyeToggle
+        on={showHeader}
+        onClick={() => updateItem(header.id, { visible: !showHeader })}
+        title={showHeader ? 'Hide header' : 'Show header'}
+      />
+      <input
+        value={headerTitle?.text || ''}
+        onChange={(e) => headerTitle && updateItem(headerTitle.id, { text: e.target.value })}
+        disabled={!showHeader || !headerTitle}
+        className="field flex-1"
+        placeholder="Title"
+      />
+      {editButton && (
+        <EyeToggle
+          on={showEdit}
+          onClick={() => updateItem(editButton.id, { visible: !showEdit })}
+          title={showEdit ? 'Hide Edit button' : 'Show Edit button'}
+        />
+      )}
+    </Row>
+  )
+}
+
+function NavSplitConfig({ item }) {
+  const items = useStore((s) => s.items)
+  const select = useStore((s) => s.select)
+  const updateItem = useStore((s) => s.updateItem)
+  const renameItem = useStore((s) => s.renameItem)
+  const removeItem = useStore((s) => s.removeItem)
+  const addStack = useStore((s) => s.addStack)
+
+  // ---- shape inference ----
+  // Walk the children (in document order, the same way the renderer
+  // sees them) and bucket them: Header HStack first, then alternating
+  // section-header text + list pairs, then detail destinations.
+  const allChildren = items.filter((c) => c.parentId === item.id)
+  const header = allChildren.find((c) => c.name === 'Header' && c.slot === 'sidebar')
+  const headerKids = header ? items.filter((c) => c.parentId === header.id) : []
+  const headerTitle = headerKids.find((c) => c.name === 'Title')
+  const editButton  = headerKids.find((c) => c.name === 'Edit')
+
+  // Pair section-header text panels with their following Group list.
+  const sidebarChildren = allChildren.filter((c) => c.slot === 'sidebar' && c !== header)
+  const groups = []
+  let pendingHeader = null
+  for (const sc of sidebarChildren) {
+    if (sc.type === 'panel' && sc.panelType === 'text') {
+      pendingHeader = sc
+    } else if (sc.type === 'panel' && sc.panelType === 'list') {
+      groups.push({ header: pendingHeader, list: sc })
+      pendingHeader = null
+    }
+  }
+
+  const destinations = allChildren.filter((c) => c.slot === 'detail')
+
+  // ---- header toggles ----
+  const showHeader     = header ? (header.visible !== false) : false
+  const showEditButton = editButton ? (editButton.visible !== false) : false
+
+  // Mint fresh, globally-unique navTags / destinations for new items.
+  const SAMPLE_TITLES   = ['Inbox','Drafts','Sent','Archive','Trash','Spam','Junk','Important','Starred','Flagged','Outbox','All Mail']
+  const SAMPLE_SYMBOLS  = ['tray','doc','paperplane','archivebox','trash','envelope','envelope.fill','flag','star','bookmark','tag','folder']
+  const SAMPLE_COUNTERS = ['42','12','7','3','1','8','24','99','5','6','11','0']
+  const SAMPLE_SECTION  = ['Inboxes','Mailboxes','Favourites','Tags','Smart Folders']
+
+  const nextNavTag = () => {
+    const used = new Set(items
+      .filter((it) => it.navTag && /^dest-\d+$/.test(it.navTag))
+      .map((it) => Number(it.navTag.replace('dest-', ''))))
+    let n = 0
+    while (used.has(n)) n++
+    return `dest-${n}`
+  }
+
+  // Build a fresh detail-slot Destination stack for a new nav link so
+  // the 1-to-1 mapping holds. Same shape the wizard builds.
+  const makeDestination = (navTag, rowTitle) => ({
+    id: `dest-${navTag}-${Math.random().toString(36).slice(2, 7)}`,
+    type: 'stack', stackType: 'vstack',
+    name: `Destination ${destinations.length + 1} (${rowTitle})`,
+    parentId: item.id,
+    spacing: 16, padding: 32,
+    widthMode: 'fill', heightMode: 'fill', alignment: 'leading',
+    slot: 'detail', navTag,
+    visible: false,
+    modifiers: [], collapsed: false
+  })
+
+  const addRowToGroup = (groupListId, suggestedTitle) => {
+    const list = items.find((it) => it.id === groupListId)
+    if (!list) return
+    const tag = nextNavTag()
+    const idx = (list.rows || []).length
+    const title = suggestedTitle || SAMPLE_TITLES[idx % SAMPLE_TITLES.length]
+    const newRow = {
+      title,
+      subtitle: '',
+      systemImage: SAMPLE_SYMBOLS[idx % SAMPLE_SYMBOLS.length],
+      value: SAMPLE_COUNTERS[idx % SAMPLE_COUNTERS.length],
+      navTag: tag
+    }
+    updateItem(groupListId, { rows: [...(list.rows || []), newRow] })
+    const dest = makeDestination(tag, title)
+    // Direct mutation: store doesn't expose a raw "append item" so we
+    // piggy-back on updateItem against a sibling to trigger a state
+    // refresh after we mutate items via setState. Simpler: read the
+    // current state, append, write back via the store's set.
+    useStore.setState((s) => ({ items: [...s.items, dest] }))
+  }
+
+  // Add a single top-level "direct" item — a row that lives outside
+  // any named section. Appends to the first headerless list if one
+  // exists, otherwise creates a new headerless list. Per the user's
+  // spec: "we can directly items as well as groups and then items
+  // within them."
+  const addDirectItem = () => {
+    const headerlessList = groups.find((g) => !g.header)?.list
+    if (headerlessList) {
+      addRowToGroup(headerlessList.id)
+      return
+    }
+    const tag = nextNavTag()
+    const listId = `panel-list-${Math.random().toString(36).slice(2, 7)}`
+    const title = SAMPLE_TITLES[0]
+    const listPanel = {
+      id: listId, type: 'panel', panelType: 'list',
+      name: 'Items',
+      parentId: item.id, slot: 'sidebar',
+      size: [288 / 1360, 0],
+      listStyle: 'sidebar',
+      rows: [{
+        title,
+        subtitle: '',
+        systemImage: SAMPLE_SYMBOLS[0],
+        value: SAMPLE_COUNTERS[0],
+        navTag: tag
+      }],
+      visible: true, modifiers: [], collapsed: false
+    }
+    const dest = makeDestination(tag, title)
+    useStore.setState((s) => ({ items: [...s.items, listPanel, dest] }))
+  }
+
+  const addGroup = () => {
+    const gi = groups.length
+    const sectionId = `panel-section-${Math.random().toString(36).slice(2, 7)}`
+    const listId    = `panel-list-${Math.random().toString(36).slice(2, 7)}`
+    const sectionPanel = {
+      id: sectionId, type: 'panel', panelType: 'text',
+      name: `Section ${gi + 1} Header`,
+      parentId: item.id, slot: 'sidebar',
+      text: SAMPLE_SECTION[gi] || 'Section Heading',
+      textStyle: 'title3', fontSize: 20 / 1360,
+      fontWeight: 'semibold', widthMode: 'fill', colorToken: 'primary',
+      visible: true, modifiers: [], collapsed: false
+    }
+    const tag = nextNavTag()
+    const listPanel = {
+      id: listId, type: 'panel', panelType: 'list',
+      name: `Group ${gi + 1}`,
+      parentId: item.id, slot: 'sidebar',
+      size: [288 / 1360, 0],
+      listStyle: 'sidebar',
+      rows: [{
+        title: SAMPLE_TITLES[0],
+        subtitle: '',
+        systemImage: SAMPLE_SYMBOLS[0],
+        value: SAMPLE_COUNTERS[0],
+        navTag: tag
+      }],
+      visible: true, modifiers: [], collapsed: false
+    }
+    const dest = makeDestination(tag, SAMPLE_TITLES[0])
+    useStore.setState((s) => ({ items: [...s.items, sectionPanel, listPanel, dest] }))
+  }
+
+  const removeRow = (groupListId, rowIdx) => {
+    const list = items.find((it) => it.id === groupListId)
+    if (!list) return
+    const rows = list.rows || []
+    const removed = rows[rowIdx]
+    updateItem(groupListId, { rows: rows.filter((_, i) => i !== rowIdx) })
+    // Drop the linked destination too — 1:1 mapping invariant.
+    if (removed?.navTag) {
+      const dest = items.find((it) => it.slot === 'detail' && it.navTag === removed.navTag)
+      if (dest) useStore.setState((s) => ({
+        items: s.items.filter((it) => it.id !== dest.id)
+      }))
+    }
+  }
+
+  return (
+    <>
+      <Section title="Hierarchy" defaultOpen={true}>
+        {groups.length === 0 && (
+          <div className="text-[10px] text-textMute leading-relaxed mb-2">
+            Empty. Use the buttons below to add items or a section.
+          </div>
+        )}
+        {groups.map((g, gi) => {
+          const rows = g.list.rows || []
+          const headerVisible = g.header ? g.header.visible !== false : true
+          const removeWholeGroup = () => {
+            const tagsToDrop = new Set((rows).map((r) => r.navTag).filter(Boolean))
+            if (g.header) removeItem(g.header.id)
+            removeItem(g.list.id)
+            useStore.setState((s) => ({
+              items: s.items.filter((it) => !(it.slot === 'detail' && tagsToDrop.has(it.navTag)))
+            }))
+          }
+          return (
+            <div
+              key={g.list.id}
+              style={{
+                marginBottom: 10,
+                padding: '8px 8px 6px',
+                background: 'rgba(255,255,255,0.025)',
+                border: '1px solid rgba(255,255,255,0.05)',
+                borderRadius: 6
+              }}
+            >
+              {/* Group header — section title input + eye + trash, or a
+                  "Items" label for direct (headerless) groups. */}
+              {g.header ? (
+                <div className="flex items-center gap-1.5 mb-2">
+                  <EyeToggle
+                    on={headerVisible}
+                    onClick={() => updateItem(g.header.id, { visible: !headerVisible })}
+                    title={headerVisible ? 'Hide section heading' : 'Show section heading'}
+                  />
+                  <input
+                    value={g.header.text || ''}
+                    onChange={(e) => updateItem(g.header.id, { text: e.target.value })}
+                    className="field flex-1"
+                    style={{ fontSize: 12, fontWeight: 600 }}
+                    placeholder="Section heading"
+                  />
+                  <TrashButton onClick={removeWholeGroup} title="Remove this section" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-textMute uppercase" style={{ letterSpacing: 0.8, fontWeight: 600 }}>Items</span>
+                  <TrashButton onClick={removeWholeGroup} title="Remove all direct items" />
+                </div>
+              )}
+              {/* Item rows — icon glyph + title + counter + trash. */}
+              <div className="flex flex-col gap-1">
+                {rows.map((r, ri) => (
+                  <div key={ri} className="flex items-center gap-1.5">
+                    <input
+                      value={r.systemImage || ''}
+                      onChange={(e) => {
+                        const next = rows.slice()
+                        next[ri] = { ...next[ri], systemImage: e.target.value }
+                        updateItem(g.list.id, { rows: next })
+                      }}
+                      className="field"
+                      style={{
+                        width: 60, fontSize: 10,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        textAlign: 'center',
+                        color: '#5ac8fa'
+                      }}
+                      placeholder="icon"
+                      title="SF Symbol name"
+                    />
+                    <input
+                      value={r.title || ''}
+                      onChange={(e) => {
+                        const next = rows.slice()
+                        next[ri] = { ...next[ri], title: e.target.value }
+                        updateItem(g.list.id, { rows: next })
+                      }}
+                      className="field flex-1"
+                      style={{ fontSize: 11 }}
+                      placeholder="Title"
+                    />
+                    <input
+                      value={r.value || ''}
+                      onChange={(e) => {
+                        const next = rows.slice()
+                        next[ri] = { ...next[ri], value: e.target.value }
+                        updateItem(g.list.id, { rows: next })
+                      }}
+                      className="field"
+                      style={{ width: 36, fontSize: 11, textAlign: 'center', color: '#8e8e93' }}
+                      placeholder="—"
+                      title="Counter (leave empty for none)"
+                    />
+                    <TrashButton onClick={() => removeRow(g.list.id, ri)} title="Remove item" />
+                  </div>
+                ))}
+                <div className="flex justify-end mt-1">
+                  <PlusButton
+                    onClick={() => addRowToGroup(g.list.id)}
+                    title="Add an item to this section"
+                    label="Item"
+                  />
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        <div className="flex gap-2 mt-2">
+          <PlusButton onClick={addDirectItem} title="Add a top-level item (no section)" label="Item" fill />
+          <PlusButton onClick={addGroup} title="Add a new section" label="Group" fill />
+        </div>
+      </Section>
+
+      <Section title="Interaction" defaultOpen={true}>
+        {(() => {
+          // Flatten all rows across all groups so each sidebar link
+          // gets one row here. The dropdown for a link offers every
+          // destination — selecting one rebinds both the row's navTag
+          // and the destination's navTag, preserving the 1-to-1
+          // mapping (no two rows can point at the same destination).
+          const allRows = []
+          for (const g of groups) {
+            for (let ri = 0; ri < (g.list.rows || []).length; ri++) {
+              const r = g.list.rows[ri]
+              allRows.push({ row: r, listId: g.list.id, rowIdx: ri })
+            }
+          }
+          if (allRows.length === 0) {
+            return (
+              <div className="text-[10px] text-textMute leading-relaxed">
+                No links yet. Add an item under Hierarchy to link a destination.
+              </div>
+            )
+          }
+          const rebind = (listId, rowIdx, fromTag, toTag) => {
+            if (fromTag === toTag) return
+            const list = items.find((it) => it.id === listId)
+            if (!list) return
+            const otherRow = (() => {
+              for (const g of groups) {
+                const idx = (g.list.rows || []).findIndex((r) => r.navTag === toTag)
+                if (idx >= 0 && (g.list.id !== listId || idx !== rowIdx)) {
+                  return { listId: g.list.id, idx }
+                }
+              }
+              return null
+            })()
+            // Swap navTags so the mapping stays 1-to-1.
+            const newRows = list.rows.slice()
+            newRows[rowIdx] = { ...newRows[rowIdx], navTag: toTag }
+            updateItem(listId, { rows: newRows })
+            if (otherRow) {
+              const other = items.find((it) => it.id === otherRow.listId)
+              if (other) {
+                const otherRows = other.rows.slice()
+                otherRows[otherRow.idx] = { ...otherRows[otherRow.idx], navTag: fromTag }
+                updateItem(otherRow.listId, { rows: otherRows })
+              }
+            }
+          }
+          return allRows.map(({ row, listId, rowIdx }) => {
+            const linked = destinations.find((d) => d.navTag === row.navTag)
+            return (
+              <Row key={`${listId}-${rowIdx}`} label={row.title || `Item ${rowIdx + 1}`}>
+                <select
+                  value={row.navTag || ''}
+                  onChange={(e) => rebind(listId, rowIdx, row.navTag, e.target.value)}
+                  className="field flex-1 text-[11px]"
+                >
+                  {destinations.map((d) => (
+                    <option key={d.id} value={d.navTag}>{d.name}</option>
+                  ))}
+                </select>
+                {linked && (
+                  <button
+                    className="btn btn-ghost text-[10px]"
+                    onClick={() => select(linked.id)}
+                    title="Open destination in canvas"
+                  >→</button>
+                )}
+              </Row>
+            )
+          })
+        })()}
+      </Section>
+    </>
   )
 }

@@ -54,6 +54,12 @@ export default function CommandPalette() {
   const addTabBar   = useStore((s) => s.addTabBar)
   const addToolbar  = useStore((s) => s.addToolbar)
   const addPresentation = useStore((s) => s.addPresentation)
+  // Compound-component wizards. When the user picks one of these, we
+  // pop the AddWizardDialog modal (configured by src/wizards/registry.js)
+  // so the structural choices — number of tabs, sidebar groups, items
+  // per group, counters, accessories — are gathered up front rather
+  // than after the fact in the inspector.
+  const openWizard = useStore((s) => s.openWizard)
   const addAnchorEntity = useStore((s) => s.addAnchorEntity)
   const addModelEntity  = useStore((s) => s.addModelEntity)
   const addGroupEntity  = useStore((s) => s.addGroupEntity)
@@ -78,7 +84,7 @@ export default function CommandPalette() {
     { id: 'toggle',    label: 'Toggle',    group: 'Controls',   Icon: ToggleIcon,    run: () => addPanel('toggle') },
     { id: 'slider',    label: 'Slider',    group: 'Controls',   Icon: SliderIcon,    run: () => addPanel('slider') },
     { id: 'stepper',   label: 'Stepper',   group: 'Controls',   Icon: StepperIcon,   run: () => addPanel('stepper') },
-    { id: 'picker',    label: 'Picker',    group: 'Controls',   Icon: PickerIcon,    run: () => addPanel('picker') },
+    { id: 'picker',    label: 'Picker',    group: 'Controls',   Icon: PickerIcon,    run: () => openWizard('picker') },
     { id: 'progress',  label: 'Progress',  group: 'Controls',   Icon: ProgressIcon,  run: () => addPanel('progress') },
     { id: 'gauge',     label: 'Gauge',     group: 'Controls',   Icon: GaugeIcon,     run: () => addPanel('gauge') },
     // Layout
@@ -87,11 +93,11 @@ export default function CommandPalette() {
     { id: 'divider',   label: 'Divider',   group: 'Layout',     Icon: DividerIcon,   run: () => addPanel('divider') },
     { id: 'shape',     label: 'Shape',     group: 'Layout',     Icon: RectangleIcon, run: () => addPanel('rectangle') },
     // Collections
-    { id: 'list',      label: 'List',      group: 'Collections', Icon: ListIcon,     run: () => addPanel('list') },
-    { id: 'table',     label: 'Table',     group: 'Collections', Icon: TableIcon,    run: () => addPanel('table') },
-    { id: 'menu',      label: 'Menu',      group: 'Collections', Icon: MenuIcon,     run: () => addPanel('menu') },
+    { id: 'list',      label: 'List',      group: 'Collections', Icon: ListIcon,     run: () => openWizard('list') },
+    { id: 'table',     label: 'Table',     group: 'Collections', Icon: TableIcon,    run: () => openWizard('table') },
+    { id: 'menu',      label: 'Menu',      group: 'Collections', Icon: MenuIcon,     run: () => openWizard('menu') },
     // Display
-    { id: 'slideshow', label: 'Slideshow', group: 'Display',    Icon: SlideshowIcon, run: () => addPanel('slideshow') },
+    { id: 'slideshow', label: 'Slideshow', group: 'Display',    Icon: SlideshowIcon, run: () => openWizard('slideshow') },
     { id: 'ticker',    label: 'Ticker',    group: 'Display',    Icon: TickerIcon,    run: () => addPanel('ticker') },
     // Overlay
     { id: 'sheet',     label: 'Sheet',     group: 'Presentations',    Icon: SheetIcon,     run: () => addPresentation('sheet') },
@@ -147,12 +153,12 @@ export default function CommandPalette() {
       group: isVolume ? 'Volume' : 'Windows',
       Icon: WindowIcon,
       run: () => isVolume ? addVolume() : addWindow() },
-    { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => addSplitView() },
+    { id: 'split',     label: 'Navigation Split View', group: 'Windows', Icon: SplitViewIcon, run: () => openWizard('sidebar') },
     // Chrome — ornaments + scene-level tab bar
-    { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => addTabBar() },
-    { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => addToolbar() }
+    { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => openWizard('tabBar') },
+    { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => openWizard('toolbar') }
   ], [addPanel, addStack, addWindow, addVolume, addSplitView, addTabBar, addToolbar, addPresentation,
-      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity, isVolume])
+      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity, openWizard, isVolume])
 
   // Volume-mode allowlist — anything else is hidden because it relies on
   // SwiftUI primitives that don't exist on a volumetric stage. The

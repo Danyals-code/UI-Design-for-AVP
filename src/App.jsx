@@ -8,6 +8,7 @@ import ViewportOverlay from './components/ViewportOverlay'
 import TransformToolbar from './components/TransformToolbar'
 import SceneInfoOverlay from './components/SceneInfoOverlay'
 import CommandPalette from './components/CommandPalette'
+import AddWizardDialog from './components/AddWizardDialog'
 import Splash from './components/Splash'
 import PreviewButton from './components/PreviewButton'
 import { useStore } from './store'
@@ -216,6 +217,7 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-bg text-text overflow-hidden">
       <Splash open={splashOpen && !isPreview} onClose={closeSplash} />
       {!isPreview && <CommandPalette />}
+      {!isPreview && <AddWizardDialog />}
       <Topbar onTitleClick={openSplash} previewMode={isPreview} />
 
       <div className="flex-1 relative min-h-0">

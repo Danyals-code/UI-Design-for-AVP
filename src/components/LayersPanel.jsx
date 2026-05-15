@@ -185,7 +185,19 @@ function LayerRow({ item, depth, visibleIds, query }) {
     item.type === 'tab' ||
     item.type === 'entity' ||
     (item.type === 'panel' && item.panelType === 'realityview')
-  const children = container ? items.filter((it) => it.parentId === item.id) : []
+  // Hide sidebar-slot children of a NavigationSplitView from the layer
+  // tree. They're structural (Header, Section Headers, Group Lists)
+  // and are managed from the NavSplitView's inspector instead — the
+  // layer tree only shows the NavigationSplitView + its destination
+  // stacks so the user's mental model matches SwiftUI's two-slot shape.
+  const isNavSplit = item.type === 'stack' && !!item.splitStyle
+  const children = container
+    ? items.filter((it) => {
+        if (it.parentId !== item.id) return false
+        if (isNavSplit && it.slot === 'sidebar') return false
+        return true
+      })
+    : []
   const isTab = item.type === 'tab'
   const isActiveTab = isTab && item.id === activeTabId
 
