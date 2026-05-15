@@ -34,6 +34,20 @@ import { SearchIcon } from './icons'
 const TPL_ROOT = 'tpl-root'
 const TPL_WINDOW = 'tpl-window'
 const TPL_VOLUME = 'tpl-volume'
+const SAMP_ROOT   = 'samp-root'
+const SAMP_IMAGES = 'samp-images'
+const SAMP_MODELS = 'samp-models'
+
+// Built-in sample media. The files live under `public/samples/...` so
+// Vite serves them at a stable URL the panel can reference directly —
+// no base64 inlining, no fetch on render. Adding a new sample is one
+// line in this array (plus dropping the file in `public/samples/...`).
+const SAMPLE_IMAGES = [
+  { id: 'samp-img-1', name: 'Sample 01', url: '/samples/images/Sample 01.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-2', name: 'Sample 02', url: '/samples/images/Sample 02.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-3', name: 'Sample 03', url: '/samples/images/Sample 03.jpg', mimeType: 'image/jpeg' }
+]
+const SAMPLE_MODELS = []   // reserved — drop GLB/USDZ files in `public/samples/3d-models/` and add entries here.
 
 function virtualTemplateRecord(key, parentId) {
   const t = TEMPLATES[key]
@@ -49,12 +63,31 @@ function virtualTemplateRecord(key, parentId) {
   }
 }
 
+// Build an asset record for a packaged sample. `kind: 'asset'` so the
+// tile renders + drags like a real upload, but `virtual: true` blocks
+// rename/delete on the UI side. The dataUrl/thumbnail point at the
+// public-served URL so we never bake the bytes into the bundle.
+function virtualSampleRecord(spec, parentId, assetType) {
+  return {
+    id: spec.id,
+    kind: 'asset',
+    name: spec.name,
+    parentId,
+    virtual: true,
+    assetType,
+    mimeType: spec.mimeType,
+    fileName: spec.url.split('/').pop(),
+    dataUrl: spec.url,
+    thumbnailUrl: assetType === 'image' ? spec.url : null
+  }
+}
+
 function getVirtualEntries(parentId) {
   if (parentId === null) {
-    return [{
-      id: TPL_ROOT, kind: 'folder', name: 'Templates', parentId: null,
-      virtual: true
-    }]
+    return [
+      { id: TPL_ROOT,  kind: 'folder', name: 'Templates', parentId: null, virtual: true },
+      { id: SAMP_ROOT, kind: 'folder', name: 'Samples',   parentId: null, virtual: true }
+    ]
   }
   if (parentId === TPL_ROOT) {
     return [
@@ -68,18 +101,37 @@ function getVirtualEntries(parentId) {
   if (parentId === TPL_VOLUME) {
     return TEMPLATE_ORDER_VOLUME.map((k) => virtualTemplateRecord(k, TPL_VOLUME)).filter(Boolean)
   }
+  if (parentId === SAMP_ROOT) {
+    return [
+      { id: SAMP_IMAGES, kind: 'folder', name: 'Images',          parentId: SAMP_ROOT, virtual: true },
+      { id: SAMP_MODELS, kind: 'folder', name: 'Sample 3D Models', parentId: SAMP_ROOT, virtual: true }
+    ]
+  }
+  if (parentId === SAMP_IMAGES) {
+    return SAMPLE_IMAGES.map((s) => virtualSampleRecord(s, SAMP_IMAGES, 'image'))
+  }
+  if (parentId === SAMP_MODELS) {
+    return SAMPLE_MODELS.map((s) => virtualSampleRecord(s, SAMP_MODELS, 'mesh'))
+  }
   return []
 }
 
 // Walk a virtual parent chain back to root for the breadcrumb.
 function virtualCrumbs(folderId) {
-  if (folderId === TPL_ROOT) return [{ id: TPL_ROOT, name: 'Templates' }]
-  if (folderId === TPL_WINDOW) return [{ id: TPL_ROOT, name: 'Templates' }, { id: TPL_WINDOW, name: 'Window' }]
-  if (folderId === TPL_VOLUME) return [{ id: TPL_ROOT, name: 'Templates' }, { id: TPL_VOLUME, name: 'Volume' }]
+  if (folderId === TPL_ROOT)    return [{ id: TPL_ROOT, name: 'Templates' }]
+  if (folderId === TPL_WINDOW)  return [{ id: TPL_ROOT, name: 'Templates' }, { id: TPL_WINDOW, name: 'Window' }]
+  if (folderId === TPL_VOLUME)  return [{ id: TPL_ROOT, name: 'Templates' }, { id: TPL_VOLUME, name: 'Volume' }]
+  if (folderId === SAMP_ROOT)   return [{ id: SAMP_ROOT, name: 'Samples' }]
+  if (folderId === SAMP_IMAGES) return [{ id: SAMP_ROOT, name: 'Samples' }, { id: SAMP_IMAGES, name: 'Images' }]
+  if (folderId === SAMP_MODELS) return [{ id: SAMP_ROOT, name: 'Samples' }, { id: SAMP_MODELS, name: 'Sample 3D Models' }]
   return null
 }
 
-const isVirtualFolder = (id) => id === TPL_ROOT || id === TPL_WINDOW || id === TPL_VOLUME
+const VIRTUAL_FOLDER_IDS = new Set([
+  TPL_ROOT, TPL_WINDOW, TPL_VOLUME,
+  SAMP_ROOT, SAMP_IMAGES, SAMP_MODELS
+])
+const isVirtualFolder = (id) => VIRTUAL_FOLDER_IDS.has(id)
 
 function ImportIcon({ size = 12 }) {
   return (
@@ -154,15 +206,44 @@ function Crumb({ label, onClick, isLast }) {
   )
 }
 
+// Folder colour palette — six saturated visionOS-system hues + neutral.
+// Tiles tint the folder glyph + accent strip when one of these is set;
+// `null` means "no colour" and the folder paints in the neutral grey.
+const FOLDER_COLORS = [
+  { value: null,       label: 'None',   swatch: 'transparent' },
+  { value: '#ff453a',  label: 'Red',    swatch: '#ff453a' },
+  { value: '#ff9f0a',  label: 'Orange', swatch: '#ff9f0a' },
+  { value: '#ffd60a',  label: 'Yellow', swatch: '#ffd60a' },
+  { value: '#30d158',  label: 'Green',  swatch: '#30d158' },
+  { value: '#64d2ff',  label: 'Cyan',   swatch: '#64d2ff' },
+  { value: '#0a84ff',  label: 'Blue',   swatch: '#0a84ff' },
+  { value: '#bf5af2',  label: 'Purple', swatch: '#bf5af2' },
+  { value: '#ff375f',  label: 'Pink',   swatch: '#ff375f' }
+]
+
+// Keyword → asset-type aliases. Lets the search match "image" against
+// every image asset, "model"/"3d" against meshes, etc. — not just by
+// the record's name.
+const TYPE_ALIASES = {
+  image:    'image',    images: 'image',  photo: 'image',  photos: 'image', picture: 'image', pictures: 'image',
+  mesh:     'mesh',     meshes: 'mesh',   model: 'mesh',   models: 'mesh',  '3d': 'mesh',
+  folder:   '__folder', folders: '__folder',
+  template: '__template', templates: '__template',
+  sample:   '__sample',  samples: '__sample'
+}
+
 export default function AssetsPanel() {
   const assets = useStore((s) => s.assets)
   const importAssets = useStore((s) => s.importAssets)
   const createAssetFolder = useStore((s) => s.createAssetFolder)
   const renameAsset = useStore((s) => s.renameAsset)
   const deleteAsset = useStore((s) => s.deleteAsset)
+  const setAssetColor = useStore((s) => s.setAssetColor)
   const setPendingDropAsset = useStore((s) => s.setPendingDropAsset)
   const clearPendingDropAsset = useStore((s) => s.clearPendingDropAsset)
   const applyTemplate = useStore((s) => s.applyTemplate)
+  const spawnAssetIntoScene = useStore((s) => s.spawnAssetIntoScene)
+  const [contextMenu, setContextMenu] = useState(null)   // { x, y, asset }
 
   const [currentFolder, setCurrentFolder] = useState(null)  // null = root
   const [dragOver, setDragOver] = useState(false)
@@ -207,20 +288,43 @@ export default function AssetsPanel() {
   const q = query.trim().toLowerCase()
   const visible = useMemo(() => {
     if (q) {
-      const matchesName = (n) => (n || '').toLowerCase().includes(q)
-      // Real assets — match anywhere in the tree.
+      // Token-aware matcher. A query matches if its tokens collectively
+      // satisfy ANY of:
+      //   1. The token is a substring of the record name
+      //   2. The token resolves to an asset-type alias and the record
+      //      has that type/kind (lets "image" surface every image,
+      //      "model"/"3d" every mesh, "template" all templates)
+      const tokens = q.split(/\s+/).filter(Boolean)
+      const matchesRecord = (rec) => {
+        const name = (rec.name || '').toLowerCase()
+        // Every token must hit on either the name or a type alias.
+        return tokens.every((tok) => {
+          if (name.includes(tok)) return true
+          const alias = TYPE_ALIASES[tok]
+          if (!alias) return false
+          if (alias === '__folder')   return rec.kind === 'folder'
+          if (alias === '__template') return rec.kind === 'template'
+          if (alias === '__sample')   return !!rec.virtual && rec.kind === 'asset'
+          return rec.assetType === alias
+        })
+      }
+      // Real assets (any depth) — flat array so nested user folders /
+      // contents are reachable from any starting folder.
       const realMatches = assets
-        .filter((a) => matchesName(a.name))
+        .filter(matchesRecord)
         .sort((a, b) => {
           if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1
           return a.name.localeCompare(b.name)
         })
-      // Templates — surface any whose label matches.
       const tplMatches = [
         ...TEMPLATE_ORDER_WINDOW.map((k) => virtualTemplateRecord(k, TPL_WINDOW)),
         ...TEMPLATE_ORDER_VOLUME.map((k) => virtualTemplateRecord(k, TPL_VOLUME))
-      ].filter((t) => t && matchesName(t.name))
-      return [...tplMatches, ...realMatches]
+      ].filter((t) => t && matchesRecord(t))
+      const sampMatches = [
+        ...SAMPLE_IMAGES.map((s) => virtualSampleRecord(s, SAMP_IMAGES, 'image')),
+        ...SAMPLE_MODELS.map((s) => virtualSampleRecord(s, SAMP_MODELS, 'mesh'))
+      ].filter(matchesRecord)
+      return [...tplMatches, ...sampMatches, ...realMatches]
     }
     if (isVirtualFolder(currentFolder)) {
       return getVirtualEntries(currentFolder)
@@ -253,11 +357,16 @@ export default function AssetsPanel() {
 
   const onAssetDragStart = (asset, e) => {
     if (asset.kind !== 'asset') return
-    setPendingDropAsset(asset.id)
+    // Pin the full asset record on `pendingDropAsset` so the canvas
+    // and layers-panel drop handlers can spawn the asset directly —
+    // important for virtual sample records, which never enter the
+    // real `state.assets` array (an id-lookup would miss them).
+    setPendingDropAsset(asset)
     e.dataTransfer.effectAllowed = 'copy'
-    // Carry the id in dataTransfer too so the canvas drop handler
-    // can recover it even if the store wire is lost across iframes.
     e.dataTransfer.setData('application/x-asset-id', asset.id)
+    // Carry the record JSON too so a cross-frame / refresh drop can
+    // recover it without the store wire.
+    try { e.dataTransfer.setData('application/x-asset-record', JSON.stringify(asset)) } catch {}
   }
   const onAssetDragEnd = () => clearPendingDropAsset()
 
@@ -358,13 +467,13 @@ export default function AssetsPanel() {
             <div className="mt-2 text-textDim">Use <span className="text-textBase">📁</span> to create folders.</div>
           </div>
         )}
-        {/* Auto-fit tile grid — uses minmax so columns flex as the
-            sidebar grows. App.jsx widens the sidebar with the asset
-            library; the grid responds by laying out more tiles per
-            row instead of stretching individual tiles past readable. */}
+        {/* Fixed-size tile grid — every tile is a 64pt square regardless
+            of sidebar width, so folders never stretch into rectangles or
+            shrink when the panel is dragged. Adding more tiles just lays
+            out additional columns up to whatever fits in the row. */}
         <div
-          className="grid gap-1.5"
-          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))' }}
+          className="grid gap-1.5 justify-start"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, 64px)' }}
         >
           {visible.map((a) => (
             <AssetTile
@@ -377,10 +486,17 @@ export default function AssetsPanel() {
               onOpen={() => {
                 if (a.kind === 'folder') return setCurrentFolder(a.id)
                 if (a.kind === 'template') return applyTemplate(a.templateKey)
+                // Image assets — double-click adds them to the active stack
+                if (a.kind === 'asset') return spawnAssetIntoScene?.(a)
                 return null
               }}
               onDelete={a.virtual || a.kind === 'template' ? null : () => deleteAsset(a.id)}
               onStartRename={a.virtual || a.kind === 'template' ? null : () => startRename(a)}
+              onContextMenu={(e) => {
+                if (a.kind === 'template' || a.virtual) return
+                e.preventDefault()
+                setContextMenu({ x: e.clientX, y: e.clientY, asset: a })
+              }}
               onDragStart={(e) => onAssetDragStart(a, e)}
               onDragEnd={onAssetDragEnd}
             />
@@ -403,6 +519,85 @@ export default function AssetsPanel() {
           })()}
         </div>
       )}
+      {/* Right-click context menu. Folders get the colour swatch row;
+          everything user-owned gets Rename + Delete. F2 also starts a
+          rename when a tile is focused. */}
+      {contextMenu && (
+        <AssetContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          asset={contextMenu.asset}
+          onClose={() => setContextMenu(null)}
+          onRename={() => { startRename(contextMenu.asset); setContextMenu(null) }}
+          onDelete={() => { deleteAsset(contextMenu.asset.id); setContextMenu(null) }}
+          onColor={(c) => { setAssetColor(contextMenu.asset.id, c); setContextMenu(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---- Context menu ---------------------------------------------------
+//
+// Floating pop-up anchored at the cursor position. Folders get the
+// colour-swatch row so users can colour-code their library; assets
+// fall back to a Rename + Delete pair. Dismisses on outside click /
+// Escape, matching the visionOS / macOS right-click menu pattern.
+function AssetContextMenu({ x, y, asset, onClose, onRename, onDelete, onColor }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    const onKey  = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+  const isFolder = asset.kind === 'folder'
+  // Anchor near the cursor but keep the menu inside the viewport on
+  // the right + bottom edges so it doesn't get clipped.
+  const W = 168
+  const H = isFolder ? 134 : 76
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 1024) - W - 4)
+  const top  = Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 768) - H - 4)
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      style={{ position: 'fixed', left, top, width: W, zIndex: 100 }}
+      className="bg-panel border border-border rounded-md shadow-xl py-1 text-[11px]"
+    >
+      <button
+        className="w-full text-left px-3 py-1.5 hover:bg-hover"
+        onClick={onRename}
+      >Rename… <span className="text-textMute ml-1">F2</span></button>
+      {isFolder && (
+        <>
+          <div className="border-t border-border my-1" />
+          <div className="text-[9px] text-textMute uppercase tracking-wider px-3 pt-1 pb-1">Color</div>
+          <div className="flex flex-wrap gap-1 px-2 pb-2">
+            {FOLDER_COLORS.map((c) => (
+              <button
+                key={c.label}
+                onClick={() => onColor(c.value)}
+                title={c.label}
+                className={`w-5 h-5 rounded-full border ${asset.color === c.value ? 'border-accent ring-1 ring-accent' : 'border-border'}`}
+                style={{
+                  background: c.value || 'transparent',
+                  backgroundImage: c.value ? undefined : 'linear-gradient(45deg, transparent 45%, #6e6e72 45%, #6e6e72 55%, transparent 55%)'
+                }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      <div className="border-t border-border my-1" />
+      <button
+        className="w-full text-left px-3 py-1.5 hover:bg-hover text-rose-400"
+        onClick={onDelete}
+      >Delete</button>
     </div>
   )
 }
@@ -411,20 +606,35 @@ export default function AssetsPanel() {
 
 function AssetTile({
   asset, isRenaming, renameDraft, onRenameDraft, onRenameCommit,
-  onOpen, onDelete, onStartRename, onDragStart, onDragEnd
+  onOpen, onDelete, onStartRename, onDragStart, onDragEnd, onContextMenu
 }) {
   const isFolder = asset.kind === 'folder'
   const isTemplate = asset.kind === 'template'
   const isImage = !isFolder && !isTemplate && asset.assetType === 'image'
   const isMesh  = !isFolder && !isTemplate && asset.assetType === 'mesh'
+  // Folder colour tint — applied to the glyph + a thin underline strip
+  // so the label area picks up the colour without the full thumbnail
+  // turning into a coloured rectangle.
+  const folderColor = isFolder && asset.color ? asset.color : null
 
   return (
     <div
-      className={`group flex flex-col items-center gap-0.5 p-1 rounded hover:bg-surface2 cursor-pointer relative ${isTemplate ? 'hover:ring-1 hover:ring-accent/40' : ''}`}
+      tabIndex={0}
+      className={`group flex flex-col items-center gap-0.5 p-1 rounded hover:bg-surface2 cursor-pointer relative outline-none focus:bg-surface2 ${isTemplate ? 'hover:ring-1 hover:ring-accent/40' : ''}`}
       draggable={!isFolder && !isTemplate && !isRenaming}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDoubleClick={onOpen}
+      onContextMenu={onContextMenu}
+      onKeyDown={(e) => {
+        if (e.key === 'F2' && onStartRename) {
+          e.preventDefault()
+          onStartRename()
+        } else if (e.key === 'Enter' && !isRenaming) {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
       onClick={(e) => {
         // Folders + templates: click-to-open / click-to-apply.
         // Regular assets: single click does nothing (drag is the
@@ -434,11 +644,14 @@ function AssetTile({
       title={isTemplate ? `${asset.name} — ${asset.description}` : asset.name}
     >
       {/* Thumbnail */}
-      <div className={`w-full aspect-square rounded border border-border flex items-center justify-center overflow-hidden ${isTemplate ? 'bg-gradient-to-br from-accent/15 to-surface3' : 'bg-surface3'}`}>
+      <div
+        className={`w-full aspect-square rounded border flex items-center justify-center overflow-hidden ${isTemplate ? 'bg-gradient-to-br from-accent/15 to-surface3' : 'bg-surface3'}`}
+        style={{ borderColor: folderColor || undefined }}
+      >
         {isImage && asset.thumbnailUrl
           ? <img src={asset.thumbnailUrl} alt="" className="w-full h-full object-cover" />
           : isFolder
-            ? <span className="text-textDim"><FolderIcon size={20} /></span>
+            ? <span style={{ color: folderColor || undefined }} className={folderColor ? '' : 'text-textDim'}><FolderIcon size={20} /></span>
             : isTemplate
               ? <span className="text-accent"><TemplateIcon size={20} /></span>
               : isMesh

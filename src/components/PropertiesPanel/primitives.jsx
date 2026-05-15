@@ -4,6 +4,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   SEMANTIC_COLOR_ORDER,
+  SCENE_COLOR_GROUPS,
+  SCENE_COLOR_LABELS,
   STACK_TYPES,
   unitsToPt, ptToUnits
 } from '../../appleSystem'
@@ -249,16 +251,27 @@ export function Section({ title, children, defaultOpen = false, action }) {
   )
 }
 
+// Color picker grouped by category — mirrors the visionOS Figma kit's
+// "Color styles" panel (Text / Controls / Views / Windows / Separators /
+// Colors). Editing a token's actual hex lives in Scene → Colors; picking
+// it here is a *reference* — the panel tracks whatever value the scene
+// palette currently holds for that token.
 export function SemanticColorPicker({ token, onChange }) {
   return (
-    <Select
+    <select
       value={token || ''}
-      options={[
-        { value: '', label: '— Custom —' },
-        ...SEMANTIC_COLOR_ORDER.map((t) => ({ value: t, label: t }))
-      ]}
-      onChange={(v) => onChange(v || null)}
-    />
+      onChange={(e) => onChange(e.target.value || null)}
+      className="field flex-1 cursor-pointer"
+    >
+      <option value="">— Custom —</option>
+      {SCENE_COLOR_GROUPS.map((group) => (
+        <optgroup key={group.key} label={group.label}>
+          {group.tokens.map((t) => (
+            <option key={t} value={t}>{SCENE_COLOR_LABELS[t] || t}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
   )
 }
 

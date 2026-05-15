@@ -227,18 +227,24 @@ export function PanelProps({ item, scene }) {
           etc.). The header is named "Object" rather than the panel's
           type so it doesn't collide with the inspector's own section
           (e.g. Slider used to have two "Slider" dropdowns). */}
-      <Section title={`Object — ${titleCase}`} defaultOpen={true}>
-        <Row label="Name">
-          <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
-        </Row>
-        {meta.frameMode === 'figma'
-          ? <FigmaFrameSection item={item} updateItem={updateItem} embedded />
-          : meta.frameMode === 'none'
-            ? null
-            : <LayoutSection item={item} updateItem={updateItem} scene={scene}
-                             lockHeight={meta.lockHeight} lockHeightHint={meta.lockHeightHint}
-                             embedded />}
-      </Section>
+      {/* Object section. Suppressed for panels with `mergedIdentity` —
+          their per-type inspector owns Name + Frame inside its own
+          single section, avoiding a stray "Object — Text" header when
+          the user just wants to edit the text. */}
+      {!meta.mergedIdentity && (
+        <Section title={`Object — ${titleCase}`} defaultOpen={true}>
+          <Row label="Name">
+            <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+          </Row>
+          {meta.frameMode === 'figma'
+            ? <FigmaFrameSection item={item} updateItem={updateItem} embedded />
+            : meta.frameMode === 'none'
+              ? null
+              : <LayoutSection item={item} updateItem={updateItem} scene={scene}
+                               lockHeight={meta.lockHeight} lockHeightHint={meta.lockHeightHint}
+                               embedded />}
+        </Section>
+      )}
 
       {Inspector && <Inspector {...ctx} />}
 

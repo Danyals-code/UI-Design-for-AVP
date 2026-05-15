@@ -384,8 +384,147 @@ export const SEMANTIC_COLOR_ORDER = [
   'systemIndigo', 'systemMint', 'systemCyan', 'systemBrown', 'systemGray'
 ]
 
-export const resolveSemantic = (token, scheme) =>
-  SYSTEM_COLORS[scheme]?.[token] || SYSTEM_COLORS.light[token] || '#000000'
+// ---- Scene Color Palette ---------------------------------------------
+//
+// Designer-editable color system. Mirrors the visionOS Figma "Color
+// styles" panel — Text/Controls/Views/Windows/Separators + the system
+// colour wheel. Each token lives on `scene.colors` so the user can
+// retune the whole project from Scene → Colors and every panel that
+// references a token tracks the change automatically.
+//
+// `resolveSemantic(token, sceneOrScheme)` consults `scene.colors[token]`
+// first; if absent it falls back to the legacy SYSTEM_COLORS table so
+// scheme-aware tokens (systemBackground, glassRegular, …) still work.
+export const SCENE_COLOR_LABELS = {
+  // Text
+  primary:           'Primary',
+  secondary:         'Secondary',
+  tertiary:          'Tertiary',
+  // Controls (state-driven)
+  controlIdle:       'Idle',
+  controlHover:      'Hover',
+  controlPinch:      'Pinch',
+  controlSelected:   'Selected',
+  controlDisabled:   'Disabled',
+  // Views (material tiers)
+  viewRecessed:      'Recessed Material View',
+  viewThin:          'Thin',
+  viewRegular:       'Regular',
+  viewThicker:       'Thicker',
+  // Windows
+  windowGlass:       'Glass',
+  windowGlassKeyboard:'Glass — Keyboard',
+  // Separators
+  separator:         'Separator',
+  // System colour wheel
+  systemRed:         'Red',
+  systemOrange:      'Orange',
+  systemYellow:      'Yellow',
+  systemGreen:       'Green',
+  systemMint:        'Mint',
+  systemTeal:        'Teal',
+  systemCyan:        'Cyan',
+  systemBlue:        'Blue',
+  systemIndigo:      'Indigo',
+  systemPurple:      'Purple',
+  systemPink:        'Pink',
+  systemBrown:       'Brown',
+  systemGray:        'Gray',
+  black:             'Black',
+  white:             'White'
+}
+
+// Categorical ordering for the inspector picker + Scene → Colors editor.
+// Order matches the visionOS Figma kit reading order.
+export const SCENE_COLOR_GROUPS = [
+  { key: 'colors',     label: 'Colors',     tokens: ['systemRed', 'systemOrange', 'systemYellow', 'systemGreen', 'systemMint', 'systemTeal', 'systemCyan', 'systemBlue', 'systemIndigo', 'systemPurple', 'systemPink', 'systemBrown', 'systemGray', 'black', 'white'] },
+  { key: 'text',       label: 'Text',       tokens: ['primary', 'secondary', 'tertiary'] },
+  { key: 'controls',   label: 'Controls',   tokens: ['controlIdle', 'controlHover', 'controlPinch', 'controlSelected', 'controlDisabled'] },
+  { key: 'views',      label: 'Views',      tokens: ['viewRecessed', 'viewThin', 'viewRegular', 'viewThicker'] },
+  { key: 'windows',    label: 'Windows',    tokens: ['windowGlass', 'windowGlassKeyboard'] },
+  { key: 'separators', label: 'Separators', tokens: ['separator'] }
+]
+
+// Default hex values for a fresh scene. Picked from the visionOS Figma
+// kit reference (the "Color styles" page in Apple's design system) so
+// a brand-new project lands on values matching the spatial UI HIG.
+export const DEFAULT_SCENE_COLORS = {
+  // Text — high-contrast on glass; Apple uses near-white as the
+  // primary baseline because visionOS plates render translucent.
+  primary:            '#ffffff',
+  secondary:          '#b0b0b3',
+  tertiary:           '#6e6e72',
+  // Controls — gradient from dim → fully-lit; idle reads as
+  // a recessed control on glass, selected pops to white.
+  controlIdle:        '#6e6e72',
+  controlHover:       '#8e8e93',
+  controlPinch:       '#545458',
+  controlSelected:    '#ffffff',
+  controlDisabled:    '#48484a',
+  // Views — material tier tints (visionOS Material approximations).
+  viewRecessed:       '#2c2c2e',
+  viewThin:           '#45454a',
+  viewRegular:        '#39393c',
+  viewThicker:        '#5a5a5e',
+  // Windows — neutral 50% gray with 30% opacity baked in. The renderer
+  // blends this over the studio backdrop the way visionOS does over the
+  // wearer's room. designWindow in SYSTEM_COLORS is kept for the legacy
+  // scheme tables.
+  windowGlass:        '#808080',
+  windowGlassOpacity: 0.3,
+  windowGlassKeyboard:'#2c2c2e',
+  // Separators — Apple's tertiary-on-dark hairline.
+  separator:          '#38383a',
+  // System colour wheel (mirrors the iOS systemX palette).
+  systemRed:          '#ff3b30',
+  systemOrange:       '#ff9500',
+  systemYellow:       '#ffcc00',
+  systemGreen:        '#34c759',
+  systemMint:         '#00c7be',
+  systemTeal:         '#30b0c7',
+  systemCyan:         '#32ade6',
+  systemBlue:         '#007aff',
+  systemIndigo:       '#5856d6',
+  systemPurple:       '#af52de',
+  systemPink:         '#ff2d55',
+  systemBrown:        '#a2845e',
+  systemGray:         '#8e8e93',
+  black:              '#000000',
+  white:              '#ffffff'
+}
+
+// Build a fresh defaults map. Cloning so the consumer can mutate the
+// returned object without affecting the module-level constant.
+export const buildDefaultSceneColors = () => ({ ...DEFAULT_SCENE_COLORS })
+
+// Resolve a semantic color token to a hex string.
+//
+// Accepts either a scheme string (legacy: 'light' / 'dark') or a scene
+// object. When a scene object is passed we consult `scene.colors[token]`
+// first — that's how the Scene → Colors editor's overrides propagate
+// to every consumer. We then fall back to the per-scheme SYSTEM_COLORS
+// table for tokens the scene palette doesn't cover (systemBackground,
+// glassRegular, designWindow, …).
+export const resolveSemantic = (token, sceneOrScheme) => {
+  // Caller passed a scene object — check scene.colors first.
+  if (sceneOrScheme && typeof sceneOrScheme === 'object') {
+    const override = sceneOrScheme.colors?.[token]
+    if (override) return override
+    const scheme = sceneOrScheme.designScheme || 'light'
+    return SYSTEM_COLORS[scheme]?.[token]
+      || DEFAULT_SCENE_COLORS[token]
+      || SYSTEM_COLORS.light[token]
+      || '#000000'
+  }
+  // Legacy path — scheme string. Still honours DEFAULT_SCENE_COLORS so
+  // new tokens (controlIdle, viewRegular, …) resolve even when the
+  // caller hasn't been migrated to pass the scene.
+  const scheme = sceneOrScheme || 'light'
+  return SYSTEM_COLORS[scheme]?.[token]
+    || DEFAULT_SCENE_COLORS[token]
+    || SYSTEM_COLORS.light[token]
+    || '#000000'
+}
 
 // SwiftUI stack types + alignments.
 export const STACK_TYPES = {
@@ -1055,6 +1194,72 @@ export const IMAGE_SCALES = [
   { value: 'medium', label: 'Medium (default)' },
   { value: 'large',  label: 'Large' }
 ]
+
+// ---- Navigation Bar ---------------------------------------------------
+//
+// Six fixed navbar styles, mirroring the visionOS Figma kit's NavBar
+// configurations. Each style locks the *structural* defaults (item sizes
+// and positions); the inspector exposes the variable parts (title text
+// plus add/remove of the trailing/leading button arrays).
+//
+// Geometry that's common across all six styles:
+//   - Height: 92pt — locked
+//   - Side padding: 24pt — locked
+//   - All items vertically centred; item height: 44pt
+//   - Adjacent buttons in a group: 16pt spacing
+//   - Avatar: 44×44 circle
+//   - Trailing search: 305×44 capsule
+//   - Back (circular): 44×44 circle
+//   - Back (capsule): 76×44, chevron + "Back" with 2pt gap between glyph & label
+export const NAVBAR_HEIGHT_PT       = 92
+export const NAVBAR_SIDE_PADDING_PT = 24
+export const NAVBAR_ITEM_PT         = 44       // every interactive item is 44 high
+export const NAVBAR_ITEM_GAP_PT     = 16       // gap between adjacent buttons
+export const NAVBAR_AVATAR_PT       = 44
+export const NAVBAR_SEARCH_W_PT     = 305
+export const NAVBAR_BACK_CAPSULE_W_PT = 76
+export const NAVBAR_BACK_ICON_TEXT_GAP_PT = 2
+
+export const NAVBAR_STYLES = [
+  { value: 'trailingAvatar',            label: 'Trailing avatar' },
+  { value: 'trailingButtons',           label: 'Trailing buttons' },
+  { value: 'trailingSearch',            label: 'Trailing search' },
+  { value: 'leadingTrailingButtons',    label: 'Leading and trailing buttons' },
+  { value: 'backTrailingButtons',       label: 'Back and trailing buttons' },
+  { value: 'backCapsuleTrailingButtons',label: 'Back hover and trailing buttons' }
+]
+
+// Per-button interaction picker. Mirrors the Button panel's tapAction
+// vocabulary (see PANELS.button.defaults.tapAction) but exposes only
+// the action *types* — params (targetWindowId, panelId, tab index, …)
+// can be wired up via a follow-up "Configure…" pass when each is picked.
+export const NAVBAR_INTERACTIONS = [
+  { value: 'none',           label: 'None' },
+  { value: 'navigateWindow', label: 'Open Window' },
+  { value: 'navigateTab',    label: 'Switch Tab' },
+  { value: 'presentSheet',   label: 'Present Sheet' },
+  { value: 'dismiss',        label: 'Dismiss' },
+  { value: 'flipToggle',     label: 'Toggle Switch' }
+]
+
+// Per-style descriptor: which slots are present, where the title sits,
+// and whether the leading slot is a fixed chip (avatar / back button)
+// or a user-editable button array. The renderer + inspector both read
+// from this map so adding a new style means adding one entry.
+//
+//   leading: 'none' | 'avatar' | 'backCircle' | 'backCapsule' | 'buttons'
+//   trailing:'none' | 'avatar' | 'search' | 'buttons'
+//   titleAlign: 'left' | 'center'
+//   leadingEditable / trailingEditable: whether the inspector exposes
+//     add/remove for that slot's button array
+export const NAVBAR_STYLE_SPECS = {
+  trailingAvatar:             { leading: 'none',         trailing: 'avatar',  titleAlign: 'left',   leadingEditable: false, trailingEditable: false },
+  trailingButtons:            { leading: 'none',         trailing: 'buttons', titleAlign: 'left',   leadingEditable: false, trailingEditable: true  },
+  trailingSearch:             { leading: 'none',         trailing: 'search',  titleAlign: 'left',   leadingEditable: false, trailingEditable: false },
+  leadingTrailingButtons:     { leading: 'buttons',      trailing: 'buttons', titleAlign: 'center', leadingEditable: true,  trailingEditable: true  },
+  backTrailingButtons:        { leading: 'backCircle',   trailing: 'buttons', titleAlign: 'center', leadingEditable: false, trailingEditable: true  },
+  backCapsuleTrailingButtons: { leading: 'backCapsule',  trailing: 'buttons', titleAlign: 'center', leadingEditable: false, trailingEditable: true  }
+}
 
 // SwiftUI ToolbarItem placements.
 export const TOOLBAR_PLACEMENTS = {

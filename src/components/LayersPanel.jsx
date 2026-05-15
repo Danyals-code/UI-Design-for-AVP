@@ -235,6 +235,26 @@ function LayerRow({ item, depth, visibleIds, query }) {
   const onDragOver = (e) => {
     e.preventDefault()
     e.stopPropagation()
+    // Tabs and windows reject asset drops — assets land on stacks /
+    // panels / windows-content only. Sniff the asset wire and bail
+    // when the row isn't a valid drop target for an asset drag.
+    const isAssetDrag = !!useStore.getState().pendingDropAsset ||
+      (e.dataTransfer && e.dataTransfer.types && (
+        e.dataTransfer.types.includes('application/x-asset-id') ||
+        e.dataTransfer.types.includes('application/x-asset-record')
+      ))
+    if (isAssetDrag) {
+      e.dataTransfer.dropEffect = 'copy'
+      // Per user spec: windows + tabs don't accept asset drops. Drop
+      // anywhere on these rows is rejected so the asset doesn't end up
+      // as a direct child of a window or tab.
+      if (item.type === 'window' || item.type === 'tab') {
+        setDropMode(null)
+        return
+      }
+      setDropMode('inside')
+      return
+    }
     e.dataTransfer.dropEffect = 'move'
     const rect = e.currentTarget.getBoundingClientRect()
     const y = e.clientY - rect.top
@@ -247,8 +267,32 @@ function LayerRow({ item, depth, visibleIds, query }) {
   const onDrop = (e) => {
     e.preventDefault()
     e.stopPropagation()
-    const src = e.dataTransfer.getData('text/plain')
     setDropMode(null)
+    // ---- Asset drop from the Assets panel ------------------------
+    let asset = useStore.getState().pendingDropAsset
+    if (!asset || typeof asset === 'string') {
+      const json = e.dataTransfer.getData('application/x-asset-record')
+      if (json) { try { asset = JSON.parse(json) } catch { asset = null } }
+    }
+    if (!asset) {
+      const id = e.dataTransfer.getData('application/x-asset-id')
+      if (id) asset = id
+    }
+    if (asset) {
+      // Asset rule: never under windows or tabs (per user spec). Find
+      // the nearest stack / panel container; for any non-container row
+      // we spawn alongside (parent = row's parent).
+      if (item.type === 'window' || item.type === 'tab') {
+        useStore.getState().clearPendingDropAsset?.()
+        return
+      }
+      const parentId = container ? item.id : item.parentId
+      useStore.getState().spawnAssetIntoScene?.(asset, { parentId })
+      useStore.getState().clearPendingDropAsset?.()
+      return
+    }
+    // ---- Layer-to-layer reorder (internal drag) ------------------
+    const src = e.dataTransfer.getData('text/plain')
     if (!src || src === item.id) return
     moveItem(src, item.id, dropMode || 'after')
   }

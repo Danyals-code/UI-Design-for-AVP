@@ -67,6 +67,13 @@ export function createAssetsSlice(set, get) {
       assets: s.assets.map((a) => a.id === id ? { ...a, name } : a)
     })),
 
+    // Tag a folder (or asset) with a colour swatch. Stored as a hex
+    // string so the panel can paint the folder glyph + a thin label
+    // accent. `null` clears the colour back to the neutral default.
+    setAssetColor: (id, color) => set((s) => ({
+      assets: s.assets.map((a) => a.id === id ? { ...a, color: color || null } : a)
+    })),
+
     deleteAsset: (id) => set((s) => {
       // Cascade-delete: if it's a folder, drop everything under it
       // recursively. Cheaper than walking parents on every render.
@@ -141,36 +148,72 @@ export function createAssetsSlice(set, get) {
     setPendingDropAsset: (assetId) => set({ pendingDropAsset: assetId }),
     clearPendingDropAsset: () => set({ pendingDropAsset: null }),
 
-    // Drop an asset into the scene as a new model entity. We can't
-    // ray-cast the canvas drop coordinates from the store (no camera
-    // handle), so the entity lands at the default chest-height
-    // position; the user can nudge afterwards. Mesh assets become
-    // USDZ-typed model entities (the asset's data URL is recorded in
-    // `usdzAssetUrl`). Image assets currently log a warning — image
-    // import as a textured plane is a follow-up.
-    spawnAssetIntoScene: (assetId) => {
+    // Drop an asset into the scene. Routes by asset type:
+    //   - mesh  → model entity (USDZ/GLB), parented under the active
+    //     scene's anchor so it renders in the volumetric tree
+    //   - image → image panel, parented under the explicit target
+    //     (when dropped on a layer row) or the active stack (when
+    //     dropped on the viewport)
+    //
+    // `options.parentId` lets callers override the default destination
+    // — used by the layers-panel drop handler so the asset lands where
+    // the user pointed.
+    spawnAssetIntoScene: (assetIdOrRecord, options = {}) => {
       const state = get()
-      const asset = state.assets.find((a) => a.id === assetId)
+      // Accept either an id (real user asset) or a full record (virtual
+      // built-in samples — their data isn't persisted in `state.assets`).
+      const asset = typeof assetIdOrRecord === 'string'
+        ? state.assets.find((a) => a.id === assetIdOrRecord)
+        : assetIdOrRecord
       if (!asset || asset.kind !== 'asset') return null
-      // Find the active scene's seed anchor to parent under, falling
-      // back to the active tab so we never orphan the entity.
       const items = state.items
       const activeTabId = state.activeTabId
+
+      // ---- Image asset: spawn an image panel ------------------------
+      if (asset.assetType === 'image') {
+        // Default destination: the first content stack inside the
+        // active window. Falling back to the window itself ensures the
+        // image still lands somewhere visible even when no stack exists.
+        const win = items.find(
+          (it) => it.type === 'window' && it.parentId === activeTabId
+        ) ?? items.find((it) => it.type === 'window')
+        const firstStack = win && items.find(
+          (it) => it.parentId === win.id && it.type === 'stack'
+        )
+        const parentId = options.parentId || firstStack?.id || win?.id
+        if (!parentId) return null
+        const addPanel = state.addPanel
+        if (typeof addPanel !== 'function') return null
+        // Use the existing addPanel/undoable plumbing by temporarily
+        // selecting the target — keeps the flow consistent with Shift+A.
+        const prevSelected = state.selectedId
+        state.select?.(parentId)
+        addPanel('image')
+        // The new panel is now the last item; patch it with the asset
+        // URL so the renderer can paint it immediately.
+        const after = get()
+        const created = after.items[after.items.length - 1]
+        if (created && created.panelType === 'image') {
+          after.updateItem(created.id, {
+            imageUrl: asset.dataUrl,
+            name: asset.name.replace(/\.[^.]+$/, '')
+          })
+        }
+        // Restore the prior selection only if the user wasn't already
+        // pointing at the parent (so we don't yank focus away from a
+        // freshly-spawned panel they likely want to keep selected).
+        if (prevSelected && prevSelected !== parentId && created) {
+          state.select?.(created.id)
+        }
+        return created?.id || null
+      }
+
+      // ---- Mesh asset: spawn a model entity -------------------------
       const anchor = items.find((it) =>
         it.type === 'entity' && it.entityKind === 'anchor' &&
-        // walk-up: tab → window → anchor; we just match any anchor
-        // descended from the active tab via parentId chain.
         descendantOfTab(items, it.id, activeTabId)
       )
-      const parentId = anchor?.id || activeTabId
-      if (asset.assetType === 'image') {
-        console.warn('[assets] image-as-plane spawn not yet implemented; use a USDZ / GLB asset')
-        return null
-      }
-      // Defer to the entities slice so the new item flows through the
-      // same undo / selection / make-visible plumbing as a SHIFT+A add.
-      // `addEntity(kind, { parentId, overrides })` is the established
-      // contract — `overrides` becomes the per-entity field bundle.
+      const parentId = options.parentId || anchor?.id || activeTabId
       const addEntity = state.addEntity
       if (typeof addEntity !== 'function') {
         console.warn('[assets] addEntity action missing — cannot spawn')
