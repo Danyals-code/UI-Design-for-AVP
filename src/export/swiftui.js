@@ -233,15 +233,20 @@ function renderModifiers(panel, lines, pad) {
     lines.push(`${ind}.accessibilityHidden(true)`)
   }
 
-  // Animation + transition. `.animation(_:value:)` requires a binding to
-  // re-evaluate against; we don't have one at design time, so we emit a
-  // self-binding `value: panel.id` placeholder + a TODO comment. This makes
-  // the intent explicit without hiding the requirement.
+  // Animation + transition. The modern API is `.animation(_:value:)`
+  // with a binding that re-triggers the animation when it changes —
+  // but at design time we have no concrete state to bind to. We emit
+  // the *deprecated* single-arg `.animation(_:)` which still applies
+  // implicitly to any state change in this view, and add a one-line
+  // comment pointing the user at the modern form. This actually
+  // animates (the previous `value: false` placeholder never fired),
+  // at the cost of a deprecation warning the user can resolve by
+  // switching to `.animation(curve, value: $yourState)`.
   const an = panel.animation
   if (an) {
     const curve = animationCurveExpr(an)
     if (curve) {
-      lines.push(`${ind}.animation(${curve}, value: false)  // TODO: bind value: to your driving state`)
+      lines.push(`${ind}.animation(${curve})  // prefer .animation(${curve}, value: $yourState)`)
     }
     const trans = transitionExpr(an.transition)
     if (trans) {
@@ -683,7 +688,11 @@ function renderWindow(win, items, pad, out, stateBag) {
 
 function wrapTabView(viewName, windows, items) {
   const body = []
-  const stateBag = []     // populated by renderWindow as presentations appear
+  // `stateBag` entries are either a string (legacy: Bool=false, used for
+  // `showing_*` and `isExpanded_*` flags) or an object
+  // `{ name, type, default }` for typed declarations. wrapTabView
+  // partitions them at emit time so existing callers keep working.
+  const stateBag = []
   if (windows.length === 0) {
     body.push(`${indent(2)}Text("Empty Tab")`)
   } else if (windows.length === 1) {
@@ -694,9 +703,49 @@ function wrapTabView(viewName, windows, items) {
     body.push(`${indent(2)}}`)
   }
 
-  // De-dup state names (stable per-id, but Swift won't accept duplicate decls).
-  const uniqueStates = Array.from(new Set(stateBag))
-  const stateDecls = uniqueStates.map((n) => `    @State private var ${n} = false`)
+  // `selectedTab` — referenced by Button.tapAction.navigateTab emit
+  // (`selectedTab = N`) and by any in-window TabView. Declare it once
+  // at the top of the view so the generated code compiles. We don't
+  // bind it to TabView's `selection:` yet — that would require
+  // emitting `Tab(value:)` for every child and is a follow-up.
+  const tabWindows = windows.filter((w) => w.id != null)
+  const isDescendantOfTabbedWindow = (it) => {
+    let cursor = it
+    while (cursor && cursor.parentId) {
+      const parent = items.find((x) => x.id === cursor.parentId)
+      if (!parent) break
+      if (tabWindows.some((w) => w.id === parent.id)) return true
+      cursor = parent
+    }
+    return false
+  }
+  const needsSelectedTab = items.some((it) => {
+    if (!isDescendantOfTabbedWindow(it)) return false
+    if (it.type === 'stack' && it.stackType === 'tabView') return true
+    if (it.type === 'panel' && it.panelType === 'button' && it.tapAction?.type === 'navigateTab') return true
+    return false
+  })
+  if (needsSelectedTab) {
+    stateBag.push({ name: 'selectedTab', type: 'Int', default: '0' })
+  }
+
+  // De-dup. Strings (Bool=false legacy) and typed objects use separate
+  // keys so they can't collide.
+  const seenStrings = new Set()
+  const seenObjects = new Set()
+  const stateDecls = []
+  for (const entry of stateBag) {
+    if (typeof entry === 'string') {
+      if (seenStrings.has(entry)) continue
+      seenStrings.add(entry)
+      stateDecls.push(`    @State private var ${entry} = false`)
+    } else if (entry && typeof entry === 'object' && entry.name) {
+      if (seenObjects.has(entry.name)) continue
+      seenObjects.add(entry.name)
+      const typeAnno = entry.type ? `: ${entry.type}` : ''
+      stateDecls.push(`    @State private var ${entry.name}${typeAnno} = ${entry.default}`)
+    }
+  }
 
   return [
     `//`,

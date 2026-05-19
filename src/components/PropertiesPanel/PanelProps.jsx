@@ -29,39 +29,22 @@ const HOVER_EFFECT_OPTIONS = [
   { value: 'none',      label: 'None' }
 ]
 
-// Placeholder triggers / actions for Window-level behaviours. The 3D
-// inspector has the live runtime; for windows we expose the same shape
-// as a stub so the editor reads consistent across types. Wiring up the
-// real interpreter is a follow-up.
-const WINDOW_TRIGGER_STUBS = [
-  { value: 'tap',     label: 'Tap' },
-  { value: 'hover',   label: 'Hover' },
-  { value: 'appear',  label: 'On appear' },
-  { value: 'disappear', label: 'On disappear' }
-]
-const WINDOW_ACTION_STUBS = [
-  { value: 'show',     label: 'Show window' },
-  { value: 'hide',     label: 'Hide window' },
-  { value: 'navigate', label: 'Navigate to tab' },
-  { value: 'open',     label: 'Open URL' },
-  { value: 'message',  label: 'Send message' }
-]
-
+// Window-level behaviours (tap / hover / appear / disappear → show /
+// hide / navigate / openURL / message) are still on the roadmap — the
+// runtime interpreter for entities lives in `src/behaviors/` but the
+// SwiftUI window side isn't wired yet. Show a single honest "coming
+// soon" line rather than mock dropdowns that look interactive but
+// don't store anything. Button tap actions (the live path) live in
+// `TapActionSection` below.
 function WindowBehaviorsPlaceholder() {
   return (
     <Section title="Behaviors" defaultOpen={false}>
-      <div className="space-y-1.5">
-        <div className="text-[9px] text-textMute leading-snug">
-          Window behaviours are <span className="text-textBase">coming soon</span>.
-          Pick a trigger and action below to sketch the intent — the export
-          will pick them up once the runtime is wired.
-        </div>
-        <Row label="Trigger">
-          <Select value="tap" options={WINDOW_TRIGGER_STUBS} onChange={() => {}} />
-        </Row>
-        <Row label="Action">
-          <Select value="navigate" options={WINDOW_ACTION_STUBS} onChange={() => {}} />
-        </Row>
+      <div className="text-[9px] text-textMute leading-snug">
+        Window behaviours (tap / hover / appear / disappear → show /
+        hide / navigate / open URL / message) are
+        <span className="text-textBase"> coming soon</span>.
+        For now, wire interactions through a Button's
+        <span className="text-textBase"> On Tap</span> action.
       </div>
     </Section>
   )
