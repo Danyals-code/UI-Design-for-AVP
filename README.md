@@ -26,6 +26,22 @@ Xcode, a Mac, or a headset.
 - **SwiftUI-accurate tokens.** Text styles, corner radii, glass materials,
   SF Symbols, modifiers and control styles are modelled after Apple's
   visionOS Human Interface Guidelines via `appleSystem.js`.
+- **SwiftUI text pipeline.** A dedicated text engine (`src/text.js`)
+  runs the full tighten → scale → wrap → truncate flow so the canvas
+  measures Text the way the device does — `lineLimit`,
+  `truncationMode`, `minimumScaleFactor`, `allowsTightening`,
+  `tracking`, `kerning`, `baselineOffset` and friends all round-trip
+  through both the layout engine and the renderer.
+- **Modifier-driven Fit / Fixed / Fill.** Width picker on text/link no
+  longer mutates a hidden `size` field — clicking Fit / Fixed / Fill
+  drops the matching `.fixedSize` or `.frame(...)` entry into
+  `item.modifiers` so the user can edit the value where they see
+  every other modifier.
+- **Inputs that actually accept input.** Text Field, Secure Field and
+  Search Field render as real DOM `<input>` overlays in Preview mode
+  (drei `<Html>` — `type="password"` for SecureField), and the typed
+  value lives on the panel so the canvas mirrors it the same way
+  SwiftUI's binding would.
 - **Keyboard-first editing.** `⇧A` opens the Add menu, arrow keys nudge
   selected items, `⌘Z / ⌘⇧Z` for undo/redo, `⌘C / ⌘V / ⌘D` for clipboard
   and duplicate, `Delete` / `Backspace` to remove.
@@ -80,6 +96,7 @@ src/
   store.js                — Zustand store (scene graph, history, clipboard, modifiers)
   appleSystem.js          — visionOS design tokens (text styles, glass, SF Symbols, presets)
   layout.js               — stack layout math (HStack / VStack / ZStack, fit/fixed/fill)
+  text.js                 — SwiftUI Text measurement (tighten/scale/wrap/truncate)
   shapes.js               — rounded-rect geometry helpers for 3D panels
   fonts.js                — font stack + SF Symbol unicode map
   components/

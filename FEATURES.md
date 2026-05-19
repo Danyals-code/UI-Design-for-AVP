@@ -13,7 +13,7 @@ Three docs at the repo root work together:
   view *do* and what are its defaults" map. Update whenever you add or
   change a view type, default, or design-system constant.
 
-> **Last updated:** 2026-05-15
+> **Last updated:** 2026-05-20
 
 ---
 
@@ -251,9 +251,25 @@ Every SwiftUI primitive lives here (~55 types — full list and per-type
 defaults in [VIEWS.md](VIEWS.md), source in
 [src/panels/registry.js](src/panels/registry.js)):
 - **Text / typography:** text, link, label, ticker
+  - **Text** uses the SwiftUI measurement pipeline in
+    [src/text.js](src/text.js) — tighten (5%) → scale (down to
+    `minimumScaleFactor`) → wrap (UAX-14-ish word breaks, with a
+    character-level fallback for words wider than the bound) →
+    truncate (head/middle/tail). Layout and renderer share the same
+    measurement so reserved and rendered heights stay aligned.
+- **Inputs:** textfield, securefield, search. Grouped under **Inputs**
+  in the Shift+A palette. The inspector shares one "Input Type"
+  switcher so the same panel can pivot between the three in place —
+  the same way the Geometry picker swaps shapes. In Preview mode a
+  click on any field focuses it and renders a real DOM `<input>` via
+  drei's `<Html>` overlay (`type="password"` for SecureField). The
+  typed value persists on the panel as `textfieldValue` /
+  `securefieldValue` / `searchValue`; the 3D rendering shows the live
+  value (primary color), the visionOS-spec placeholder (`#545454`)
+  when empty, or `•` (`•`) glyphs for SecureField. Live values
+  don't reach the exporter — generated Swift keeps `text: .constant("")`.
 - **Controls:** button, toggle, segmented, picker, datepicker,
-  colorpicker, slider, stepper, gauge, progress, search, textfield,
-  securefield, texteditor
+  colorpicker, slider, stepper, gauge, progress, texteditor
   - **Button** is sized by a `Size` picker (Small `65×32` / Regular
     `86×44` / Large `101×52` pt) and a `Style` picker (Capsule — 100pt
     radius, or Rounded Rect — 16pt radius). Width/height are not
@@ -263,12 +279,24 @@ defaults in [VIEWS.md](VIEWS.md), source in
     the text stays on a single line with the 12pt padding intact.
   - **Segmented control** is a Picker with `.pickerStyle(.segmented)` —
     Items field (comma-separated) + Selected index.
+- **Chrome:** navbar — a NavigationBar strip pinned across the top of
+  a window with one of six fixed styles (`trailingButtons`,
+  `leadingTrailingButtons`, …) from `NAVBAR_STYLE_SPECS`. Always
+  fills the parent's inner width; height is locked at 92pt. The
+  inspector exposes Style, Title, and editable Leading / Trailing
+  button arrays (each button has its own SF Symbol + tapAction).
 - **Lists:** list, table, menu, outlinegroup, form, groupbox
 - **Media:** image, asyncimage, slideshow
 - **Layout primitives:** spacer, divider
-- **Shapes:** rectangle, circle, capsule, ellipse, unevenRoundedRect,
-  path
-- **Gradients:** linearGradient, radialGradient, angularGradient
+- **Shapes & gradients:** rectangle, circle, capsule, ellipse,
+  unevenRoundedRect, path, linearGradient, radialGradient,
+  angularGradient. All nine share a single unified **ShapeInspector**
+  with Name + Geometry switcher + Width + Height + Stroke (color +
+  width). Gradients render through a real `LinearGradient` /
+  `RadialGradient` / `AngularGradient` CanvasTexture rather than a
+  placeholder fill, so the canvas matches the device. `cornerRadius`
+  is only exposed for Rectangle (single radius) and
+  UnevenRoundedRectangle (four per-corner radii).
 - **Presentation:** sheet, popover, alert, confirmationdialog,
   inspector, navigationlink, contentUnavailable
 - **3D primitives (RealityKit):** sphere, box, plane, cone, cylinder,
@@ -288,15 +316,23 @@ defaults in [VIEWS.md](VIEWS.md), source in
 Splash dialog and Assets → Templates expose pre-authored scenes.
 
 ### Window templates
-| Key             | Description                                                                 |
-| --------------- | --------------------------------------------------------------------------- |
-| `blank`         | One window, one fill stack — clean starter (seeded, not in splash list).    |
-| `musicPlayer`   | Now Playing card with deep-blue artwork, scrubber, transport, queue list.   |
-| `smartHome`     | Greeting + room cards (soft secondary surface) + scene pills + Away toggle. |
-| `settings`      | Search, account card, General list, Display + Connectivity groups.          |
-| `mailApp`       | Joined NavigationSplitView with sidebar mailboxes + reading detail.         |
-| `tabBar`        | Bottom Tab Bar ornament + Home content stub.                                |
-| `filesApp`      | Joined NavSplit with Locations + Tags lists, toolbar, empty-state detail.   |
+Six refined, production-ready window templates surface on the splash —
+each maps directly onto Apple's visionOS HIG patterns and uses semantic
+colour tokens so Scene → Colors re-themes the whole layout in one shot.
+
+| Key         | Description                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `blank`     | One window, one fill stack — clean starter (seeded, not in splash list).                   |
+| `welcome`   | Onboarding splash — hero icon, centred title block, primary CTA, three feature tiles.      |
+| `browse`    | Category grid with a search field — Music Browse / App Store landing; filter chip, featured card, 3×2 grid with count captions. |
+| `player`    | Now Playing card: NOW PLAYING eyebrow, artwork, track meta, scrubber, transport row, shuffle+repeat, volume row, Lyrics / AirPlay / Queue secondary row. |
+| `profile`   | People-card with avatar, identity, stat chips and primary actions; bio paragraph, skill capsules, "Recent Work" thumb strip. |
+| `article`   | Long-form reader — deck, byline with avatar + Save/Share, three paragraphs, pull-quote glass card, "KEEP READING" related strip. |
+| `settings`  | Large page title with plan caption, four labeled sections (General / Preferences / Privacy & Security / About), Sign Out destructive button + footer note. |
+
+> **Legacy keys** (`musicPlayer`, `smartHome`, `settingsOld`, `mailApp`,
+> `tabBar`, `filesApp`) are kept in the TEMPLATES registry for
+> save-file compatibility but no longer appear in the splash picker.
 
 ### Volume templates
 | Key                | Description                                                            |
@@ -315,8 +351,9 @@ broadcasts) so a new user sees movement on first Preview without any
 extra setup.
 
 ### Joined NavigationSplitView styling
-The sidebar inherits the window's outer corner radius on its left edge
-and butts flush against the detail pane on the right
+*(Surfaces through the legacy `mailApp` / `filesApp` templates.)* The
+sidebar inherits the window's outer corner radius on its left edge and
+butts flush against the detail pane on the right
 (`cornerRadii: [winR, 0, 0, winR]`). Surface is `#d8d8dc` — a soft
 secondary tone that harmonises with the near-white window plate
 (`designWindow` ≈ `#ecedef`).
@@ -356,22 +393,41 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 - **Modifiers:** modifier stack.
 
 ### Object — Panel
-- **Object** (collapsed): name + frame mode (Figma-style for shapes,
-  Layout-style for controls, none for ornaments).
+- **Object** (collapsed): name + frame mode. Three flavours via
+  `PANEL_META`:
+  - **Figma-style** (text, link): Fit / Fixed / Fill picker that drops
+    a `.fixedSize` or `.frame(...)` entry into the modifier stack —
+    there is no inline width field; edit the value in the Modifiers
+    section. The picker also keeps the legacy `widthMode` in sync for
+    the layout engine.
+  - **Explicit W/H** (most controls): standard Width / Height rows.
+  - **None** (button, navbar, all shapes & gradients): the per-type
+    inspector owns sizing — Button uses the Size picker, Navbar is
+    locked to parent-width × 92pt, ShapeInspector renders Width +
+    Height itself.
 - **Per-type inspector:** every panel type has its own section — Text,
   Button Size + Style + Role + Tint (W/H are not editable; the Size
-  picker is the only way to change the frame), Toggle Value + Label,
-  Picker options, Slider min/max/step, Image URL + fit, List rows,
-  Table columns, Datepicker mode, SF Symbol picker, etc. See
-  [VIEWS.md](VIEWS.md) for per-type fields and SwiftUI emit patterns.
-- **Modifiers:** modifier stack.
+  picker is the only way to change the frame), Inputs (shared Input
+  Type switcher across textfield / securefield / search), Toggle Value
+  + Label, Picker options, Slider min/max/step, Image URL + fit, List
+  rows, Table columns, Datepicker mode, ShapeInspector (Geometry +
+  Width + Height + Stroke + per-geometry rows), SF Symbol picker, etc.
+  See [VIEWS.md](VIEWS.md) for per-type fields and SwiftUI emit
+  patterns.
+- **Modifiers:** modifier stack. Includes the full text-display
+  family (`italic`, `underline`, `lineLimit`, `tracking`, `kerning`,
+  `baselineOffset`, `truncationMode`, `minimumScaleFactor`,
+  `allowsTightening`, `multilineTextAlignment`, `fontDesign`,
+  `monospacedDigit`, …) for textual views and the `frame` /
+  `fixedSize` entries the width picker manages.
 - **Styles:** control-size + per-control style picker (toggleStyle,
   pickerStyle, …). Hidden for buttons and toggles whose own inspector
   already includes Size + Style.
 - **Hover** (interactive controls): effect, disabled, default, group
   binding.
-- **SF Symbol** (types that support it): symbol name, rendering mode,
-  variant, "Remove Symbol" button.
+- **SF Symbol** (types that support it — buttons, labels, links,
+  navigationlinks, contentUnavailable, toggles, pickers, menus):
+  symbol name, rendering mode, variant, "Remove Symbol" button.
 - **Behaviors** (placeholder for window-level interactions; the live
   runtime is wired for entities).
 

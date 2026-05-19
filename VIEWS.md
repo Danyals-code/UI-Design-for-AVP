@@ -10,7 +10,7 @@ The companion docs are [README.md](README.md) (run/build) and
 implementer's map — paths, defaults, emit patterns, and the path from the
 inspector field to the SwiftUI export.
 
-> **Last updated:** 2026-05-15 *(window groups + navigation capsule)*
+> **Last updated:** 2026-05-20 *(SwiftUI text pipeline, modifier-driven Fit/Fixed/Fill, Inputs group, unified ShapeInspector, navbar)*
 
 ---
 
@@ -300,19 +300,57 @@ Every panel type is registered in [src/panels/registry.js](src/panels/registry.j
 **pt** unless noted; the renderer divides by `POINTS_PER_UNIT` to get
 metres.
 
-Per-type metadata in `PANEL_META`:
-- `frameMode: 'figma'` — Fit / Fixed / Fill width picker (text, link).
+Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspectors.jsx)):
+- `frameMode: 'figma'` — Fit / Fixed / Fill width picker (`text`, `link`).
+  Clicking the picker rewrites `item.modifiers` with the matching
+  `.fixedSize(horizontal: true)` (Fit), `.frame(width:)` (Fixed) or
+  `.frame(maxWidth: .infinity)` (Fill) — there is no inline width field
+  any more. See [`applyWidthMode`](src/components/PropertiesPanel/shared.jsx).
 - `frameMode: 'explicit'` — manual W/H fields (default).
-- `frameMode: 'none'` — no W/H controls (button — driven by Size picker).
-- `lockHeight: true` — hide height (list — auto-derived from row count).
+- `frameMode: 'none'` — no W/H controls. Used by `button` and `navbar`
+  (driven by their own Size / fixed-height contracts), and by every
+  shape / gradient (the unified ShapeInspector owns the Width + Height
+  rows internally so the generic Object section stays out of the way).
+- `lockHeight: true` — hide height (`list` — auto-derived from row count).
+- `mergedIdentity: true` — the panel's own inspector renders the Name
+  field, so PanelProps suppresses the generic "Object — X" header.
+  Applies to: `text`, every shape (`rectangle`, `circle`, `capsule`,
+  `ellipse`, `path`, `unevenRoundedRect`) and every gradient
+  (`linearGradient`, `radialGradient`, `angularGradient`).
 
 ### Text & typography
 
 #### `text`
-- **Default:** size `null` (auto), text `'Hello World'`, textStyle `body`, fontWeight `medium`, textAlign `left`.
-- **Frame mode:** figma (Fit / Fixed / Fill).
-- **Inspector:** Text body (textarea) + Style / Weight / Color / Align + Text-only modifiers (italic, underline, strikethrough, lineLimit, tracking, kerning, baselineOffset, textCase, truncationMode, minimumScaleFactor, allowsTightening, fontDesign, monospacedDigit).
-- **Emit:** `Text("...").font(.body).foregroundStyle(...)` + chained Text modifiers.
+- **Default:** size `null` (auto-size — width is driven by the
+  modifier-stack entry the Fit/Fixed/Fill picker drops in), text
+  `'Hello World'`, textStyle `body`, fontWeight `medium`, textAlign
+  `left`. Color uses `color` / `colorToken` (Text is a pure foreground
+  element, so no separate `textColor` field — that name is reserved
+  for panels that also carry a background fill).
+- **Frame mode:** figma (Fit / Fixed / Fill). The picker writes a
+  `.fixedSize` or `.frame(...)` entry into the modifier stack rather
+  than a hidden width field.
+- **Measurement:** layout and renderer share `measureSwiftUIText` from
+  [src/text.js](src/text.js) — the parent stack passes its known fixed
+  width down so wrap height makes it back into intrinsic sizing. The
+  full SwiftUI flow (tighten → scale → wrap → truncate, with UAX-14-ish
+  word-boundary line breaks and character fallback for over-wide words)
+  runs the same in both places, so reserved and rendered heights agree.
+- **Inspector:** Text body (textarea) + Style / Weight / Color / Align.
+  Text-display modifiers (`italic`, `underline`, `strikethrough`,
+  `lineLimit`, `lineSpacing`, `tracking`, `kerning`, `baselineOffset`,
+  `textCase`, `truncationMode`, `minimumScaleFactor`,
+  `allowsTightening`, `multilineTextAlignment`, `fontDesign`,
+  `monospacedDigit`) are added through the **Modifiers** section, not
+  as panel-root fields — they appear in the same stack as every other
+  modifier and emit in declaration order. The renderer reads them via
+  `modSummary` so the canvas matches the export.
+- **Emit:** `Text("...").font(.body).foregroundStyle(...)` plus
+  `.multilineTextAlignment(.leading|.trailing)` when `textAlign` is
+  non-center (`applyTextModifiers` in
+  [src/export/swiftui.js](src/export/swiftui.js)); every other text
+  modifier is emitted from the modifier stack by the generic
+  `renderModifiers` walker.
 
 #### `link`
 - **Default:** 200×24, text `'Open Link'`, url `'https://www.apple.com/vision-pro/'`, underline `true`.
@@ -386,19 +424,34 @@ Per-type metadata in `PANEL_META`:
 - **Inspector:** Value / Total / Indeterminate (Yes/No segmented).
 - **Emit:** `ProgressView(value: 0.65, total: 1.0).progressViewStyle(...)`.
 
+> **Inputs group.** `textfield`, `securefield` and `search` share one
+> "Input Type" variant switcher in the inspector (see
+> `INPUT_VARIANTS` in [src/panels/inspectors.jsx](src/panels/inspectors.jsx))
+> so the user can pivot between the three in place, the same way the
+> Geometry picker swaps shapes. The Shift+A palette groups them under
+> a dedicated **Inputs** category. In Preview mode a click on any
+> field focuses it and renders a real DOM `<input>` via drei's
+> `<Html>` overlay sized to the 3D field plate — `type="password"`
+> for SecureField. Typing writes to `textfieldValue` /
+> `securefieldValue` / `searchValue`; the canvas shows the live value
+> in the primary text color, the visionOS-spec placeholder
+> (`#545454`) when empty, or a row of `•` (`•`) glyphs for
+> SecureField. Live values never reach `emit()` — exported Swift
+> keeps `text: .constant("")` so the binding stays the user's job.
+
 #### `search`
-- **Default:** 305×44, color `'systemFill'`, cornerRadius `12pt`, text `'Search'` (placeholder).
-- **Inspector:** Placeholder.
+- **Default:** 305×44, color `'systemFill'`, cornerRadius `12pt`, text `'Search'` (placeholder), `searchValue: ''` (live preview), textStyle `body`, fontWeight `medium`, textColor `#545454`.
+- **Inspector:** Input Type switcher + Placeholder.
 - **Emit:** comment hint `// .searchable(text: $searchText, prompt: "...")` — designer attaches on parent.
 
 #### `textfield`
-- **Default:** 305×44, cornerRadius `12pt`, text `'Placeholder'`, textfieldValue `''`, keyboardType `'default'`, textContentType `''`, submitLabel `'return'`, autocapitalization `'sentences'`, autocorrectionDisabled `false`, axis `'horizontal'`, lineLimit `1`.
-- **Inspector:** Placeholder, Value, Keyboard type, Content type, Submit label, Autocapitalization, Autocorrection, Axis (h/v), Line limit.
-- **Emit:** `TextField("placeholder", text: .constant(""))` with `.keyboardType(...)` / `.textContentType(...)` / `.submitLabel(...)` / `.autocapitalization(...)` / `.lineLimit(...)` chained only when non-default.
+- **Default:** 305×44, cornerRadius `12pt`, text `'Placeholder'`, textColor `#545454` (visionOS Labels/Secondary on glass — not the iOS `#8e8e93`), `textfieldValue: ''`, keyboardType `'default'`, textContentType `''`, submitLabel `'return'`, autocorrectionDisabled `false`, textInputAutocapitalization `'sentences'`, axis `'horizontal'`, lineLimit `1`.
+- **Inspector:** Input Type switcher + Placeholder, Value, Keyboard type, Content type, Submit label, Autocapitalization, Autocorrection, Axis (h/v), Line limit.
+- **Emit:** `TextField("placeholder", text: .constant(""))` with `, axis: .vertical` when applicable, then `.keyboardType(...)` / `.textContentType(...)` / `.submitLabel(...)` / `.autocorrectionDisabled(true)` / `.textInputAutocapitalization(...)` / `.lineLimit(...)` / `.textFieldStyle(...)` chained only when non-default.
 
 #### `securefield`
-- **Default:** 305×44, cornerRadius `16pt`, text `'Password'`, dotCount `8`, submitLabel `'done'`.
-- **Inspector:** Placeholder, Dot count, Submit label.
+- **Default:** 305×44, cornerRadius `16pt` (deliberately larger than TextField's 12pt — matches Apple's visionOS Figma kit), text `'Password'`, textColor `#545454`, `securefieldValue: ''`, `dotCount: 8` (visual fallback bullets when no live value), submitLabel `'done'`.
+- **Inspector:** Input Type switcher + Placeholder, Dot count, Submit label.
 - **Emit:** `SecureField("...", text: .constant(""))`.
 
 #### `texteditor`
@@ -412,16 +465,16 @@ Per-type metadata in `PANEL_META`:
 - **Default:** 360pt wide (height auto-derived from row count × row metric), 4 rows, `listStyle: 'insetGrouped'`.
 - **Frame mode:** explicit + `lockHeight: true`.
 - **Row metrics:** driven by `LIST_STYLES[listStyle]` — rowH / pad / inset / gap / roundedRows / showSeparators / showGroupCard.
-- **Inspector:** Style (default / plain / inset / insetGrouped / grouped / sidebar) + per-row separator/tint/background/spacing controls, header prominence, row list (title + subtitle).
+- **Inspector:** Style (default / plain / inset / insetGrouped / grouped / sidebar — visionOS does not ship `.bordered` / `.carousel` / `.elliptical`) + per-row separator/tint/background/spacing controls, header prominence, row list (title + subtitle).
 - **Emit:** `List { Text(...) } .listStyle(...) .listRowSeparator(...) .listRowBackground(...) .headerProminence(...)`.
 
 #### `table`
-- **Default:** 440×260, columns `['Title', 'Subtitle', 'Detail']`, rows `[3 rows × 3 cells]`, `tableStyle: 'automatic'`.
+- **Default:** 440×260, columns `['Name', 'Status', 'Type']`, rows `[['Alpha','Active','A'], ['Bravo','Pending','B'], ['Charlie','Complete','A'], ['Delta','Active','C']]`, `tableStyle: 'automatic'`.
 - **Inspector:** Style, Columns (comma), Rows.
-- **Emit:** `Table { TableColumn("Title") { ... } }`.
+- **Emit:** `Table { TableColumn("Name") { _ in Text("") } }`.
 
 #### `menu`
-- **Default:** 220×192, text `'Menu'`, menuItems `['Item 1', …, 'Item 5']`, material `'thick'`, `menuStyle: 'automatic'`, `menuOrder: 'automatic'`, `menuIndicator: 'automatic'`.
+- **Default:** 220×192, text `'Menu'`, menuItems `['Cut', 'Copy', 'Paste', 'Duplicate', 'Select All']`, material `'thick'`, `menuStyle: 'automatic'`, `menuOrder: 'automatic'`, `menuIndicator: 'automatic'`.
 - **Inspector:** Title, Items (textarea), Style, Order, Indicator.
 - **Emit:** `Menu("...") { Button("...") { } } .menuStyle(...) .menuOrder(...) .menuIndicator(...)`.
 
@@ -467,11 +520,38 @@ Per-type metadata in `PANEL_META`:
 - **Default:** 300×1, color `'tertiary'` (#c7c7cc).
 - **Emit:** `Divider()`.
 
-### Shapes
+### Shapes & Gradients
+
+> All shape and gradient panel types share one unified
+> **ShapeInspector** ([src/panels/inspectors.jsx](src/panels/inspectors.jsx))
+> rather than per-type sections. The inspector renders one consolidated
+> block: Name + Geometry switcher (primary control — pick from
+> rectangle / circle / capsule / ellipse / path / unevenRoundedRect /
+> the three gradients) + Width + Height + a Stroke row (color + width
+> on every shape, suppressed for gradients), plus geometry-specific
+> rows:
+>
+> - `cornerRadius` is only shown for **Rectangle** (single radius) and
+>   **UnevenRoundedRectangle** (four per-corner radii:
+>   `topLeadingRadius`, `topTrailingRadius`, `bottomLeadingRadius`,
+>   `bottomTrailingRadius`). Circle / Capsule / Ellipse / Path render
+>   with their natural geometry; no radius field.
+> - Gradients expose From / To color stops; LinearGradient also exposes
+>   Angle. Real `LinearGradient` / `RadialGradient` / `AngularGradient`
+>   textures are baked through a CanvasTexture helper in
+>   [src/components/Panel3D.jsx](src/components/Panel3D.jsx) so the
+>   canvas shows the actual gradient — not a placeholder fill.
+> - Stroke is rendered as a slightly-larger backing layer in
+>   `strokeColor` behind the fill (canvas side) and as
+>   `.overlay(<Shape>().stroke(_, lineWidth:))` on emit.
+>
+> All shapes & gradients carry `PANEL_META = { frameMode: 'none',
+> mergedIdentity: true }` — the generic Object section is suppressed
+> because ShapeInspector owns the Width/Height rows itself.
 
 #### `rectangle`
-- **Default:** 200×140, color `'systemBlue'`, cornerRadius `12pt`.
-- **Emit:** `Rectangle().fill(...).frame(...)`.
+- **Default:** 200×140, color `'systemBlue'`, cornerRadius `12pt`, stroke disabled.
+- **Emit:** `Rectangle().fill(...).frame(...)` (`.clipShape(RoundedRectangle)` when radius > 0, `.overlay(...stroke...)` when stroke is set).
 
 #### `circle`
 - **Default:** 120×120, color `'systemGreen'`.
@@ -492,8 +572,6 @@ Per-type metadata in `PANEL_META`:
 #### `path`
 - **Default:** 200×200, color `'systemIndigo'`.
 - **Emit:** `Path { p in ... }.fill(...).frame(...)`.
-
-### Gradients
 
 #### `linearGradient`
 - **Default:** 240×160, `gradientFrom: '#007aff'`, `gradientTo: '#af52de'`, `gradientAngle: 180°`.
@@ -534,6 +612,12 @@ attach as modifiers on the parent.
 - **Emit:** `.inspector(isPresented: ...) { … }.inspectorColumnWidth(min:..., ideal:..., max:...)`.
 
 ### Navigation & misc
+
+#### `navbar`
+- **Default:** 600pt wide × `NAVBAR_HEIGHT_PT` (92pt) tall, `widthMode: 'fill'` (always tracks parent inner width), `heightMode: 'fixed'`, transparent (sits over the parent's glass), cornerRadius `0`, `navbarStyle: 'trailingButtons'`, title `'Title'`, leadingButtons `[{ symbolName: 'list.bullet' }]`, trailingButtons `[{ symbolName: 'magnifyingglass' }, { symbolName: 'ellipsis' }]`.
+- **PANEL_META:** `frameMode: 'none'` — width is parent-driven, height locked at 92pt by spec. The inspector exposes Style / Title / Leading + Trailing button arrays only.
+- **Inspector:** Style picker (six fixed styles from `NAVBAR_STYLE_SPECS` in [appleSystem.js](src/appleSystem.js)), title, per-button rows (symbol + label + tapAction picker mirroring the Button action schema).
+- **Emit:** comment placeholder (`// NavigationBar (style) — title: "..."` + `// TODO: map to .toolbar { ... } modifier on the parent window`) — there's no 1:1 SwiftUI primitive yet.
 
 #### `navigationlink`
 - **Default:** 220×28, text `'See Details'`, `linkMode: 'value'`, `navValue: 'detail'` (or `destinationName` when `linkMode === 'destination'`).
@@ -779,6 +863,30 @@ tones, and three design tokens (`designWindow`, `designButton`,
 `ACCESSIBILITY_TRAITS` — isButton, isHeader, isSelected, isLink,
 isSearchField, isImage, isStaticText, playsSound, isKeyboardKey,
 isSummaryElement, startsMediaSession, allowsDirectInteraction.
+
+### Modifier registry highlights
+
+Full catalogue in [src/modifiers/registry.js](src/modifiers/registry.js).
+Notable entries the inspector and exporter depend on:
+
+- **`frame`** — defaults `{ width: null, height: null, minWidth: null,
+  minHeight: null, maxWidth: false, maxHeight: false, alignment:
+  'center' }`. `maxWidth`/`maxHeight` use `true` as a sentinel for
+  `.infinity`; a number is a finite cap. Emits the corresponding
+  `.frame(width: …, maxWidth: .infinity, …)` chain. This is what the
+  Fit/Fixed/Fill picker on text/link writes into the modifier stack.
+- **`fixedSize`** — defaults `{ horizontal: true, vertical: true }`.
+  The Fit width-mode drops a `{ horizontal: true, vertical: false }`
+  entry so a Text view hugs its single-line intrinsic width.
+- **Text-display family** (`group: 'Text'`, accept on textual views —
+  `text`, `link`, `button`, `label`, `ticker`, `slideshow`, `text3d`):
+  `italic`, `underline`, `strikethrough`, `textCase`, `lineLimit`,
+  `lineSpacing`, `tracking`, `kerning`, `baselineOffset`,
+  `truncationMode`, `minimumScaleFactor`, `allowsTightening`,
+  `multilineTextAlignment`, `fontDesign`, `monospacedDigit`. These
+  mirror the on-panel Text fields one-for-one so authors can either
+  set them inline on a Text panel or stack them as reusable modifiers
+  on any textual view.
 
 ---
 

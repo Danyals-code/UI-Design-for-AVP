@@ -122,25 +122,17 @@ export const PANELS = {
       // visionOS body defaults to Medium (one step heavier than iOS Regular)
       // for legibility on glass — see TEXT_STYLES in appleSystem.js.
       fontWeight: 'medium',
-      textAlign: 'left',
-      // SwiftUI Text-only modifiers (kept on the panel root so they appear
-      // alongside the existing text fields rather than in the generic
-      // `.modifiers` blob — they're part of what a Text *is*, not a modifier
-      // layered on top of it).
-      italic:        false,   // .italic()
-      underline:     false,   // .underline()
-      strikethrough: false,   // .strikethrough()
-      lineLimit:     0,       // .lineLimit(n) — 0 = unlimited
-      lineSpacing:   0,       // .lineSpacing(pt)
-      tracking:      0,       // .tracking(pt)
-      kerning:       0,       // .kerning(pt) — pair-aware spacing
-      baselineOffset:0,       // .baselineOffset(pt)
-      textCase:      'none',  // .textCase(.uppercase / .lowercase)
-      truncationMode:'tail',  // .truncationMode(.tail / .middle / .head)
-      minimumScaleFactor: 1,  // .minimumScaleFactor(0..1) — 1 = no scaling
-      allowsTightening: false,// .allowsTightening(_:)
-      fontDesign:    'default',// .fontDesign(.default / .serif / .rounded / .monospaced)
-      monospacedDigit: false  // .monospacedDigit()
+      textAlign: 'left'
+      // Text-display modifiers (`.italic`, `.underline`, `.lineLimit`,
+      // `.tracking`, `.kerning`, `.baselineOffset`, `.truncationMode`,
+      // `.minimumScaleFactor`, `.allowsTightening`, `.fontDesign`,
+      // `.monospacedDigit`, `.lineSpacing`, `.textCase`,
+      // `.strikethrough`) live in the modifier stack
+      // (`src/modifiers/registry.js`, group: 'Text') — add them through
+      // the Modifiers section of the inspector. They used to be seeded
+      // here as panel-root fields too, but had no inspector surface and
+      // weren't read by the exporter, so the duplicates have been
+      // removed.
     },
     emit(panel, ctx) {
       const { push, escapeString, applyTextModifiers, style, weight, textColor } = ctx
@@ -472,8 +464,11 @@ export const PANELS = {
         { title: 'Third Item',  subtitle: 'Subtitle text' },
         { title: 'Fourth Item', subtitle: 'Subtitle text' }
       ],
-      // 'default' | 'plain' | 'inset' | 'insetGrouped' | 'grouped' |
-      // 'sidebar' | 'bordered' | 'carousel' | 'elliptical'
+      // Must match a key in LIST_STYLES (appleSystem.js): 'default' |
+      // 'plain' | 'inset' | 'insetGrouped' | 'grouped' | 'sidebar'. These
+      // map 1:1 onto SwiftUI's `.listStyle(.*)` cases — visionOS does not
+      // ship `.bordered` / `.carousel` / `.elliptical` so we don't list
+      // them either.
       listStyle: 'insetGrouped',
       // Spec §1.19 — list-row modifiers. Each affects the export only
       // (canvas list visuals are driven by the listStyle preset).
