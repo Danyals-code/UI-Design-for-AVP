@@ -16,13 +16,74 @@ import {
   SYMBOL_RENDERING_MODES, SYMBOL_VARIANTS,
   ANIMATION_CURVES, TRANSITION_TYPES,
   ACCESSIBILITY_TRAITS,
-  ptToUnits
+  ptToUnits, unitsToPt
 } from '../../appleSystem'
 import {
   Row, Section, NumField, IntField, PtField, Slider,
   ColorRow, Select, SemanticColorPicker
 } from './primitives'
+import { makeModifier } from '../../modifiers/registry'
 import SymbolPicker from '../SymbolPicker'
+
+// Width mode <-> SwiftUI modifier mapping.
+//
+//   Fit   → .fixedSize(horizontal: true, vertical: false)  — single line, no wrap
+//   Fixed → .frame(width: N)                                — exact width
+//   Fill  → .frame(maxWidth: .infinity)                     — fills parent
+//
+// Clicking a picker button replaces any auto-managed width modifier with
+// the matching one — so the user sees the modifier appear in the stack
+// and can edit its value (e.g. tweak the frame width number) directly
+// there. The picker also keeps the legacy `widthMode` field in sync so
+// the layout engine keeps working through every other read site.
+export function applyWidthMode(item, updateItem, mode) {
+  const list = (Array.isArray(item.modifiers) ? item.modifiers : []).slice()
+  // Drop any picker-managed modifier first — width fields on `frame` and
+  // the entire `fixedSize` modifier (we always rebuild it for clarity).
+  // A frame modifier that ONLY carries height/alignment is preserved
+  // with its width fields cleared.
+  const cleaned = []
+  for (const m of list) {
+    if (m.type === 'fixedSize') continue
+    if (m.type === 'frame') {
+      const ownsHeight = m.height != null || typeof m.maxHeight === 'number' || m.maxHeight === true || typeof m.minHeight === 'number'
+      const ownsAlign  = m.alignment && m.alignment !== 'center'
+      if (ownsHeight || ownsAlign) {
+        cleaned.push({ ...m, width: null, minWidth: null, maxWidth: false })
+      }
+      // else drop the empty frame
+      continue
+    }
+    cleaned.push(m)
+  }
+  const patch = {}
+  if (mode === 'fit') {
+    const mod = makeModifier('fixedSize')
+    mod.horizontal = true
+    mod.vertical   = false
+    cleaned.push(mod)
+    patch.widthMode = 'fit'
+  } else if (mode === 'fixed') {
+    const widthPt = Array.isArray(item.size) && item.size[0]
+      ? unitsToPt(item.size[0])
+      : 200
+    const mod = makeModifier('frame')
+    mod.width = widthPt
+    cleaned.push(mod)
+    patch.widthMode = 'fixed'
+    if (!Array.isArray(item.size)) {
+      patch.size = [ptToUnits(widthPt), ptToUnits(40)]
+    }
+  } else if (mode === 'fill') {
+    const mod = makeModifier('frame')
+    mod.width = null
+    mod.maxWidth = true
+    cleaned.push(mod)
+    patch.widthMode = 'fill'
+  }
+  patch.modifiers = cleaned
+  updateItem(item.id, patch)
+}
 
 // ---- Frame variants ----------------------------------------------------
 
@@ -33,42 +94,39 @@ export function FigmaFrameSection({ item, updateItem, embedded = false }) {
   // section header carries the heading. Standalone usage keeps the
   // dedicated "Frame" section so non-Object call-sites still read
   // correctly.
+  //
+  // The Fit / Fixed / Fill buttons round-trip through SwiftUI modifiers:
+  // clicking one drops a `.fixedSize` or `.frame(...)` entry into the
+  // modifier stack so the user can refine the value (e.g. dial the
+  // frame width) in the same place they see every other modifier. The
+  // legacy `widthMode` field is kept in sync for the layout engine.
   const Wrap = embedded ? FrameInline : FrameStandalone
+  const current = item.widthMode || 'fit'
   return (
     <Wrap>
       <Row label="Width">
         <div className="segmented flex-1">
           <button
-            className={(item.widthMode || 'fit') === 'fit' ? 'active' : ''}
-            onClick={() => updateItem(item.id, { widthMode: 'fit' })}
-            title="Hug contents (SwiftUI default — Text is intrinsic)"
+            className={current === 'fit' ? 'active' : ''}
+            onClick={() => applyWidthMode(item, updateItem, 'fit')}
+            title=".fixedSize(horizontal: true) — single line, no wrap"
           >Fit</button>
           <button
-            className={item.widthMode === 'fixed' ? 'active' : ''}
-            onClick={() => {
-              const next = Array.isArray(item.size) ? item.size : [ptToUnits(200), ptToUnits(40)]
-              updateItem(item.id, { widthMode: 'fixed', size: next })
-            }}
-            title=".frame(width:) — explicit width"
+            className={current === 'fixed' ? 'active' : ''}
+            onClick={() => applyWidthMode(item, updateItem, 'fixed')}
+            title=".frame(width:) — edit the value in the Modifiers section"
           >Fixed</button>
           <button
-            className={item.widthMode === 'fill' ? 'active' : ''}
-            onClick={() => updateItem(item.id, { widthMode: 'fill' })}
-            title=".frame(maxWidth: .infinity) — fill parent stack width"
+            className={current === 'fill' ? 'active' : ''}
+            onClick={() => applyWidthMode(item, updateItem, 'fill')}
+            title=".frame(maxWidth: .infinity) — fills the parent stack"
           >Fill</button>
         </div>
       </Row>
-      {item.widthMode === 'fixed' && Array.isArray(item.size) && (
-        <Row label="Size">
-          <PtField
-            value={item.size[0]}
-            onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size[1] ?? ptToUnits(40)] })}
-          />
-          <PtField
-            value={item.size[1] ?? ptToUnits(40)}
-            onChange={(v) => updateItem(item.id, { size: [item.size[0], Math.max(0.05, v)] })}
-          />
-        </Row>
+      {current !== 'fit' && (
+        <div className="text-[9px] text-textMute leading-snug pl-14">
+          Edit the value in the <span className="text-textBase">Modifiers</span> section below.
+        </div>
       )}
     </Wrap>
   )

@@ -15,9 +15,104 @@ import {
 } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
+import { measureSwiftUIText } from '../text'
 import { EntityChildren } from './Entity3D'
 
 const DEG2RAD = Math.PI / 180
+
+// Paints a SwiftUI-style gradient into an offscreen canvas and returns it
+// as a THREE.CanvasTexture. Used by the shape overlays to render
+// LinearGradient / RadialGradient / AngularGradient in the canvas.
+//
+// `kind` ∈ 'linear' | 'radial' | 'angular' | null (null = skip; returns null)
+// `angleDeg` is the SwiftUI start→end angle for linear (0° = top→bottom),
+// matching the inspector's Angle field. For radial / angular it's ignored.
+// The hook disposes the previous texture when its deps change so panels
+// don't leak GPU memory across edits.
+function useGradientTexture({ kind, from, to, angleDeg = 180 }) {
+  const texRef = useRef(null)
+  const tex = useMemo(() => {
+    if (texRef.current) {
+      texRef.current.dispose()
+      texRef.current = null
+    }
+    if (!kind || typeof document === 'undefined') return null
+    const canvas = document.createElement('canvas')
+    const N = 256
+    canvas.width = N
+    canvas.height = N
+    const ctx = canvas.getContext('2d')
+    const a = from || '#007aff'
+    const b = to   || '#af52de'
+    if (kind === 'linear') {
+      const rad = ((angleDeg ?? 180) * Math.PI) / 180
+      // SwiftUI: 0° = startPoint .top (top→bottom). Match by rotating
+      // the gradient vector from the canvas center.
+      const cx = N / 2, cy = N / 2
+      const dx = Math.sin(rad) * (N / 2)
+      const dy = -Math.cos(rad) * (N / 2)
+      const g = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy)
+      g.addColorStop(0, a)
+      g.addColorStop(1, b)
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, N, N)
+    } else if (kind === 'radial') {
+      const cx = N / 2, cy = N / 2
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, N / 2)
+      g.addColorStop(0, a)
+      g.addColorStop(1, b)
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, N, N)
+    } else if (kind === 'angular') {
+      // Conic gradient — fall back to manual pie slices if unsupported.
+      if (typeof ctx.createConicGradient === 'function') {
+        const g = ctx.createConicGradient(-Math.PI / 2, N / 2, N / 2)
+        g.addColorStop(0, a)
+        g.addColorStop(1, b)
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, N, N)
+      } else {
+        const steps = 64
+        for (let i = 0; i < steps; i++) {
+          const t = i / steps
+          const ang0 = -Math.PI / 2 + t * Math.PI * 2
+          const ang1 = -Math.PI / 2 + ((i + 1) / steps) * Math.PI * 2
+          const c1 = new THREE.Color(a).lerp(new THREE.Color(b), t).getStyle()
+          ctx.beginPath()
+          ctx.moveTo(N / 2, N / 2)
+          ctx.arc(N / 2, N / 2, N, ang0, ang1)
+          ctx.closePath()
+          ctx.fillStyle = c1
+          ctx.fill()
+        }
+      }
+    }
+    const next = new THREE.CanvasTexture(canvas)
+    next.needsUpdate = true
+    texRef.current = next
+    return next
+  }, [kind, from, to, angleDeg])
+  // Unmount cleanup — drop the GPU resource when the panel goes away.
+  useEffect(() => () => {
+    if (texRef.current) { texRef.current.dispose(); texRef.current = null }
+  }, [])
+  return tex
+}
+
+// Builds a ShapeGeometry whose UVs map edge-to-edge across the shape's
+// bounding box — same trick `ImageTextureMesh` uses so a CanvasTexture
+// fills the shape cleanly regardless of its outline.
+function buildUvShapeGeometry(shape, w, h) {
+  const g = new THREE.ShapeGeometry(shape, 32)
+  const pos = g.attributes.position
+  const uvs = new Float32Array(pos.count * 2)
+  for (let i = 0; i < pos.count; i++) {
+    uvs[i * 2]     = (pos.getX(i) + w / 2) / w
+    uvs[i * 2 + 1] = (pos.getY(i) + h / 2) / h
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+  return g
+}
 
 // Renders an image onto a rounded-rect shape. We draw the image into an
 // offscreen canvas first so we can apply the fit mode (stretch / fill (cover)
@@ -273,13 +368,42 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const isTextLike = panelType === 'text' || panelType === 'link'
     if (isTextLike) {
       const mode = panel.widthMode || 'fit'
-      if (mode === 'fixed' && Array.isArray(panel.size)) return panel.size
-      // fit / fill without a parent (top-level text): intrinsic.
+      // SwiftUI Text without a parent proposal sizes to its content. Run
+      // the same measurement pipeline the layout engine uses so wrapped /
+      // hard-line / fixedSize cases all reserve the right vertical space.
+      // When the user has dialed in a `.frame(width:)` modifier we honour
+      // it as the wrap bound — that's the value they see in the modifier
+      // stack after picking "Fixed".
       const text = panel.text || ''
-      const fontSize = panel.fontSize || ptToUnits(17)
-      const glyphAdv = fontSize * 0.55 + ptToUnits(modSummary.tracking || 0)
-      const w = Math.max(ptToUnits(40), text.length * glyphAdv)
-      const h = fontSize * 1.5 + ptToUnits(modSummary.lineSpacing || 0)
+      const baseFontSize = panel.textStyle
+        ? ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 17)
+        : (panel.fontSize || ptToUnits(17))
+      const frameWidthU = (typeof modSummary.frameWidth === 'number')
+        ? ptToUnits(modSummary.frameWidth)
+        : null
+      const wrapBound = frameWidthU != null
+        ? frameWidthU
+        : (mode === 'fixed' && Array.isArray(panel.size)
+            ? panel.size[0]
+            : Number.POSITIVE_INFINITY)
+      const m = measureSwiftUIText(text, baseFontSize, wrapBound, {
+        trackingPt:    modSummary.tracking    || 0,
+        lineSpacingPt: modSummary.lineSpacing || 0,
+        lineLimit:     modSummary.lineLimit ?? null,
+        truncationMode: panel.truncationMode || modSummary.truncationMode || 'tail',
+        minimumScaleFactor: modSummary.minimumScaleFactor ?? 1,
+        allowsTightening:   !!modSummary.allowsTightening,
+        fixedSizeH:         mode === 'fit' || !!modSummary.fixedSizeH,
+        fixedSizeV:         !!modSummary.fixedSizeV
+      })
+      const w = frameWidthU != null
+        ? frameWidthU
+        : (mode === 'fixed' && Array.isArray(panel.size)
+            ? panel.size[0]
+            : Math.max(ptToUnits(40), m.width))
+      const h = mode === 'fixed' && panel.heightMode === 'fixed' && Array.isArray(panel.size)
+        ? panel.size[1]
+        : m.height
       return [w, h]
     }
     // List: height auto-derived from (row count × style row height) + style
@@ -296,6 +420,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     return [Math.max(ptToUnits(40), text.length * fontSize * 0.55), fontSize * 1.5]
   })()
   const cornerRadius = panel.cornerRadius ?? 0
+  // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
+  // — rendered as a slightly larger copy of the shape in `strokeColor`
+  // placed BEHIND the fill. Half the width sits outside the shape's
+  // visual edge, matching SwiftUI's `.stroke(_, lineWidth:)` semantics
+  // closely enough for the editor preview.
+  const strokeColor = panel.strokeColor || null
+  const strokeWidth = strokeColor ? Math.max(0, ptToUnits(panel.strokeWidth || 0)) : 0
+  const hasStroke   = !!strokeColor && strokeWidth > 0
   const scene = useStore((s) => s.scene)
   const selectedId = useStore((s) => s.selectedId)
   const editingId = useStore((s) => s.editingId)
@@ -344,6 +476,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   const fillShape = useMemo(
     () => roundedRectShape(size[0], size[1], cornerRadius),
     [size[0], size[1], cornerRadius]
+  )
+  // Slightly enlarged copies of the shape, used as the stroke layer
+  // (rendered behind the fill in strokeColor). Only built when the shape
+  // actually has stroke set — keeps non-stroked shapes cheap.
+  const rectStrokeShape = useMemo(
+    () => panelType === 'rectangle' && hasStroke
+      ? roundedRectShape(size[0] + strokeWidth * 2, size[1] + strokeWidth * 2, cornerRadius + strokeWidth)
+      : null,
+    [panelType, hasStroke, size[0], size[1], cornerRadius, strokeWidth]
   )
   // Hair-thin selection ring — same metric as Window3D / Stack3D so
   // every selectable thing on the canvas reads as a single discreet
@@ -427,6 +568,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     if (scene.previewMode) {
       if (panelType === 'button' && panel.tapAction) {
         useStore.getState().runTapAction(panel.tapAction)
+      } else if (panelType === 'textfield' || panelType === 'securefield' || panelType === 'search') {
+        // visionOS input fields focus on tap — render the live <Html>
+        // input overlay so the wearer can actually type. Same `editingId`
+        // flow used for inline text editing in edit mode, just allowed
+        // here in preview too.
+        setEditing(id)
       }
       return
     }
@@ -591,7 +738,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // toggle, ± circle buttons for stepper), and the row itself is just
   // a transparent label slot. Without this the row would render with
   // the control's fill stretched across the whole panel width.
-  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient', 'toggle', 'stepper']
+  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'path', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient', 'toggle', 'stepper']
   const hasFill = !noFillTypes.includes(panelType)
   // `toggle` + `stepper` belong here so the panel's leading-edge label
   // renders next to the trailing control — the SwiftUI shape of
@@ -599,7 +746,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // sits left-aligned; each panel's overlay paints its widget on the
   // trailing edge, so the two don't overlap as long as the panel is
   // wider than the widget (default frame: 280×36).
-  const labelTypes = ['text', 'button', 'image', 'slideshow', 'sheet', 'path', 'groupbox', 'toggle', 'stepper']
+  const labelTypes = ['text', 'button', 'image', 'slideshow', 'sheet', 'groupbox', 'toggle', 'stepper']
   // Image panels render their placeholder via the cross meshes above
   // (lines 1531-1538) — drawing "Image" as a text label on top of a
   // 48pt avatar swatch wraps one glyph per line and looks broken.
@@ -671,8 +818,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     : symbolOffset / 2
 
   // Text-specific modifiers (.italic, .underline, .strikethrough, .lineLimit,
-  // .lineSpacing, .tracking, .textCase) come from the ordered modifier stack
-  // — sourced via `summarizeModifiers` above.
+  // .lineSpacing, .tracking, .kerning, .baselineOffset, .textCase) come
+  // from the ordered modifier stack — sourced via `summarizeModifiers`
+  // above. tracking + kerning both widen inter-character space; SwiftUI
+  // treats them as additive too. baselineOffset shifts the text up (+) or
+  // down (−) in points so superscript / subscript callouts read.
   const applyCase = (s) => {
     if (!s) return ''
     if (modSummary.textCase === 'uppercase') return s.toUpperCase()
@@ -680,7 +830,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     return s
   }
   const lineLimit = modSummary.lineLimit && modSummary.lineLimit > 0 ? modSummary.lineLimit : undefined
-  const letterSpacing = modSummary.tracking ? ptToUnits(modSummary.tracking) : 0
+  const letterSpacing = ptToUnits((modSummary.tracking || 0) + (modSummary.kerning || 0))
+  const baselineOffsetY = modSummary.baselineOffset ? ptToUnits(modSummary.baselineOffset) : 0
   const lineHeight = modSummary.lineSpacing
     ? 1 + (modSummary.lineSpacing / Math.max(1, (TEXT_STYLES[panel.textStyle]?.pt ?? 17)))
     : undefined
@@ -781,9 +932,19 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   )
 
   // ---- Circle shape ----
+  // SwiftUI's `Circle()` always inscribes the smaller frame dimension —
+  // the circle fills its frame's square. Stroke is drawn behind the fill
+  // as an enlarged circle of (radius + strokeWidth) so the visible ring
+  // is `strokeWidth` thick around the rim.
   const circleRadius = Math.min(size[0], size[1]) / 2
   const circleOverlay = panelType === 'circle' && (
     <>
+      {hasStroke && (
+        <mesh position={[0, 0, -0.0005]}>
+          <circleGeometry args={[circleRadius + strokeWidth, 64]} />
+          <meshBasicMaterial color={strokeColor} transparent opacity={modOpacity} side={THREE.DoubleSide} />
+        </mesh>
+      )}
       <mesh
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -794,12 +955,6 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         <circleGeometry args={[circleRadius, 64]} />
         <meshBasicMaterial color={fillColor} transparent opacity={0.98} side={THREE.DoubleSide} />
       </mesh>
-      {panel.strokeColor && panel.strokeWidth > 0 && (
-        <mesh position={[0, 0, -0.001]}>
-          <ringGeometry args={[circleRadius - ptToUnits(panel.strokeWidth), circleRadius, 64]} />
-          <meshBasicMaterial color={panel.strokeColor} />
-        </mesh>
-      )}
     </>
   )
 
@@ -809,6 +964,11 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     () => panelType === 'capsule' ? roundedRectShape(size[0], size[1], capsuleRadius) : null,
     [panelType, size[0], size[1], capsuleRadius]
   )
+  const capsuleStrokeShape = useMemo(() => {
+    if (panelType !== 'capsule' || !hasStroke) return null
+    const w = size[0] + strokeWidth * 2, h = size[1] + strokeWidth * 2
+    return roundedRectShape(w, h, Math.min(w, h) / 2)
+  }, [panelType, hasStroke, size[0], size[1], strokeWidth])
 
   // ---- Alert overlay (title + message + buttons row) ----
   const alertOverlay = panelType === 'alert' && (() => {
@@ -845,9 +1005,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Search field ----
-  const searchOverlay = panelType === 'search' && (() => {
+  // Magnifier glyph on the leading edge + the typed value (or
+  // placeholder). Suppressed while the live <Html> input is mounted so
+  // we don't double-render the caret.
+  const searchOverlay = !isEditing && panelType === 'search' && (() => {
     const iconSize = ptToUnits(7)
     const iconCx = -size[0] / 2 + ptToUnits(18)
+    const liveValue = panel.searchValue || ''
+    const showPlaceholder = !liveValue
+    const displayText = liveValue || (panel.text || 'Search')
+    const textColor = showPlaceholder
+      ? (panel.textColor || '#545454')
+      : resolveSemantic('primary', scene)
     return (
       <>
         <group position={[iconCx, 0, 0.005]}>
@@ -863,12 +1032,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         <Text
           position={[iconCx + ptToUnits(18), 0, 0.005]}
           fontSize={finalFontSize}
-          color={resolveSemantic('secondary', scene)}
+          color={textColor}
           anchorX="left"
           anchorY="middle"
           maxWidth={size[0] - ptToUnits(50)}
         >
-          {panel.text || 'Search'}
+          {displayText}
         </Text>
       </>
     )
@@ -1580,18 +1749,28 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
-  const textfieldOverlay = (panelType === 'textfield' || panelType === 'securefield') && (() => {
+  // TextField / SecureField rendering. Suppressed while the live HTML
+  // <input> overlay is mounted (isEditing) so we don't paint the 3D
+  // string on top of the input's caret. Otherwise:
+  //   - TextField    \u2192 typed value if any, else greyer placeholder
+  //   - SecureField  \u2192 '\u2022' per character of the typed value (legacy
+  //                    `dotCount` placeholder when empty)
+  const textfieldOverlay = !isEditing && (panelType === 'textfield' || panelType === 'securefield') && (() => {
     const isSec = panelType === 'securefield'
-    const displayText = isSec ? '\u2022'.repeat(panel.dotCount || 8) : (panel.text || 'Placeholder')
+    const liveValue = isSec ? (panel.securefieldValue || '') : (panel.textfieldValue || '')
+    const placeholder = panel.text || (isSec ? 'Password' : 'Placeholder')
+    const showPlaceholder = !liveValue
+    const displayText = isSec
+      ? (liveValue ? '\u2022'.repeat(liveValue.length) : '\u2022'.repeat(panel.dotCount || 8))
+      : (liveValue || placeholder)
+    const textColor = showPlaceholder
+      ? (panel.textColor || '#545454')
+      : resolveSemantic('primary', scene)
     return (
       <>
-        <Text position={[-size[0] / 2 + ptToUnits(14), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.85}>
+        <Text position={[-size[0] / 2 + ptToUnits(14), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={textColor} anchorX="left" anchorY="middle" maxWidth={size[0] - ptToUnits(28)}>
           {displayText}
         </Text>
-        {!isSec && <mesh position={[-size[0] / 2 + ptToUnits(14) + ptToUnits(displayText.length * 7), 0, 0.006]}>
-          <planeGeometry args={[ptToUnits(1.5), size[1] * 0.55]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} />
-        </mesh>}
       </>
     )
   })()
@@ -1714,6 +1893,12 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     () => panelType === 'ellipse' ? ellipseShape(size[0], size[1]) : null,
     [panelType, size[0], size[1]]
   )
+  const ellipseStrokeShape = useMemo(
+    () => panelType === 'ellipse' && hasStroke
+      ? ellipseShape(size[0] + strokeWidth * 2, size[1] + strokeWidth * 2)
+      : null,
+    [panelType, hasStroke, size[0], size[1], strokeWidth]
+  )
 
   const unevenShape = useMemo(
     () => panelType === 'unevenRoundedRect'
@@ -1727,6 +1912,37 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       : null,
     [panelType, size[0], size[1], panel.topLeadingRadius, panel.topTrailingRadius, panel.bottomLeadingRadius, panel.bottomTrailingRadius]
   )
+  const unevenStrokeShape = useMemo(
+    () => panelType === 'unevenRoundedRect' && hasStroke
+      ? unevenRoundedRectShape(
+          size[0] + strokeWidth * 2, size[1] + strokeWidth * 2,
+          (panel.topLeadingRadius ?? 0) + strokeWidth,
+          (panel.topTrailingRadius ?? 0) + strokeWidth,
+          (panel.bottomLeadingRadius ?? 0) + strokeWidth,
+          (panel.bottomTrailingRadius ?? 0) + strokeWidth
+        )
+      : null,
+    [panelType, hasStroke, size[0], size[1], strokeWidth, panel.topLeadingRadius, panel.topTrailingRadius, panel.bottomLeadingRadius, panel.bottomTrailingRadius]
+  )
+
+  // ---- Gradient texture ----
+  // CanvasTexture sampled across the panel's frame for the three gradient
+  // shape types. The hook is always called (rules of hooks) but only
+  // consumed when the panel's actually a gradient.
+  const gradientKind = panelType === 'linearGradient' ? 'linear'
+                    : panelType === 'radialGradient' ? 'radial'
+                    : panelType === 'angularGradient' ? 'angular'
+                    : null
+  const gradientTexture = useGradientTexture({
+    kind: gradientKind,
+    from: panel.gradientFrom,
+    to:   panel.gradientTo,
+    angleDeg: panel.gradientAngle ?? 180
+  })
+  const gradientGeometry = useMemo(() => {
+    if (!gradientKind) return null
+    return buildUvShapeGeometry(roundedRectShape(size[0], size[1], 0), size[0], size[1])
+  }, [gradientKind, size[0], size[1]])
 
   // ---- Modifier preview values ----
   // Derived from the ordered modifier stack via summarizeModifiers above.
@@ -2011,22 +2227,34 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       )}
 
       {hasFill ? (
-        <mesh
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onDoubleClick={onDoubleClick}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
-          onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
-        >
-          <shapeGeometry args={[fillShape]} />
-          <meshBasicMaterial
-            color={resolvedFill}
-            transparent
-            opacity={resolvedFillOpacity * modOpacity}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+        <>
+          {/* Rectangle stroke — drawn behind the fill so its edge shows
+              evenly around the rim. The shape is enlarged by strokeWidth
+              on each side; we use Math.min so the stroke ring never
+              exceeds the visible bound the user gave it. */}
+          {panelType === 'rectangle' && hasStroke && rectStrokeShape && (
+            <mesh position={[0, 0, -0.0005]}>
+              <shapeGeometry args={[rectStrokeShape]} />
+              <meshBasicMaterial color={strokeColor} transparent opacity={modOpacity} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+          <mesh
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onDoubleClick={onDoubleClick}
+            onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
+            onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
+          >
+            <shapeGeometry args={[fillShape]} />
+            <meshBasicMaterial
+              color={resolvedFill}
+              transparent
+              opacity={resolvedFillOpacity * modOpacity}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        </>
       ) : (
         <mesh
           onPointerDown={onPointerDown}
@@ -2064,41 +2292,66 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       )}
 
       {showDefaultLabel && (() => {
-        const textY = panelType === 'slideshow' ? size[1] * 0.05 : 0
+        const textY = (panelType === 'slideshow' ? size[1] * 0.05 : 0) + baselineOffsetY
         const rawText = applyCase(panel.text || (panelType === 'image' ? 'Image' : panelType === 'slideshow' ? 'Slideshow' : ''))
-        // Manual ellipsis when `lineLimit === 1` + truncationMode === 'tail'.
-        // drei's `<Text>` with `maxLines={1}` clips without appending an
-        // ellipsis, which makes a truncated SwiftUI title look broken.
-        // Estimate the char budget from the frame width and the average
-        // glyph advance, then trim with an ellipsis if the string exceeds it.
-        const wantTailTrunc = panel.lineLimit === 1 && (panel.truncationMode || 'tail') === 'tail'
-        const rendered = (() => {
-          if (!wantTailTrunc) return rawText
-          // Conservative glyph advance (0.62 ≈ wide-glyph weighted) so we
-          // err on the side of truncating early rather than letting text
-          // bleed past the frame. The ellipsis itself reserves one slot.
-          const glyphAdv = finalFontSize * 0.62 + letterSpacing
-          const innerW = Math.max(0, size[0] - textInset * 2)
-          const budget = Math.floor(innerW / Math.max(0.0001, glyphAdv))
-          if (rawText.length <= budget) return rawText
-          return rawText.slice(0, Math.max(1, budget - 2)) + '…'
-        })()
+        // Run the full SwiftUI Text pipeline (tighten → scale → wrap →
+        // truncate) on the resolved frame so the canvas reads exactly
+        // like the device would. Modifier-derived values (lineLimit,
+        // truncationMode, minimumScaleFactor, allowsTightening,
+        // fixedSize, padding) all flow through `modSummary`.
+        const measuredPad = modSummary.padding
+        const innerPadX = measuredPad
+          ? ptToUnits((measuredPad.left || 0) + (measuredPad.right  || 0))
+          : 0
+        const wrapBound = panelType === 'button'
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0.0001, size[0] - textInset * 2 - innerPadX)
+        const swiftMeasure = (panelType === 'text' || panelType === 'link' || panelType === 'label')
+          ? measureSwiftUIText(rawText, finalFontSize, wrapBound, {
+              // .tracking and .kerning both add to inter-character space
+              // in SwiftUI; sum them so wrap measurement and rendering
+              // agree on the glyph advance.
+              trackingPt:    (modSummary.tracking || 0) + (modSummary.kerning || 0),
+              lineSpacingPt: modSummary.lineSpacing || 0,
+              lineLimit:     modSummary.lineLimit ?? null,
+              truncationMode: panel.truncationMode || modSummary.truncationMode || 'tail',
+              minimumScaleFactor: modSummary.minimumScaleFactor ?? 1,
+              allowsTightening:   !!modSummary.allowsTightening,
+              fixedSizeH:         !!modSummary.fixedSizeH,
+              fixedSizeV:         !!modSummary.fixedSizeV
+            })
+          : null
+        // Join the post-pipeline lines back with '\n' so drei's <Text>
+        // renders them as separate visual lines without re-wrapping
+        // (the maxWidth bound stays in place to catch any rounding).
+        const rendered = swiftMeasure ? swiftMeasure.lines.join('\n') : rawText
+        const renderedFontSize = swiftMeasure ? swiftMeasure.fontSize : finalFontSize
+        // .multilineTextAlignment beats .textAlign for wrapped text —
+        // SwiftUI separates "which side glyphs anchor to" (textAlign,
+        // .leading/.trailing on a hard-line view) from "which side
+        // wrapped lines align to inside the frame" (multilineTextAlignment).
+        const multilineAlign = modSummary.multilineTextAlignment
+        const effectiveAlign = (panelType === 'button')
+          ? 'center'
+          : (multilineAlign === 'leading'  ? 'left'
+            : multilineAlign === 'trailing' ? 'right'
+            : multilineAlign === 'center'   ? 'center'
+            : (panel.textAlign || 'center'))
         // For text/link, shadow is drawn as a second Text copy behind the main
         // one — a flat rectangle shadow looks wrong behind transparent glyphs.
         const textShadow = hasShadow && (panelType === 'text' || panelType === 'link') && (
           <Text
             position={[textX + ptToUnits(shadowSummary.x || 0), textY - ptToUnits(shadowSummary.y || 0), 0.004]}
             font={fontUrl}
-            fontSize={finalFontSize}
+            fontSize={renderedFontSize}
             color={shadowSummary.color}
             fillOpacity={0.35 * modOpacity}
             anchorX={anchorX}
             anchorY="middle"
-            maxWidth={size[0]}
-            textAlign={panel.textAlign || 'center'}
-            letterSpacing={letterSpacing}
+            maxWidth={size[0] - textInset * 2 - innerPadX}
+            textAlign={effectiveAlign}
+            letterSpacing={letterSpacing * (swiftMeasure?.tightenFactor ?? 1)}
             lineHeight={lineHeight}
-            maxLines={lineLimit}
             overflowWrap="break-word"
           >
             {rendered}
@@ -2110,16 +2363,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
             <Text
               position={[textX, textY, 0.005]}
               font={fontUrl}
-              fontSize={finalFontSize}
+              fontSize={renderedFontSize}
               color={resolvedTextColor}
               fillOpacity={modOpacity}
               anchorX={anchorX}
               anchorY="middle"
-              maxWidth={panelType === 'button' ? undefined : size[0]}
-              textAlign={panelType === 'button' ? 'center' : (panel.textAlign || 'center')}
-              letterSpacing={letterSpacing}
+              maxWidth={panelType === 'button' ? undefined : Math.max(0.0001, size[0] - textInset * 2 - innerPadX)}
+              textAlign={effectiveAlign}
+              letterSpacing={letterSpacing * (swiftMeasure?.tightenFactor ?? 1)}
               lineHeight={lineHeight}
-              maxLines={panelType === 'button' ? 1 : lineLimit}
               overflowWrap="break-word"
               whiteSpace={panelType === 'button' ? 'nowrap' : undefined}
             >
@@ -2216,57 +2468,77 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
       {groupboxOverlay}
       {/* Phase 5 shapes */}
       {ellipseMesh && panelType === 'ellipse' && (
-        <mesh onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
-          onPointerOut={() => { setHovered(false) }}>
-          <shapeGeometry args={[ellipseMesh]} />
-          <meshBasicMaterial color={fillColor} transparent opacity={modOpacity * 0.98} side={THREE.DoubleSide} />
-        </mesh>
+        <>
+          {hasStroke && ellipseStrokeShape && (
+            <mesh position={[0, 0, -0.0005]}>
+              <shapeGeometry args={[ellipseStrokeShape]} />
+              <meshBasicMaterial color={strokeColor} transparent opacity={modOpacity} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+          <mesh onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+            onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
+            onPointerOut={() => { setHovered(false) }}>
+            <shapeGeometry args={[ellipseMesh]} />
+            <meshBasicMaterial color={fillColor} transparent opacity={modOpacity * 0.98} side={THREE.DoubleSide} />
+          </mesh>
+        </>
       )}
       {unevenShape && panelType === 'unevenRoundedRect' && (
-        <mesh onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-          onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
-          onPointerOut={() => { setHovered(false) }}>
-          <shapeGeometry args={[unevenShape]} />
-          <meshBasicMaterial color={fillColor} transparent opacity={modOpacity * 0.98} side={THREE.DoubleSide} />
-        </mesh>
+        <>
+          {hasStroke && unevenStrokeShape && (
+            <mesh position={[0, 0, -0.0005]}>
+              <shapeGeometry args={[unevenStrokeShape]} />
+              <meshBasicMaterial color={strokeColor} transparent opacity={modOpacity} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+          <mesh onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+            onPointerOver={(e) => { e.stopPropagation(); setHovered(true) }}
+            onPointerOut={() => { setHovered(false) }}>
+            <shapeGeometry args={[unevenShape]} />
+            <meshBasicMaterial color={fillColor} transparent opacity={modOpacity * 0.98} side={THREE.DoubleSide} />
+          </mesh>
+        </>
       )}
       {panelType === 'path' && (
         <Text position={[0, 0, 0.005]} fontSize={ptToUnits(13)} color={resolveSemantic('secondary', scene)} anchorX="center" anchorY="middle">Custom Path</Text>
       )}
-      {/* Gradient overlays */}
-      {panelType === 'linearGradient' && panel.gradientFrom && panel.gradientTo && (() => {
-        const c1 = new THREE.Color(panel.gradientFrom)
-        const c2 = new THREE.Color(panel.gradientTo)
-        return (
-          <mesh>
-            <planeGeometry args={[size[0], size[1], 1, 16]} />
-            <meshBasicMaterial vertexColors transparent opacity={modOpacity}>
-              {/* vertex colors are set via onUpdate */}
-            </meshBasicMaterial>
-          </mesh>
-        )
-      })()}
-      {(panelType === 'radialGradient' || panelType === 'angularGradient') && (
-        <mesh>
-          <circleGeometry args={[Math.min(size[0], size[1]) / 2, 64]} />
-          <meshBasicMaterial color={panel.gradientFrom || fillColor} transparent opacity={modOpacity * 0.98} />
-        </mesh>
-      )}
-
-      {dividerOverlay}
-      {circleOverlay}
-      {panelType === 'capsule' && capsuleShape && !circleOverlay && (
+      {/* Gradient overlays — a CanvasTexture is painted with the
+          SwiftUI gradient and sampled across the panel's frame. The
+          texture is regenerated whenever the colors / angle change. */}
+      {gradientKind && gradientGeometry && gradientTexture && (
         <mesh
+          geometry={gradientGeometry}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
           onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
         >
-          <shapeGeometry args={[capsuleShape]} />
-          <meshBasicMaterial color={fillColor} transparent opacity={0.98} side={THREE.DoubleSide} />
+          <meshBasicMaterial map={gradientTexture} transparent opacity={modOpacity} side={THREE.DoubleSide} />
         </mesh>
+      )}
+
+      {dividerOverlay}
+      {circleOverlay}
+      {panelType === 'capsule' && capsuleShape && !circleOverlay && (
+        <>
+          {hasStroke && capsuleStrokeShape && (
+            <mesh position={[0, 0, -0.0005]}>
+              <shapeGeometry args={[capsuleStrokeShape]} />
+              <meshBasicMaterial color={strokeColor} transparent opacity={modOpacity} side={THREE.DoubleSide} />
+            </mesh>
+          )}
+          <mesh
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerOver={(e) => { e.stopPropagation(); setHovered(true); gl.domElement.style.cursor = hoverCursor }}
+            onPointerOut={() => { setHovered(false); if (!dragData.current?.dragging) gl.domElement.style.cursor = 'auto' }}
+          >
+            <shapeGeometry args={[capsuleShape]} />
+            <meshBasicMaterial color={fillColor} transparent opacity={0.98} side={THREE.DoubleSide} />
+          </mesh>
+        </>
       )}
       {alertOverlay}
       {segmentOverlay}
@@ -2298,7 +2570,72 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
         </mesh>
       )}
 
-      {isEditing && (
+      {isEditing && (panelType === 'textfield' || panelType === 'securefield' || panelType === 'search') && (() => {
+        // Live input overlay for the three field kinds. The HTML <input>
+        // sits flush over the 3D field plate (so the visionOS glass shows
+        // through) and writes back to the matching panel value:
+        //   textfield   → textfieldValue
+        //   securefield → securefieldValue   (masked as the user types)
+        //   search      → searchValue
+        // Submit (Enter / blur) commits the value and unfocuses. Escape
+        // restores the previous value and unfocuses.
+        const valueField = panelType === 'textfield'   ? 'textfieldValue'
+                         : panelType === 'securefield' ? 'securefieldValue'
+                         :                              'searchValue'
+        const currentValue = panel[valueField] || ''
+        const inputType = panelType === 'securefield' ? 'password' : 'text'
+        const px = (u) => `${u * 1360}px` // units → pt → CSS px is 1:1 in our scene
+        // Reserve space for the search field's leading icon (28pt of
+        // padding) so the typed text doesn't overlap the magnifier.
+        const padL = panelType === 'search' ? 36 : 14
+        const padR = panelType === 'search' ? 36 : 14
+        return (
+          <Html
+            position={[0, 0, 0.02]}
+            // `transform` mode aligns the HTML element with the 3D
+            // canvas's perspective so the input lines up at any camera
+            // angle. `distanceFactor` keeps the text crisp at depth.
+            transform
+            distanceFactor={1}
+            center
+            style={{ pointerEvents: 'auto' }}
+            zIndexRange={[100, 0]}
+          >
+            <input
+              type={inputType}
+              autoFocus
+              defaultValue={currentValue}
+              placeholder={panel.text || ''}
+              onChange={(e) => updateItem(id, { [valueField]: e.target.value })}
+              onBlur={() => clearEditing()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter')  { e.target.blur() }
+                else if (e.key === 'Escape') {
+                  updateItem(id, { [valueField]: currentValue })
+                  e.target.blur()
+                }
+                e.stopPropagation()
+              }}
+              style={{
+                font: '500 17px Inter, sans-serif',
+                width:  px(size[0]),
+                height: px(size[1]),
+                paddingLeft:  `${padL}px`,
+                paddingRight: `${padR}px`,
+                color: '#000000',
+                background: 'rgba(255,255,255,0.92)',
+                border: `1.5px solid ${scene.tintColor || '#007aff'}`,
+                borderRadius: `${(cornerRadius * 1360) || 12}px`,
+                outline: 'none',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.18)',
+                boxSizing: 'border-box'
+              }}
+            />
+          </Html>
+        )
+      })()}
+
+      {isEditing && !(panelType === 'textfield' || panelType === 'securefield' || panelType === 'search') && (
         <Html
           position={[0, 0, 0.02]}
           center

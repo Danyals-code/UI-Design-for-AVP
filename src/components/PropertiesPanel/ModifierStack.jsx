@@ -203,18 +203,25 @@ function ModifierBody({ m, set }) {
       return <Row label="Min Scale"><Slider value={m.value ?? 1} min={0.1} max={1} step={0.05} onChange={(v) => set({ value: v })} /></Row>
     case 'fontDesign':
       return (
-        <Row label="Design">
-          <Select
-            value={m.value || 'rounded'}
-            options={[
-              { value: 'default',    label: 'Default (SF)' },
-              { value: 'serif',      label: 'Serif (NY)' },
-              { value: 'rounded',    label: 'Rounded' },
-              { value: 'monospaced', label: 'Monospaced' }
-            ]}
-            onChange={(v) => set({ value: v })}
-          />
-        </Row>
+        <>
+          <Row label="Design">
+            <Select
+              value={m.value || 'rounded'}
+              options={[
+                { value: 'default',    label: 'Default (SF)' },
+                { value: 'serif',      label: 'Serif (NY)' },
+                { value: 'rounded',    label: 'Rounded' },
+                { value: 'monospaced', label: 'Monospaced' }
+              ]}
+              onChange={(v) => set({ value: v })}
+            />
+          </Row>
+          <div className="text-[9px] text-textMute leading-snug">
+            Canvas previews stay on Inter (no rounded/serif faces bundled).
+            The SwiftUI export emits <code>.fontDesign(.{m.value || 'rounded'})</code>
+            so the device picks the right system face.
+          </div>
+        </>
       )
 
     case 'frame':
@@ -425,13 +432,22 @@ function ModifierBody({ m, set }) {
         </Row>
       )
 
-    // No-arg modifiers (italic, underline, strikethrough, monospacedDigit,
-    // allowsTightening) render no body — the row title carries the meaning.
+    // No-arg modifiers (italic, underline, strikethrough) render no body —
+    // the row title carries the meaning.
     case 'italic':
     case 'underline':
     case 'strikethrough':
-    case 'monospacedDigit':
       return null
+
+    case 'monospacedDigit':
+      return (
+        <div className="text-[9px] text-textMute leading-snug">
+          Locks every digit glyph to the same advance (tabular figures).
+          Canvas previews stay on the proportional Inter face; the SwiftUI
+          export emits <code>.monospacedDigit()</code> so digits line up
+          on device.
+        </div>
+      )
 
     case 'allowsTightening':
       return (
@@ -440,6 +456,21 @@ function ModifierBody({ m, set }) {
             <button className={m.value ? 'active' : ''} onClick={() => set({ value: true })}>On</button>
             <button className={!m.value ? 'active' : ''} onClick={() => set({ value: false })}>Off</button>
           </div>
+        </Row>
+      )
+
+    case 'multilineTextAlignment':
+      return (
+        <Row label="Align">
+          <Select
+            value={m.value || 'leading'}
+            options={[
+              { value: 'leading',  label: 'Leading' },
+              { value: 'center',   label: 'Center' },
+              { value: 'trailing', label: 'Trailing' }
+            ]}
+            onChange={(v) => set({ value: v })}
+          />
         </Row>
       )
 

@@ -2,7 +2,33 @@
 // DisclosureGroup/NavigationStack semantics. Given a stack item and its children,
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
-import { ptToUnits, computeListHeightPt } from './appleSystem'
+import { ptToUnits, computeListHeightPt, TEXT_STYLES } from './appleSystem'
+import { summarizeModifiers } from './modifiers/registry'
+import { measureSwiftUIText } from './text'
+
+// Pulls the text-relevant inputs off a panel + its summarized modifiers
+// in scene-unit form. Centralised so layout.js and Panel3D.jsx feed
+// `measureSwiftUIText` the same numbers — what's reserved must match
+// what's rendered.
+export function textMetrics(item, modSummary) {
+  const fontSize = item.textStyle
+    ? ptToUnits(TEXT_STYLES[item.textStyle]?.pt ?? 17)
+    : (item.fontSize || ptToUnits(17))
+  // tracking + kerning both widen inter-character space in SwiftUI;
+  // they're additive in the layout too so measurement matches render.
+  const trackingPt    = (modSummary?.tracking || 0) + (modSummary?.kerning || 0)
+  const lineSpacingPt = modSummary?.lineSpacing || 0
+  const lineLimit     = modSummary?.lineLimit ?? null
+  const truncationMode = modSummary?.truncationMode || 'tail'
+  const minimumScaleFactor = modSummary?.minimumScaleFactor ?? 1
+  const allowsTightening   = !!modSummary?.allowsTightening
+  const fixedSizeH = !!modSummary?.fixedSizeH
+  const fixedSizeV = !!modSummary?.fixedSizeV
+  return {
+    fontSize, trackingPt, lineSpacingPt, lineLimit, truncationMode,
+    minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
+  }
+}
 
 // SwiftUI's default `spacing: nil` resolves at runtime to a small,
 // context-dependent gap. visionOS hovers around ~8 pt for typical body
@@ -59,25 +85,55 @@ export function gridColumnCount(stack, innerW, gap) {
 
 // ---- size computation ----
 
-// Intrinsic (content-hug) size for a text-like panel. Width grows with the
-// character count (plus tracking), height grows with the font size (plus any
-// extra .lineSpacing the user dialled in).
+// Intrinsic (content-hug) size for a text-like panel. Honours the full
+// SwiftUI Text measurement pipeline so the canvas reserves the right
+// amount of space:
 //
-// Explicit newlines in the body bump the height proportionally so a
-// multi-line block (Mail body, multi-paragraph hero copy) doesn't
-// collapse to a single-line slot and overlap its siblings inside a
-// VStack. Wrap-driven multi-line is still under-counted at this stage
-// — the parent only knows the wrap width once layoutStack runs — but
-// '\n' is information we have here, so we honour it.
-function textIntrinsicSize(item) {
+//   - hard newlines → multi-line at intrinsic width
+//   - .fixedSize(horizontal: true) → single line at intrinsic width
+//   - otherwise wraps to whatever bound the caller supplies (or the
+//     longest hard-line if none is given — that's the SwiftUI "ideal"
+//     proposal for content-hug parents)
+//
+// `wrapBound` is the wrap width (units) the caller intends to give us.
+// Pass `null` when no parent has proposed a width yet; we return the
+// content-hug intrinsic in that case.
+function textIntrinsicSize(item, wrapBound = null) {
   const text = item.text || ''
-  const fontSize = item.fontSize || ptToUnits(17)
-  const glyphAdv = fontSize * 0.55 + ptToUnits(item.tracking || 0)
-  const lines = Math.max(1, text.split('\n').length)
-  const longestLine = text.split('\n').reduce((m, l) => Math.max(m, l.length), 1)
-  const w = Math.max(ptToUnits(40), longestLine * glyphAdv)
-  const h = fontSize * 1.5 * lines + ptToUnits((item.lineSpacing || 0) * lines)
-  return [w, h]
+  // Pull modifier-derived metrics straight off `item` for backwards
+  // compatibility (older callsites set tracking / lineSpacing as direct
+  // panel fields) AND off summarized modifiers when present. The modifier
+  // values win when both are set since they're the source of truth.
+  const mod = summarizeModifiers(item.modifiers)
+  const m = textMetrics(item, {
+    ...mod,
+    tracking:    mod.tracking    ?? item.tracking ?? 0,
+    lineSpacing: mod.lineSpacing ?? item.lineSpacing ?? 0,
+    lineLimit:   mod.lineLimit   ?? item.lineLimit
+  })
+
+  // Hard-line content-hug width — used when there's no parent proposal
+  // and as the fallback intrinsic width for fixedSizeH / fit modes.
+  const hardLines = text.split('\n')
+  const longest = hardLines.reduce((acc, l) =>
+    acc.length > l.length ? acc : l, '')
+  const intrinsicW = Math.max(
+    ptToUnits(40),
+    longest.length * (m.fontSize * 0.55 + ptToUnits(m.trackingPt || 0))
+  )
+
+  // If horizontal is fixed (or fit), don't wrap. Just measure at the
+  // intrinsic width — height grows only with hard newlines.
+  if (m.fixedSizeH || wrapBound == null) {
+    const r = measureSwiftUIText(text, m.fontSize, intrinsicW, {
+      ...m, fixedSizeH: true
+    })
+    return [Math.max(intrinsicW, r.width), r.height]
+  }
+
+  // Wrap to the proposed bound — height comes out of the measurement.
+  const r = measureSwiftUIText(text, m.fontSize, wrapBound, m)
+  return [Math.min(intrinsicW, wrapBound), r.height]
 }
 
 export function computeSize(item, items) {
@@ -98,10 +154,18 @@ export function computeSize(item, items) {
     if (isTextLike) {
       const mode = item.widthMode || 'fit'
       const hMode = item.heightMode || 'fit'
-      const [iw, ih] = textIntrinsicSize(item)
+      // Frame modifier wins as the source of truth for the wrap bound —
+      // that's what the user edits in the Modifiers section after
+      // clicking the Fit/Fixed/Fill picker.
+      const mod = summarizeModifiers(item.modifiers)
+      const wrapHintFromMod = (typeof mod.frameWidth === 'number')
+        ? ptToUnits(mod.frameWidth)
+        : null
+      const [iw, ih] = textIntrinsicSize(item, wrapHintFromMod)
       const fixedH = hMode === 'fixed' && Array.isArray(item.size) && item.size[1] ? item.size[1] : null
-      if (mode === 'fixed' && Array.isArray(item.size)) {
-        return [item.size[0], fixedH ?? item.size[1] ?? ih]
+      if (mode === 'fixed') {
+        const widthU = wrapHintFromMod ?? (Array.isArray(item.size) ? item.size[0] : iw)
+        return [widthU, fixedH ?? ih]
       }
       // fit and fill both start from intrinsic at this stage. fill gets
       // resized later inside layoutStack once innerW is known. `fixed`
@@ -175,7 +239,32 @@ export function computeSize(item, items) {
 
   // Filter out spacers from fixed-size calculation (they expand later).
   const fixedChildren = children.filter((c) => !c.isSpacer)
-  const sizes = fixedChildren.map((c) => computeSize(c, items))
+  // For VStack-likes with a known fixed width, we can give text children
+  // the actual wrap bound when measuring their intrinsic size. Without
+  // this the column reserves single-line height and the wrapped text
+  // overflows the column at render time. The wrap bound is the stack's
+  // inner width — fixed - padding, or for fill stacks the upstream
+  // proposal (still unknown here, so we fall back to the longest
+  // non-text child's intrinsic width as a best-effort proposal).
+  const isVStackLike = item.stackType === 'vstack' || item.stackType === 'lazyvstack' ||
+                       item.stackType === 'section' || item.stackType === 'disclosure' ||
+                       (item.stackType === 'scrollView' && (item.scrollAxis || 'vertical') !== 'horizontal')
+  let knownWrapBound = null
+  if (isVStackLike) {
+    if (fixedW != null) {
+      knownWrapBound = Math.max(0, fixedW - padW(pad))
+    } else if (item.size && Array.isArray(item.size) && (item.widthMode === 'fixed' || (item.fixedWidth != null))) {
+      knownWrapBound = Math.max(0, item.size[0] - padW(pad))
+    }
+  }
+  const sizes = fixedChildren.map((c) => {
+    const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
+    if (isTextLike && knownWrapBound != null && c.widthMode === 'fill') {
+      const [iw, ih] = textIntrinsicSize(c, knownWrapBound)
+      return [Math.min(iw, knownWrapBound), ih]
+    }
+    return computeSize(c, items)
+  })
   const gap = stackSpacing(item.spacing)
 
   // Section: add header + footer height
@@ -321,6 +410,40 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
       if (c.heightMode === 'fill') {
         rh = isVStack ? flexShareH : innerH
       }
+    }
+    // Text height honours the wrap bound once it's known. Without this,
+    // a long string in a `fill`-width Text would only reserve the
+    // single-line intrinsic height — the wrap would happen at render
+    // time and clip into the sibling below. By feeding `rw` (minus any
+    // ancestor padding the modifier stack adds to this view itself) back
+    // into the measurement, the parent stack reserves the right amount
+    // of vertical space for every wrapped line.
+    if (isTextLike) {
+      const mod = summarizeModifiers(c.modifiers)
+      // Respect `frame(width:)` and `.fixedSize(horizontal: true)` —
+      // those override the proposed width with the intrinsic instead.
+      let wrapBound = rw
+      if (typeof mod.frameWidth === 'number') {
+        wrapBound = ptToUnits(mod.frameWidth)
+        rw = wrapBound
+      }
+      if (typeof mod.frameMaxWidth === 'number' && Number.isFinite(mod.frameMaxWidth)) {
+        wrapBound = Math.min(wrapBound, ptToUnits(mod.frameMaxWidth))
+      }
+      if (typeof mod.frameMinWidth === 'number') {
+        wrapBound = Math.max(wrapBound, ptToUnits(mod.frameMinWidth))
+        rw = Math.max(rw, ptToUnits(mod.frameMinWidth))
+      }
+      // The view's own `.padding(_)` shrinks the proposal the inner Text
+      // sees — subtract it from the wrap bound but add it back into the
+      // reserved height.
+      const pp = mod.padding
+      const padX = pp ? ptToUnits((pp.left || 0) + (pp.right  || 0)) : 0
+      const padY = pp ? ptToUnits((pp.top  || 0) + (pp.bottom || 0)) : 0
+      wrapBound = Math.max(0.0001, wrapBound - padX)
+      const [, measuredH] = textIntrinsicSize(c, wrapBound)
+      rh = measuredH + padY
+      if (typeof mod.frameHeight === 'number') rh = ptToUnits(mod.frameHeight)
     }
     out.set(c.id, [rw, rh])
   }
@@ -489,6 +612,31 @@ export function layoutStack(stack, items, outerSize = null) {
       // main axis. Main-axis fill is handled below via the spacer pipeline.
       if (c.widthMode  === 'fill' && !isHStack) rw = Math.max(0, innerW)
       if (c.heightMode === 'fill' && !isVStack) rh = Math.max(0, innerH)
+    }
+    // Re-measure text height once the wrap bound is known. Mirrors the
+    // logic in resolvedChildSizes (same numbers, same code path) so
+    // positioning and rendering agree on each text panel's height.
+    if (isTextLike) {
+      const mod = summarizeModifiers(c.modifiers)
+      let wrapBound = rw
+      if (typeof mod.frameWidth === 'number') {
+        wrapBound = ptToUnits(mod.frameWidth)
+        rw = wrapBound
+      }
+      if (typeof mod.frameMaxWidth === 'number' && Number.isFinite(mod.frameMaxWidth)) {
+        wrapBound = Math.min(wrapBound, ptToUnits(mod.frameMaxWidth))
+      }
+      if (typeof mod.frameMinWidth === 'number') {
+        wrapBound = Math.max(wrapBound, ptToUnits(mod.frameMinWidth))
+        rw = Math.max(rw, ptToUnits(mod.frameMinWidth))
+      }
+      const pp = mod.padding
+      const padX = pp ? ptToUnits((pp.left || 0) + (pp.right  || 0)) : 0
+      const padY = pp ? ptToUnits((pp.top  || 0) + (pp.bottom || 0)) : 0
+      wrapBound = Math.max(0.0001, wrapBound - padX)
+      const [, measuredH] = textIntrinsicSize(c, wrapBound)
+      rh = measuredH + padY
+      if (typeof mod.frameHeight === 'number') rh = ptToUnits(mod.frameHeight)
     }
     return [rw, rh]
   }
