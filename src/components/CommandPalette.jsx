@@ -16,7 +16,7 @@ import {
   GridLayoutIcon, SectionIcon, DisclosureIcon, NavStackIcon,
   LazyVStackIcon, LazyHStackIcon,
   SheetIcon, PopoverIcon, AlertIcon,
-  LabelIcon, TextFieldIcon, SecureFieldIcon, TextEditorIcon,
+  LabelIcon, TextFieldIcon, SecureFieldIcon, TextEditorIcon, SearchFieldIcon,
   PickerIcon, DatePickerIcon, ColorPickerIcon, LinkIcon,
   AsyncImageIcon, ContentUnavailableIcon,
   FormIcon, GroupBoxIcon, OutlineGroupIcon,
@@ -81,6 +81,12 @@ export default function CommandPalette() {
     { id: 'label',     label: 'Label',     group: 'Views',      Icon: LabelIcon,     run: () => addPanel('label') },
     { id: 'button',    label: 'Button',    group: 'Views',      Icon: ButtonIcon,    run: () => addPanel('button') },
     { id: 'link',      label: 'Link',      group: 'Views',      Icon: LinkIcon,      run: () => addPanel('link') },
+    // Inputs — three SwiftUI field flavors. The Input Type picker in
+    // the inspector swaps between them in place, the same way the
+    // Geometry picker swaps shapes.
+    { id: 'textfield',   label: 'Text Field',   group: 'Inputs',     Icon: TextFieldIcon,   run: () => addPanel('textfield') },
+    { id: 'securefield', label: 'Secure Field', group: 'Inputs',     Icon: SecureFieldIcon, run: () => addPanel('securefield') },
+    { id: 'search',      label: 'Search Field', group: 'Inputs',     Icon: SearchFieldIcon, run: () => addPanel('search') },
     // Controls
     { id: 'toggle',    label: 'Toggle',    group: 'Controls',   Icon: ToggleIcon,    run: () => addPanel('toggle') },
     { id: 'slider',    label: 'Slider',    group: 'Controls',   Icon: SliderIcon,    run: () => addPanel('slider') },

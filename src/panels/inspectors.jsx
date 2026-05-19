@@ -90,13 +90,6 @@ const VariantSwitcher = ({ panelType, switchPanelType, item, label, options }) =
   </Section>
 )
 
-const ShapeStrokeInspector = ({ item, updateItem }) => (
-  <Section title="Stroke">
-    <Row label="Color"><ColorRow value={item.strokeColor || '#000000'} onChange={(v) => updateItem(item.id, { strokeColor: v })} /></Row>
-    <Row label="Width"><PtField value={item.strokeWidth ?? 0} onChange={(v) => updateItem(item.id, { strokeWidth: Math.max(0, v) })} /></Row>
-  </Section>
-)
-
 const SHAPE_VARIANTS = [
   { value: 'rectangle', label: 'Rectangle' },
   { value: 'circle', label: 'Circle' },
@@ -109,10 +102,127 @@ const SHAPE_VARIANTS = [
   { value: 'angularGradient', label: 'Angular Gradient' }
 ]
 
+const SHAPE_LABELS = Object.fromEntries(SHAPE_VARIANTS.map((v) => [v.value, v.label]))
+
+// Unified Shape/Gradient inspector — one Section that owns Name, the
+// Geometry picker (the primary control), Frame, Fill (or gradient stops),
+// per-shape radius fields, and Stroke. Replaces the previous chain of
+// separate "Object — X" + "Geometry" + per-shape + "Stroke" sections.
+//
+// SwiftUI ground truth:
+//   Rectangle / Circle / Capsule / Ellipse  — no shape-specific params,
+//     drawn into the frame given by `.frame(width:height:)`.
+//   RoundedRectangle(cornerRadius:)         — cornerRadius is the only
+//     extra parameter; we expose Rectangle as RoundedRectangle when
+//     cornerRadius > 0 (the exporter already does this via clipShape).
+//   UnevenRoundedRectangle(top/bottom×L/R:) — four corner radii.
+//   LinearGradient(colors:, startPoint:, endPoint:) — two-stop, angle.
+//   RadialGradient(colors:, center:, startRadius:, endRadius:).
+//   AngularGradient(colors:, center:).
+function ShapeInspector({ item, updateItem, switchPanelType, scene }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const type = item.panelType
+  const isGradient = type === 'linearGradient' || type === 'radialGradient' || type === 'angularGradient'
+  const showCornerRadius = type === 'rectangle' // RoundedRectangle case
+  const showUnevenRadii  = type === 'unevenRoundedRect'
+  const showStroke       = !isGradient
+  return (
+    <Section title={`Shape — ${SHAPE_LABELS[type] || type}`} defaultOpen={true}>
+      <Row label="Name">
+        <input
+          value={item.name}
+          onChange={(e) => renameItem(item.id, e.target.value)}
+          className="field flex-1"
+        />
+      </Row>
+      <Row label="Geometry">
+        <Select value={type} options={SHAPE_VARIANTS} onChange={(v) => switchPanelType(item.id, v)} />
+      </Row>
+      <Row label="Width">
+        <PtField value={item.size?.[0] ?? 0} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size?.[1] ?? 0.05] })} />
+      </Row>
+      <Row label="Height">
+        <PtField value={item.size?.[1] ?? 0} onChange={(v) => updateItem(item.id, { size: [item.size?.[0] ?? 0.05, Math.max(0.05, v)] })} />
+      </Row>
+
+      {!isGradient && (
+        <>
+          <Row label="Fill">
+            <SemanticColorPicker
+              token={item.colorToken}
+              onChange={(t) => {
+                if (t) updateItem(item.id, { colorToken: t, color: resolveSemantic(t, scene) })
+                else updateItem(item.id, { colorToken: null })
+              }}
+            />
+          </Row>
+          <Row label="Hex">
+            <ColorRow value={item.color} onChange={(v) => updateItem(item.id, { color: v, colorToken: null })} />
+          </Row>
+        </>
+      )}
+
+      {showCornerRadius && (
+        <Row label="Radius">
+          <PtField value={item.cornerRadius ?? 0} onChange={(v) => updateItem(item.id, { cornerRadius: Math.max(0, v) })} />
+        </Row>
+      )}
+
+      {showUnevenRadii && (
+        <>
+          <Row label="Top L"><PtField value={item.topLeadingRadius ?? 0} onChange={(v) => updateItem(item.id, { topLeadingRadius: Math.max(0, v) })} /></Row>
+          <Row label="Top R"><PtField value={item.topTrailingRadius ?? 0} onChange={(v) => updateItem(item.id, { topTrailingRadius: Math.max(0, v) })} /></Row>
+          <Row label="Bot L"><PtField value={item.bottomLeadingRadius ?? 0} onChange={(v) => updateItem(item.id, { bottomLeadingRadius: Math.max(0, v) })} /></Row>
+          <Row label="Bot R"><PtField value={item.bottomTrailingRadius ?? 0} onChange={(v) => updateItem(item.id, { bottomTrailingRadius: Math.max(0, v) })} /></Row>
+        </>
+      )}
+
+      {isGradient && (
+        <>
+          <Row label="From"><ColorRow value={item.gradientFrom || '#007aff'} onChange={(v) => updateItem(item.id, { gradientFrom: v })} /></Row>
+          <Row label="To"><ColorRow value={item.gradientTo || '#af52de'} onChange={(v) => updateItem(item.id, { gradientTo: v })} /></Row>
+          {type === 'linearGradient' && (
+            <Row label="Angle">
+              <IntField value={item.gradientAngle ?? 180} min={0} max={360} onChange={(v) => updateItem(item.id, { gradientAngle: v })} />
+            </Row>
+          )}
+        </>
+      )}
+
+      {showStroke && (
+        <>
+          <Row label="Stroke">
+            <ColorRow value={item.strokeColor || '#000000'} onChange={(v) => updateItem(item.id, { strokeColor: v })} />
+          </Row>
+          <Row label="Width">
+            <PtField value={item.strokeWidth ?? 0} onChange={(v) => updateItem(item.id, { strokeWidth: Math.max(0, v) })} />
+          </Row>
+        </>
+      )}
+
+      {type === 'path' && (
+        <div className="text-[10px] text-textMute leading-snug">
+          Custom Path — describe the path in the SwiftUI export. The
+          canvas shows a placeholder until a path body is wired up.
+        </div>
+      )}
+    </Section>
+  )
+}
+
 const PICKER_VARIANTS = [
   { value: 'picker', label: 'Default' },
   { value: 'datepicker', label: 'Date Picker' },
   { value: 'colorpicker', label: 'Color Picker' }
+]
+
+// Three SwiftUI input-field flavors share a single picker so the user
+// can pivot between them without re-creating a panel — the same way
+// shapes flip between Rectangle / Circle / etc.
+const INPUT_VARIANTS = [
+  { value: 'textfield',   label: 'Text Field' },
+  { value: 'securefield', label: 'Secure Field' },
+  { value: 'search',      label: 'Search Field' }
 ]
 
 const COLLECTION_VARIANTS = [
@@ -475,12 +585,22 @@ export const INSPECTORS = {
   image: ImageInspector,
   asyncimage: ImageInspector,
 
-  search: ({ item, updateItem }) => (
-    <Section title="Search">
-      <Row label="Placeholder">
-        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" />
-      </Row>
-    </Section>
+  search: ({ item, updateItem, switchPanelType }) => (
+    <>
+      <VariantSwitcher panelType="search" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
+      <Section title="Search Field">
+        <Row label="Placeholder">
+          <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" />
+        </Row>
+        <Row label="Value">
+          <input value={item.searchValue || ''} onChange={(e) => updateItem(item.id, { searchValue: e.target.value })} className="field flex-1" placeholder="(empty)" />
+        </Row>
+        <div className="text-[10px] text-textMute leading-snug mt-1">
+          In preview, click the field to focus and type. SwiftUI export emits
+          <code> .searchable(text: $searchText, prompt: …)</code> on the parent view.
+        </div>
+      </Section>
+    </>
   ),
 
   // Navigation Bar — fixed-height (92pt) chrome strip. The style picker
@@ -884,79 +1004,20 @@ export const INSPECTORS = {
     </Section>
   ),
 
-  // ---- Shapes ----
-  rectangle: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="rectangle" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-  circle: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="circle" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-  capsule: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="capsule" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-  ellipse: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="ellipse" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-  path: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="path" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-  unevenRoundedRect: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="unevenRoundedRect" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <Section title="Corner Radii">
-        <Row label="Top L"><PtField value={item.topLeadingRadius ?? 0} onChange={(v) => updateItem(item.id, { topLeadingRadius: Math.max(0, v) })} /></Row>
-        <Row label="Top R"><PtField value={item.topTrailingRadius ?? 0} onChange={(v) => updateItem(item.id, { topTrailingRadius: Math.max(0, v) })} /></Row>
-        <Row label="Bot L"><PtField value={item.bottomLeadingRadius ?? 0} onChange={(v) => updateItem(item.id, { bottomLeadingRadius: Math.max(0, v) })} /></Row>
-        <Row label="Bot R"><PtField value={item.bottomTrailingRadius ?? 0} onChange={(v) => updateItem(item.id, { bottomTrailingRadius: Math.max(0, v) })} /></Row>
-      </Section>
-      <ShapeStrokeInspector item={item} updateItem={updateItem} />
-    </>
-  ),
-
-  // ---- Gradients ----
-  linearGradient: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="linearGradient" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <Section title="Gradient">
-        <Row label="From"><ColorRow value={item.gradientFrom || '#007aff'} onChange={(v) => updateItem(item.id, { gradientFrom: v })} /></Row>
-        <Row label="To"><ColorRow value={item.gradientTo || '#af52de'} onChange={(v) => updateItem(item.id, { gradientTo: v })} /></Row>
-        <Row label="Angle"><IntField value={item.gradientAngle || 180} min={0} max={360} onChange={(v) => updateItem(item.id, { gradientAngle: v })} /></Row>
-      </Section>
-    </>
-  ),
-  radialGradient: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="radialGradient" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <Section title="Gradient">
-        <Row label="From"><ColorRow value={item.gradientFrom || '#007aff'} onChange={(v) => updateItem(item.id, { gradientFrom: v })} /></Row>
-        <Row label="To"><ColorRow value={item.gradientTo || '#af52de'} onChange={(v) => updateItem(item.id, { gradientTo: v })} /></Row>
-      </Section>
-    </>
-  ),
-  angularGradient: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="angularGradient" switchPanelType={switchPanelType} item={item} label="Geometry" options={SHAPE_VARIANTS} />
-      <Section title="Gradient">
-        <Row label="From"><ColorRow value={item.gradientFrom || '#007aff'} onChange={(v) => updateItem(item.id, { gradientFrom: v })} /></Row>
-        <Row label="To"><ColorRow value={item.gradientTo || '#af52de'} onChange={(v) => updateItem(item.id, { gradientTo: v })} /></Row>
-      </Section>
-    </>
-  ),
+  // ---- Shapes & Gradients ----
+  // All shape/gradient panel types share one consolidated inspector. The
+  // Geometry picker sits at the top so switching variants is the primary
+  // action. PANEL_META marks these as `mergedIdentity` so the generic
+  // Object section is suppressed.
+  rectangle:        (ctx) => <ShapeInspector {...ctx} />,
+  circle:           (ctx) => <ShapeInspector {...ctx} />,
+  capsule:          (ctx) => <ShapeInspector {...ctx} />,
+  ellipse:          (ctx) => <ShapeInspector {...ctx} />,
+  path:             (ctx) => <ShapeInspector {...ctx} />,
+  unevenRoundedRect:(ctx) => <ShapeInspector {...ctx} />,
+  linearGradient:   (ctx) => <ShapeInspector {...ctx} />,
+  radialGradient:   (ctx) => <ShapeInspector {...ctx} />,
+  angularGradient:  (ctx) => <ShapeInspector {...ctx} />,
 
   // ---- Presentations ----
   alert: ({ item, updateItem }) => (
@@ -1129,8 +1190,10 @@ export const INSPECTORS = {
       </Row>
     </Section>
   ),
-  textfield: ({ item, updateItem }) => (
-    <Section title="TextField">
+  textfield: ({ item, updateItem, switchPanelType }) => (
+    <>
+      <VariantSwitcher panelType="textfield" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
+    <Section title="Text Field">
       <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
       <Row label="Value"><input value={item.textfieldValue || ''} onChange={(e) => updateItem(item.id, { textfieldValue: e.target.value })} className="field flex-1" placeholder="(empty)" /></Row>
       <Row label="Style">
@@ -1175,19 +1238,37 @@ export const INSPECTORS = {
           <button className={item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: true })}>Off</button>
         </div>
       </Row>
-    </Section>
-  ),
-  securefield: ({ item, updateItem }) => (
-    <Section title="SecureField">
-      <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
-      <Row label="Dots"><IntField value={item.dotCount || 8} min={1} max={20} onChange={(v) => updateItem(item.id, { dotCount: v })} /></Row>
-      <Row label="Submit">
-        <Select value={item.submitLabel || 'done'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
-      </Row>
       <div className="text-[10px] text-textMute leading-snug mt-1">
-        SecureField forces <code>.textContentType(.password)</code> and disables selection.
+        In preview, click the field to focus and type — the value lives on
+        the panel and persists across selections.
       </div>
     </Section>
+    </>
+  ),
+  securefield: ({ item, updateItem, switchPanelType }) => (
+    <>
+      <VariantSwitcher panelType="securefield" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
+      <Section title="Secure Field">
+        <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
+        <Row label="Value">
+          <input
+            type="password"
+            value={item.securefieldValue || ''}
+            onChange={(e) => updateItem(item.id, { securefieldValue: e.target.value })}
+            className="field flex-1"
+            placeholder="(empty)"
+          />
+        </Row>
+        <Row label="Empty Dots"><IntField value={item.dotCount || 8} min={1} max={20} onChange={(v) => updateItem(item.id, { dotCount: v })} /></Row>
+        <Row label="Submit">
+          <Select value={item.submitLabel || 'done'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
+        </Row>
+        <div className="text-[10px] text-textMute leading-snug mt-1">
+          SecureField forces <code>.textContentType(.password)</code> and masks
+          input. In preview, clicking the field shows a real password input.
+        </div>
+      </Section>
+    </>
   ),
   texteditor: ({ item, updateItem }) => (
     <Section title="TextEditor">
@@ -1434,6 +1515,11 @@ const SYMBOL_USERS = new Set([
   'toggle', 'picker', 'menu'
 ])
 
+// Shapes and gradients own Name + Geometry + Frame + Fill/Stops + Stroke
+// inside their unified `ShapeInspector`. `mergedIdentity: true` tells
+// PanelProps to skip the generic "Object — X" header.
+const mergedShape = { frameMode: 'none', hasFill: false, mergedIdentity: true }
+
 export const PANEL_META = {
   text: mergedFigmaFrame,
   link: { ...figmaFrame, useSymbol: true },
@@ -1445,6 +1531,16 @@ export const PANEL_META = {
   // Navbar is locked to 92pt height / parent-width — the user only edits
   // style, title, and the button arrays in the per-type inspector.
   navbar: { frameMode: 'none', hasFill: false },
+  // Shapes & gradients — single consolidated section
+  rectangle:         mergedShape,
+  circle:            mergedShape,
+  capsule:           mergedShape,
+  ellipse:           mergedShape,
+  path:              mergedShape,
+  unevenRoundedRect: mergedShape,
+  linearGradient:    mergedShape,
+  radialGradient:    mergedShape,
+  angularGradient:   mergedShape,
   // Default for everything else: explicit frame + has fill
 }
 

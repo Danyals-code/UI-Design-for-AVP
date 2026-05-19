@@ -56,6 +56,16 @@ function clipShapeSuffix(radiusPt) {
   return `.clipShape(RoundedRectangle(cornerRadius: ${radiusPt}, style: .continuous))`
 }
 
+// Emit an `.overlay(<Shape>().stroke(_, lineWidth:))` chain so the shape
+// keeps its fill while painting a SwiftUI-style border ring. Returns an
+// empty string when the panel has no stroke configured.
+function shapeStrokeOverlay(panel, shapeExpr, ctx) {
+  const w = panel.strokeWidth || 0
+  if (!w || !panel.strokeColor) return ''
+  const color = ctx.swiftColor(null, panel.strokeColor)
+  return `.overlay(${shapeExpr}.stroke(${color}, lineWidth: ${ctx.unitsToPt(w)}))`
+}
+
 // ---- emit helper conventions ----
 //
 // Every `emit(panel, ctx)` should call `ctx.push(line)` to append a single
@@ -385,6 +395,10 @@ export const PANELS = {
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(12),
       text: 'Search',
+      // Live value the wearer typed in preview mode. Persisted on the
+      // panel so the preview round-trips through state updates; emit
+      // ignores it (SwiftUI's `.searchable` binds the parent's @State).
+      searchValue: '',
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',          // visionOS body weight
@@ -729,8 +743,14 @@ export const PANELS = {
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
       const cr = unitsToPt(panel.cornerRadius || 0)
-      const clip = clipShapeSuffix(cr)
-      push(`Rectangle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
+      // Rectangles with a non-zero corner radius emit as RoundedRectangle
+      // directly so the stroke overlay can use the same shape — SwiftUI's
+      // .clipShape isn't enough to keep a stroke on the rounded edge.
+      const shape = cr > 0
+        ? `RoundedRectangle(cornerRadius: ${cr}, style: .continuous)`
+        : `Rectangle()`
+      const stroke = shapeStrokeOverlay(panel, shape, ctx)
+      push(`${shape}.fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${stroke}`)
     }
   },
 
@@ -746,7 +766,8 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
-      push(`Circle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`)
+      const stroke = shapeStrokeOverlay(panel, 'Circle()', ctx)
+      push(`Circle().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${stroke}`)
     }
   },
 
@@ -762,7 +783,8 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
-      push(`Capsule().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`)
+      const stroke = shapeStrokeOverlay(panel, 'Capsule()', ctx)
+      push(`Capsule().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${stroke}`)
     }
   },
 
@@ -939,6 +961,13 @@ export const PANELS = {
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(16),
       text: 'Password',
+      // Live value the wearer typed in preview mode. Rendered as a row
+      // of dot glyphs the same way SwiftUI's SecureField masks input.
+      // Emit ignores it so the generated code keeps using `.constant("")`.
+      securefieldValue: '',
+      // Legacy fallback when there's no live value yet — the editor
+      // shows this many bullet glyphs as a visual placeholder so the
+      // field reads as a password field even before the wearer types.
       dotCount: 8,
       textStyle: 'body',
       fontSize: textStyleToFontSize('body'),
@@ -1340,7 +1369,8 @@ export const PANELS = {
     emit(panel, ctx) {
       const { push, swiftColor, unitsToPt } = ctx
       const fill = swiftColor(panel.colorToken, panel.color)
-      push(`Ellipse().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`)
+      const stroke = shapeStrokeOverlay(panel, 'Ellipse()', ctx)
+      push(`Ellipse().fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${stroke}`)
     }
   },
 
@@ -1363,7 +1393,9 @@ export const PANELS = {
       const tr = unitsToPt(panel.topTrailingRadius || 0)
       const bl = unitsToPt(panel.bottomLeadingRadius || 0)
       const br = unitsToPt(panel.bottomTrailingRadius || 0)
-      push(`UnevenRoundedRectangle(topLeadingRadius: ${tl}, bottomLeadingRadius: ${bl}, bottomTrailingRadius: ${br}, topTrailingRadius: ${tr}).fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})`)
+      const shape = `UnevenRoundedRectangle(topLeadingRadius: ${tl}, bottomLeadingRadius: ${bl}, bottomTrailingRadius: ${br}, topTrailingRadius: ${tr})`
+      const stroke = shapeStrokeOverlay(panel, shape, ctx)
+      push(`${shape}.fill(${fill}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${stroke}`)
     }
   },
 
@@ -1398,7 +1430,16 @@ export const PANELS = {
       const b = swiftColor(null, panel.gradientTo   || '#af52de')
       const cr = unitsToPt(panel.cornerRadius || 0)
       const clip = clipShapeSuffix(cr)
-      push(`LinearGradient(colors: [${a}, ${b}], startPoint: .top, endPoint: .bottom).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
+      // SwiftUI's `LinearGradient(stops:, startPoint:, endPoint:)` doesn't
+      // accept an angle directly. Convert the inspector's angle (0° = top
+      // → bottom) into matching `UnitPoint`s on opposite sides of the
+      // panel — the editor preview and the export then read the same.
+      const angle = panel.gradientAngle ?? 180
+      const rad = (angle * Math.PI) / 180
+      const dx = Math.sin(rad) / 2, dy = -Math.cos(rad) / 2
+      const start = `UnitPoint(x: ${(0.5 - dx).toFixed(3)}, y: ${(0.5 - dy).toFixed(3)})`
+      const end   = `UnitPoint(x: ${(0.5 + dx).toFixed(3)}, y: ${(0.5 + dy).toFixed(3)})`
+      push(`LinearGradient(colors: [${a}, ${b}], startPoint: ${start}, endPoint: ${end}).frame(width: ${unitsToPt(panel.size?.[0] || 0)}, height: ${unitsToPt(panel.size?.[1] || 0)})${clip}`)
     }
   },
 

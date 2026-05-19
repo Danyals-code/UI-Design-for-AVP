@@ -142,7 +142,31 @@ export const MODIFIERS = {
     group: 'Layout',
     defaults: { edges: 'all', length: 8 },
     appliesTo: has2DBox,
-    summarize() {}, // padding doesn't reflow our canvas — preview is approximate
+    // SwiftUI's `.padding()` reduces the size proposed to the inner view.
+    // For Text that means a smaller wrap bound and a taller frame; we
+    // accumulate per-edge so multiple `.padding(.top, …)` chains add up
+    // the way they do on device.
+    summarize(args, acc) {
+      const len = (args.length ?? 0) || 0
+      const p = acc.padding || { top: 0, right: 0, bottom: 0, left: 0 }
+      const edges = args.edges || 'all'
+      if (edges === 'all') {
+        p.top += len; p.right += len; p.bottom += len; p.left += len
+      } else if (edges === 'horizontal') {
+        p.left += len; p.right += len
+      } else if (edges === 'vertical') {
+        p.top += len; p.bottom += len
+      } else if (edges === 'leading') {
+        p.left += len
+      } else if (edges === 'trailing') {
+        p.right += len
+      } else if (edges === 'top') {
+        p.top += len
+      } else if (edges === 'bottom') {
+        p.bottom += len
+      }
+      acc.padding = p
+    },
     emit(args) {
       const len = args.length ?? 0
       if (!args.edges || args.edges === 'all') {
@@ -461,6 +485,18 @@ export const MODIFIERS = {
     summarize(args, acc) { if (isOn(args.value)) acc.allowsTightening = true },
     emit(args) { return isOn(args.value) ? `.allowsTightening(true)` : null }
   },
+  multilineTextAlignment: {
+    type: 'multilineTextAlignment',
+    swiftName: '.multilineTextAlignment',
+    group: 'Text',
+    defaults: { value: 'leading' },
+    appliesTo: (k) => KIND_TEXTUAL.has(k),
+    summarize(args, acc) { if (args.value) acc.multilineTextAlignment = args.value },
+    emit(args) {
+      if (!args.value) return null
+      return `.multilineTextAlignment(.${args.value})`
+    }
+  },
   fontDesign: {
     type: 'fontDesign',
     swiftName: '.fontDesign',
@@ -488,20 +524,36 @@ export const MODIFIERS = {
     type: 'frame',
     swiftName: '.frame',
     group: 'Layout',
-    defaults: { width: null, height: null, maxWidth: false, maxHeight: false, alignment: 'center' },
+    defaults: { width: null, height: null, minWidth: null, minHeight: null, maxWidth: false, maxHeight: false, alignment: 'center' },
     appliesTo: has2DBox,
+    // Track width / minWidth / maxWidth as separate values so the text
+    // wrap pipeline can resolve the proposal correctly:
+    //   - frame(width:) — exact override, ignores parent proposal
+    //   - frame(minWidth:) / frame(maxWidth:) — clamps the proposal
+    //   - frame(maxWidth: .infinity) — fills the parent's inner width
+    // The maxWidth field uses `true` as a sentinel for ".infinity" so
+    // existing UI keeps working; a number means a finite cap.
     summarize(args, acc) {
-      if (args.width)     acc.frameWidth  = args.width
-      if (args.height)    acc.frameHeight = args.height
-      if (args.maxWidth)  acc.frameMaxWidth  = '.infinity'
-      if (args.maxHeight) acc.frameMaxHeight = '.infinity'
+      if (args.width  != null) acc.frameWidth  = args.width
+      if (args.height != null) acc.frameHeight = args.height
+      if (typeof args.minWidth  === 'number') acc.frameMinWidth  = args.minWidth
+      if (typeof args.minHeight === 'number') acc.frameMinHeight = args.minHeight
+      if (args.maxWidth === true) acc.frameMaxWidth  = Infinity
+      else if (typeof args.maxWidth === 'number') acc.frameMaxWidth = args.maxWidth
+      if (args.maxHeight === true) acc.frameMaxHeight = Infinity
+      else if (typeof args.maxHeight === 'number') acc.frameMaxHeight = args.maxHeight
+      if (args.alignment) acc.frameAlignment = args.alignment
     },
     emit(args) {
       const parts = []
       if (args.width  != null)  parts.push(`width: ${args.width}`)
       if (args.height != null)  parts.push(`height: ${args.height}`)
-      if (args.maxWidth)  parts.push(`maxWidth: .infinity`)
-      if (args.maxHeight) parts.push(`maxHeight: .infinity`)
+      if (typeof args.minWidth  === 'number') parts.push(`minWidth: ${args.minWidth}`)
+      if (typeof args.minHeight === 'number') parts.push(`minHeight: ${args.minHeight}`)
+      if (args.maxWidth === true) parts.push(`maxWidth: .infinity`)
+      else if (typeof args.maxWidth === 'number') parts.push(`maxWidth: ${args.maxWidth}`)
+      if (args.maxHeight === true) parts.push(`maxHeight: .infinity`)
+      else if (typeof args.maxHeight === 'number') parts.push(`maxHeight: ${args.maxHeight}`)
       if (args.alignment && args.alignment !== 'center') parts.push(`alignment: .${args.alignment}`)
       if (parts.length === 0) return null
       return `.frame(${parts.join(', ')})`
@@ -563,7 +615,15 @@ export const MODIFIERS = {
     group: 'Layout',
     defaults: { horizontal: true, vertical: true },
     appliesTo: has2DBox,
-    summarize(_a, acc) { acc.fixedSize = true },
+    // SwiftUI splits horizontal vs vertical — horizontal:true means
+    // "don't wrap, give me my intrinsic single-line width"; vertical:true
+    // means "don't truncate vertically". Track them independently so the
+    // text measurement pipeline can apply each correctly.
+    summarize(args, acc) {
+      if (args.horizontal !== false) acc.fixedSizeH = true
+      if (args.vertical   !== false) acc.fixedSizeV = true
+      acc.fixedSize = true
+    },
     emit(args) {
       if (args.horizontal && args.vertical) return `.fixedSize()`
       return `.fixedSize(horizontal: ${args.horizontal ? 'true' : 'false'}, vertical: ${args.vertical ? 'true' : 'false'})`
@@ -725,7 +785,7 @@ const ORDER = [
   // Text
   'italic', 'underline', 'strikethrough', 'textCase',
   'lineLimit', 'lineSpacing', 'tracking', 'kerning', 'baselineOffset',
-  'truncationMode', 'minimumScaleFactor', 'allowsTightening',
+  'truncationMode', 'minimumScaleFactor', 'allowsTightening', 'multilineTextAlignment',
   'fontDesign', 'monospacedDigit',
   // Navigation
   'navigationTitle', 'toolbarBackground',
