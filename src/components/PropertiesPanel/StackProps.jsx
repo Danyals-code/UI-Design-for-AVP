@@ -10,7 +10,7 @@ import {
   TEXT_STYLES, TEXT_STYLE_ORDER
 } from '../../appleSystem'
 import {
-  Row, Section, IntField, PtField, Select, SemanticColorPicker, StackAlignmentPicker
+  Row, Section, IntField, PtField, Slider, Select, SemanticColorPicker, StackAlignmentPicker
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 
@@ -530,6 +530,32 @@ export function StackProps({ item }) {
             onChange={(v) => updateItem(item.id, { material: v })}
           />
         </Row>
+        {/* Background Blur — pairs with the Material picker so any
+            material on the stack can read as a frosted backdrop. The
+            renderer overlays a soft white frost; export maps to
+            `.background(.regularMaterial)` with the radius below. */}
+        <Row label="Blur">
+          <div className="segmented flex-1">
+            <button
+              className={item.blur ? 'active' : ''}
+              onClick={() => updateItem(item.id, { blur: true })}
+              title="Frosted glass — softens the backdrop"
+            >On</button>
+            <button
+              className={!item.blur ? 'active' : ''}
+              onClick={() => updateItem(item.id, { blur: false })}
+            >Off</button>
+          </div>
+        </Row>
+        {item.blur && (
+          <Row label="Amount">
+            <Slider
+              value={item.blurAmount ?? 12}
+              min={0} max={40} step={1} suffix="pt"
+              onChange={(v) => updateItem(item.id, { blurAmount: v })}
+            />
+          </Row>
+        )}
       </Section>}
 
       {/* Scroll View was its own section; rolled into Layout as a sub-

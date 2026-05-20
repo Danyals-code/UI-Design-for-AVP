@@ -26,6 +26,23 @@ Xcode, a Mac, or a headset.
 - **SwiftUI-accurate tokens.** Text styles, corner radii, glass materials,
   SF Symbols, modifiers and control styles are modelled after Apple's
   visionOS Human Interface Guidelines via `appleSystem.js`.
+- **Liquid Glass materials with real backdrop blur.** Window plates
+  default to a `Glass` material (`#808080` @ 30%, blur on) rendered via
+  three.js `meshPhysicalMaterial` transmission + roughness — actual
+  GPU-side mipmap blur of whatever sits behind the plate, not a flat
+  white overlay. Each tier (Glass / Views Regular / Ultra Thin / Thin /
+  Regular / Thick / Ultra Thick / Opaque / Bar) is fully editable from
+  Scene → Materials & Colors: solid or gradient fill, opacity, blur
+  amount, inner shadow, drop shadow.
+- **SF Symbols rendered as Lucide icons.** Every SF Symbol name (~380
+  catalogued) routes through a Lucide-React map so glyphs look the
+  same in the DOM, in 3D label panels, and in the symbol picker.
+  Variant (`.fill` / `.circle`) and rendering mode (hierarchical /
+  palette / multicolor) both swap the actual glyph drawn.
+- **Window content is clipped + scrollable.** Four world-space clip
+  planes attached every frame keep child meshes inside the plate edges,
+  so text and panels never leak past rounded corners. Marking a window
+  scrollable wires a wheel-driven scroll on its content sub-group.
 - **SwiftUI text pipeline.** A dedicated text engine (`src/text.js`)
   runs the full tighten → scale → wrap → truncate flow so the canvas
   measures Text the way the device does — `lineLimit`,
@@ -55,6 +72,7 @@ Xcode, a Mac, or a headset.
 | Build / dev       | Vite 5                                         |
 | Styling           | Tailwind CSS, PostCSS, Inter via `@fontsource` |
 | 3D rendering      | three.js + `@react-three/fiber` + `drei`       |
+| Icons             | `lucide-react` (SF Symbol → Lucide map)        |
 | State             | Zustand                                        |
 
 ## Getting Started
@@ -110,8 +128,9 @@ src/
     VolumePlaceholder.jsx — placeholder shown for Volume mode while WIP
     CommandPalette.jsx    — ⌘K palette
     AddDropdown.jsx       — "+" menu in the layers panel
-    SymbolPicker.jsx      — SF Symbol picker
-    icons.jsx             — inline SVG icons used in chrome
+    SymbolPicker.jsx      — SF Symbol picker (renders Lucide icons)
+    SymbolIcon3D.jsx      — rasterises Lucide SVGs to CanvasTexture for 3D
+    icons.jsx             — Lucide imports, SF Symbol → Lucide map, SymbolIcon (DOM)
 ```
 
 ### Scene Graph
@@ -156,10 +175,11 @@ toolbar in [`src/components/ViewportOverlay.jsx`](src/components/ViewportOverlay
 
 ## Status
 
-Active prototype. Window mode is fully editable; Volume mode shows a
-placeholder while the volumetric preview camera is being refined. The
-"See in 3D" toggle is considered experimental — gestures, gizmos and
-camera behaviour may still change.
+Active prototype. Both Window and Volume modes are fully editable —
+volume mode ships six pre-wired behavior templates (product showcase,
+solar system, mood lamps, gallery, spinning showcase, reactive
+lights). The "See in 3D" toggle is considered experimental — gestures,
+gizmos and camera behaviour may still change.
 
 ## License
 

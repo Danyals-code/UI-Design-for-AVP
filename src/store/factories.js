@@ -130,20 +130,19 @@ export const makeWindow = (overrides = {}) => ({
   // headset — matches the visionOS default placement for a regular
   // SwiftUI WindowGroup at launch.
   position: [0, 1.4, -1.0],
-  material: 'regular',
-  // visionOS glass plate — 50% gray (#808080) at full opacity. The
-  // token windowGlass on the Scene → Colors palette is the single
-  // source of truth for the hex; designers can drop the opacity via
-  // the window's appearance picker if they want a translucent plate.
-  colorToken: 'windowGlass',
-  color: '#808080',
-  fillOpacity: 1.0,
-  // Blur — adds a visionOS-style frosted glass effect. The canvas
-  // approximates this by softening the fill toward white and adding
-  // a low-contrast frost rim; on export this maps to `.background(.regularMaterial)`
-  // on the WindowGroup. `blurAmount` is the SwiftUI blur radius in pt.
-  blur: false,
-  blurAmount: 12,
+  // Default plate material is the visionOS Glass tier — 50% gray at
+  // 30% alpha with the bg blur on. Defined in MATERIALS.glass so the
+  // values stay in one place and the Materials & Colors editor can
+  // tune them scene-wide. Color / opacity / blur are intentionally
+  // left undefined so the renderer falls through to the material
+  // defaults; the user can still override per-window via the Window
+  // → Appearance inspector.
+  material: 'glass',
+  colorToken: null,
+  color: null,
+  fillOpacity: null,
+  blur: null,
+  blurAmount: null,
   padding: 14,             // pt — default inner padding for the window content
   spatial: {
     immersionStyle: 'mixed',
@@ -162,6 +161,12 @@ export const makeWindow = (overrides = {}) => ({
   // scrollbar — flip it on for long content (e.g. a settings page
   // that overruns the plate height).
   scrollable: false,
+  // Vertical scroll offset (units) for scrollable windows. The
+  // canvas-side wheel handler in `Window3D` writes to this field; the
+  // content layer is translated by `-scrollY`, so it slides upward
+  // while the four clipping planes anchored to the window's world
+  // bounds hide whatever moves out of frame.
+  scrollY: 0,
   // Volume metadata — only consulted when windowStyle === 'volumetric'.
   // 0.6m matches Apple's canonical example
   // `.defaultSize(width: 0.6, height: 0.4, depth: 0.6, in: .meters)`.
@@ -212,6 +217,11 @@ export const makeStack = (overrides = {}) => ({
   toolbarPlacement: 'automatic',
   background: null,
   material: 'regular',
+  // Optional frosted-glass blur — when a stack has a background it can
+  // also toggle the visionOS-style blur via the Material picker. Off
+  // by default; the inspector exposes the toggle in the same row group.
+  blur: false,
+  blurAmount: 12,
   scrollable: false,
   // Grid-specific — mirrors SwiftUI's `GridItem` sizing modes.
   //   gridMode 'fixed'    → uses `columns` directly (N equal columns)
@@ -548,6 +558,13 @@ export const DEFAULT_SCENE = {
   // carries a `colorToken` resolves through `resolveSemantic(token, scene)`
   // — so retuning a token here propagates to every consumer (text,
   // controls, view materials, separators) without touching individual
-  // items. Use Scene → Colors to edit.
-  colors: buildDefaultSceneColors()
+  // items. Use Scene → Materials & Colors to edit.
+  colors: buildDefaultSceneColors(),
+  // Per-material property overrides keyed by the MATERIAL_ORDER key
+  // (glass, viewsRegular, ultraThin, …). Each entry can carry any of
+  // `{ color, opacity, blur, blurAmount, innerShadow, dropShadow,
+  //   layers }` — `resolveMaterial(key, scene.materialProps)` merges
+  // these on top of MATERIALS defaults at draw time. Empty by default
+  // so a fresh scene reads from the stock visionOS tiers.
+  materialProps: {}
 }

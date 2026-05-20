@@ -21,9 +21,10 @@ import { Text, useGLTF, Billboard } from '@react-three/drei'
 import { useStore, isEffectivelyVisible } from '../store'
 import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
-import { resolveSemantic, SF_SYMBOLS } from '../appleSystem'
+import { resolveSemantic } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
 import { useBehaviorRuntime, registerEntity } from '../behaviors/runtime'
+import { SymbolIcon3D } from './SymbolIcon3D'
 
 const DEG2RAD = Math.PI / 180
 
@@ -388,14 +389,16 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
   const bg          = entity.attachmentBackground || '#1c1c1e'
 
   // Estimate panel size based on text length (rough character width
-  // ratio). For image attachments use the explicit size.
+  // ratio). For image attachments use the explicit size. SF Symbols
+  // attach as a separate Lucide-rasterised icon to the leading edge of
+  // the label; reserve a square's worth of inline space for it.
   const text = entity.attachmentText || ''
-  const symGlyph = entity.attachmentSymbol ? SF_SYMBOLS[entity.attachmentSymbol]?.glyph : null
-  const labelText = symGlyph ? `${symGlyph}  ${text}` : text
+  const hasSymbol = !!entity.attachmentSymbol
   const charW = fontSize * 0.55
+  const symbolReserveW = hasSymbol ? fontSize * 1.4 + padding * 0.5 : 0
   const estW = (kind === 'image')
     ? (entity.attachmentSize ?? 0.2)
-    : Math.max(fontSize * 3, labelText.length * charW + padding * 2)
+    : Math.max(fontSize * 3, text.length * charW + padding * 2 + symbolReserveW)
   const estH = (kind === 'image')
     ? (entity.attachmentSize ?? 0.2)
     : (fontSize * 1.4 + padding * 2)
@@ -414,17 +417,26 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
         <shapeGeometry args={[fillShape]} />
         <meshBasicMaterial color={bg} side={THREE.DoubleSide} />
       </mesh>
+      {kind !== 'image' && hasSymbol && (
+        <SymbolIcon3D
+          name={entity.attachmentSymbol}
+          sizeUnits={fontSize * 1.2}
+          color={fg}
+          weight="semibold"
+          position={[-estW / 2 + padding + (fontSize * 0.6), 0, 0.002]}
+        />
+      )}
       {kind !== 'image' && (
         <Text
-          position={[0, 0, 0.001]}
+          position={[hasSymbol ? symbolReserveW / 2 : 0, 0, 0.001]}
           fontSize={fontSize}
           color={fg}
           anchorX="center"
           anchorY="middle"
           font={getInterFont('semibold')}
-          maxWidth={estW - padding * 2}
+          maxWidth={estW - padding * 2 - symbolReserveW}
         >
-          {labelText || ' '}
+          {text || ' '}
         </Text>
       )}
       {kind === 'image' && (

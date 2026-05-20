@@ -22,7 +22,8 @@ import {
   TabViewIcon, TabIcon, NavStackIcon,
   PageTabIcon, SplitViewIcon,
   RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon,
-  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon
+  SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon,
+  SymbolIcon
 } from './icons'
 
 // Keep this map in sync with AddDropdown.jsx so the glyph in the layers
@@ -65,9 +66,9 @@ const MESH_ICONS = {
 
 function rowIcon(item) {
   if (item.type === 'tab') {
-    // Render the tab's SF Symbol glyph so you can tell tabs apart at a glance.
-    const glyph = SF_SYMBOLS[item.icon]?.glyph
-    if (glyph) return <span className="inline-block w-[13px] h-[13px] text-[12px] leading-none text-center">{glyph}</span>
+    // Render the tab's SF Symbol as a Lucide icon so it stays legible
+    // in any font. Falls back to the page tab glyph when no icon is set.
+    if (item.icon) return <SymbolIcon name={item.icon} size={13} />
     return <PageTabIcon />
   }
   if (item.type === 'window') return item.windowStyle === 'volumetric' ? <VolumeIcon /> : <WindowIcon />
@@ -134,12 +135,12 @@ function IconPickerPopover({ tab, onClose }) {
           <button
             key={name}
             onClick={() => { setTabIcon(tab.id, name); onClose() }}
-            className={`w-6 h-6 flex items-center justify-center rounded text-[14px] leading-none hover:bg-hover ${
+            className={`w-6 h-6 flex items-center justify-center rounded leading-none hover:bg-hover ${
               tab.icon === name ? 'bg-accentBg text-text' : 'text-textDim'
             }`}
             title={SF_SYMBOLS[name].label}
           >
-            {SF_SYMBOLS[name].glyph}
+            <SymbolIcon name={name} size={14} />
           </button>
         ))}
       </div>

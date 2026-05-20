@@ -5,10 +5,11 @@
 // topbar title lets them swap modes without cluttering this panel.
 
 import { useState } from 'react'
-import { Row, Section, ColorRow, Select, NumField, Slider } from './primitives'
+import { Row, Section, ColorRow, Select, NumField, Slider, IntField } from './primitives'
 import {
   HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES,
-  SCENE_COLOR_GROUPS, SCENE_COLOR_LABELS, DEFAULT_SCENE_COLORS
+  SCENE_COLOR_GROUPS, SCENE_COLOR_LABELS, DEFAULT_SCENE_COLORS,
+  MATERIALS, MATERIAL_ORDER, resolveMaterial
 } from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
 
@@ -321,9 +322,15 @@ export function SceneProps({ scene, updateScene }) {
   )
 }
 
-// Project-wide color palette editor. One sub-section per category from
-// SCENE_COLOR_GROUPS — each token shows a swatch + hex field. The
-// "Reset" link in the section header restores the visionOS-kit defaults.
+// Project-wide colour palette editor. The first group — the
+// visionOS "Colors" wheel — renders as a compact swatch grid: every
+// token is a 24pt chip, name + hex revealed on hover, click opens the
+// native colour picker. The remaining groups (Text / Controls / Views
+// / Windows / Separators) keep their per-token Row layout because
+// each one represents a single named slot rather than a free-pick
+// palette. The section header is renamed "Materials & Colors" — the
+// Views + Windows tiers in here are the visionOS material library,
+// so calling the whole panel just "Colors" was undersell.
 function SceneColorsSection({ scene, updateScene }) {
   const palette = scene.colors || {}
   const setColor = (token, hex) =>
@@ -332,7 +339,7 @@ function SceneColorsSection({ scene, updateScene }) {
     updateScene({ colors: { ...DEFAULT_SCENE_COLORS } })
   return (
     <Section
-      title="Colors"
+      title="Materials & Colors"
       action={
         <button
           className="text-[9px] text-textMute hover:text-text uppercase tracking-wider"
@@ -341,25 +348,199 @@ function SceneColorsSection({ scene, updateScene }) {
         >Reset</button>
       }
     >
-      <div className="text-[10px] text-textMute leading-relaxed mb-2">
-        Project palette. Pickers across the inspector reference these
-        tokens — re-tune a value here to re-theme the whole scene.
-      </div>
-      {SCENE_COLOR_GROUPS.map((group) => (
-        <div key={group.key} className="mb-3 last:mb-0">
-          <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">
-            {group.label}
+      {SCENE_COLOR_GROUPS.map((group) => {
+        // The free-pick palette renders as a swatch grid; named-slot
+        // groups stay row-based per the spec.
+        const isSwatchGrid = group.key === 'colors'
+        const groupLabel = isSwatchGrid ? 'Solid Colors' : group.label
+        return (
+          <div key={group.key} className="mb-3 last:mb-0">
+            <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
+              {groupLabel}
+            </div>
+            {isSwatchGrid ? (
+              <div className="grid grid-cols-8 gap-1">
+                {group.tokens.map((token) => {
+                  const hex = palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'
+                  const label = SCENE_COLOR_LABELS[token] || token
+                  return (
+                    <label
+                      key={token}
+                      title={`${label} · ${hex.toUpperCase()}`}
+                      className="relative w-6 h-6 rounded border border-border cursor-pointer hover:ring-1 hover:ring-accent block"
+                      style={{ background: hex }}
+                    >
+                      <input
+                        type="color"
+                        value={hex}
+                        onChange={(e) => setColor(token, e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </label>
+                  )
+                })}
+              </div>
+            ) : (
+              group.tokens.map((token) => (
+                <Row key={token} label={SCENE_COLOR_LABELS[token] || token} labelWidth={120}>
+                  <ColorRow
+                    value={palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'}
+                    onChange={(v) => setColor(token, v)}
+                  />
+                </Row>
+              ))
+            )}
           </div>
-          {group.tokens.map((token) => (
-            <Row key={token} label={SCENE_COLOR_LABELS[token] || token} labelWidth={120}>
-              <ColorRow
-                value={palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'}
-                onChange={(v) => setColor(token, v)}
+        )
+      })}
+      {/* Materials editor — one dropdown that picks which tier (Glass
+          / Views Regular / Ultra Thin / Thin / Regular / Thick / Ultra
+          Thick / Opaque / Bar) is in focus, plus an inline property
+          panel below for that tier. Edits land in
+          `scene.materialProps[key]`; the renderer merges them on top
+          of the stock defaults via `resolveMaterial(...)`. */}
+      <div className="mb-3">
+        <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
+          Materials
+        </div>
+        <MaterialEditor scene={scene} updateScene={updateScene} />
+      </div>
+    </Section>
+  )
+}
+
+// Single-material editor. A Select at the top picks the active tier;
+// the property panel below shows that tier's color / fill type / opacity
+// / blur / shadow controls. Edits go to `scene.materialProps[key]`.
+function MaterialEditor({ scene, updateScene }) {
+  const [materialKey, setMaterialKey] = useState(MATERIAL_ORDER[0])
+  const mat = resolveMaterial(materialKey, scene.materialProps)
+  const setProp = (key, value) => {
+    const current = (scene.materialProps || {})[materialKey] || {}
+    updateScene({
+      materialProps: {
+        ...(scene.materialProps || {}),
+        [materialKey]: { ...current, [key]: value }
+      }
+    })
+  }
+  const setShadow = (which, patch) => {
+    const cur = mat[which] || { offsetX: 0, offsetY: 8, blur: 12, color: '#000000', opacity: 0.2 }
+    setProp(which, { ...cur, ...patch })
+  }
+  const toggleShadow = (which) => {
+    if (mat[which]) setProp(which, null)
+    else setProp(which, which === 'innerShadow'
+      ? { offsetX: 0, offsetY: 0, blur: 6, color: '#000000', opacity: 0.25 }
+      : { offsetX: 0, offsetY: 8, blur: 24, color: '#000000', opacity: 0.20 })
+  }
+  const fillType = mat.fillType || 'solid'
+  return (
+    <div className="space-y-1.5">
+      <Row label="Material" labelWidth={100}>
+        <Select
+          value={materialKey}
+          options={MATERIAL_ORDER.map((k) => ({ value: k, label: MATERIALS[k]?.label || k }))}
+          onChange={(v) => setMaterialKey(v)}
+        />
+      </Row>
+      <div className="border border-border rounded px-2 py-1.5 space-y-1 bg-surface3/40">
+        <Row label="Fill" labelWidth={100}>
+          <div className="segmented flex-1">
+            <button className={fillType === 'solid' ? 'active' : ''} onClick={() => setProp('fillType', 'solid')}>Solid</button>
+            <button className={fillType === 'gradient' ? 'active' : ''} onClick={() => setProp('fillType', 'gradient')}>Gradient</button>
+          </div>
+        </Row>
+        {fillType === 'solid' ? (
+          <Row label="Color" labelWidth={100}>
+            <ColorRow value={mat.color || '#808080'} onChange={(v) => setProp('color', v)} />
+          </Row>
+        ) : (
+          <>
+            <Row label="From" labelWidth={100}>
+              <ColorRow value={mat.gradientFrom || mat.color || '#808080'} onChange={(v) => setProp('gradientFrom', v)} />
+            </Row>
+            <Row label="To" labelWidth={100}>
+              <ColorRow value={mat.gradientTo || '#cccccc'} onChange={(v) => setProp('gradientTo', v)} />
+            </Row>
+            <Row label="Angle" labelWidth={100}>
+              <Slider
+                value={mat.gradientAngle ?? 180}
+                min={0} max={360} step={1} suffix="°"
+                onChange={(v) => setProp('gradientAngle', v)}
               />
             </Row>
-          ))}
-        </div>
-      ))}
-    </Section>
+          </>
+        )}
+        <Row label="Opacity" labelWidth={100}>
+          <Slider
+            value={mat.opacity ?? 1}
+            min={0} max={1} step={0.01}
+            onChange={(v) => setProp('opacity', v)}
+          />
+        </Row>
+        <Row label="Bg Blur" labelWidth={100}>
+          <div className="segmented flex-1">
+            <button className={mat.blur ? 'active' : ''} onClick={() => setProp('blur', true)}>On</button>
+            <button className={!mat.blur ? 'active' : ''} onClick={() => setProp('blur', false)}>Off</button>
+          </div>
+        </Row>
+        {mat.blur && (
+          <Row label="Blur Amt" labelWidth={100}>
+            <Slider
+              value={mat.blurAmount ?? 12}
+              min={0} max={40} step={1} suffix="pt"
+              onChange={(v) => setProp('blurAmount', v)}
+            />
+          </Row>
+        )}
+        <Row label="Inner Shadow" labelWidth={100}>
+          <div className="segmented flex-1">
+            <button className={mat.innerShadow ? 'active' : ''} onClick={() => toggleShadow('innerShadow')}>On</button>
+            <button className={!mat.innerShadow ? 'active' : ''} onClick={() => toggleShadow('innerShadow')}>Off</button>
+          </div>
+        </Row>
+        {mat.innerShadow && (
+          <ShadowSubFields shadow={mat.innerShadow} onPatch={(p) => setShadow('innerShadow', p)} />
+        )}
+        <Row label="Drop Shadow" labelWidth={100}>
+          <div className="segmented flex-1">
+            <button className={mat.dropShadow ? 'active' : ''} onClick={() => toggleShadow('dropShadow')}>On</button>
+            <button className={!mat.dropShadow ? 'active' : ''} onClick={() => toggleShadow('dropShadow')}>Off</button>
+          </div>
+        </Row>
+        {mat.dropShadow && (
+          <ShadowSubFields shadow={mat.dropShadow} onPatch={(p) => setShadow('dropShadow', p)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ShadowSubFields({ shadow, onPatch }) {
+  return (
+    <div className="pl-2 border-l border-border space-y-1">
+      <div className="grid grid-cols-2 gap-1">
+        <Row label="X" labelWidth={42}>
+          <IntField value={shadow.offsetX ?? 0} onChange={(v) => onPatch({ offsetX: v })} />
+        </Row>
+        <Row label="Y" labelWidth={42}>
+          <IntField value={shadow.offsetY ?? 0} onChange={(v) => onPatch({ offsetY: v })} />
+        </Row>
+      </div>
+      <Row label="Blur" labelWidth={50}>
+        <IntField value={shadow.blur ?? 12} min={0} onChange={(v) => onPatch({ blur: v })} />
+      </Row>
+      <Row label="Color" labelWidth={50}>
+        <ColorRow value={shadow.color || '#000000'} onChange={(v) => onPatch({ color: v })} />
+      </Row>
+      <Row label="Opacity" labelWidth={50}>
+        <Slider
+          value={shadow.opacity ?? 0.2}
+          min={0} max={1} step={0.01}
+          onChange={(v) => onPatch({ opacity: v })}
+        />
+      </Row>
+    </div>
   )
 }
