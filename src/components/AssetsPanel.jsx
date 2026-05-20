@@ -45,7 +45,13 @@ const SAMP_MODELS = 'samp-models'
 const SAMPLE_IMAGES = [
   { id: 'samp-img-1', name: 'Sample 01', url: '/samples/images/Sample 01.jpg', mimeType: 'image/jpeg' },
   { id: 'samp-img-2', name: 'Sample 02', url: '/samples/images/Sample 02.jpg', mimeType: 'image/jpeg' },
-  { id: 'samp-img-3', name: 'Sample 03', url: '/samples/images/Sample 03.jpg', mimeType: 'image/jpeg' }
+  { id: 'samp-img-3', name: 'Sample 03', url: '/samples/images/Sample 03.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-4', name: 'Sample 04', url: '/samples/images/Sample 04.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-5', name: 'Sample 05', url: '/samples/images/Sample 05.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-6', name: 'Sample 06', url: '/samples/images/Sample 06.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-7', name: 'Sample 07', url: '/samples/images/Sample 07.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-8', name: 'Sample 08', url: '/samples/images/Sample 08.jpg', mimeType: 'image/jpeg' },
+  { id: 'samp-img-9', name: 'Sample 09', url: '/samples/images/Sample 09.jpg', mimeType: 'image/jpeg' }
 ]
 const SAMPLE_MODELS = []   // reserved — drop GLB/USDZ files in `public/samples/3d-models/` and add entries here.
 

@@ -352,7 +352,14 @@ function Canvas3D() {
         // Required for the preview-mode "Screenshot" button: without it,
         // `domElement.toDataURL()` returns a blank PNG because the browser
         // is free to discard the drawing buffer after each present.
-        preserveDrawingBuffer: true
+        preserveDrawingBuffer: true,
+        // Per-material clipping planes — Window3D uses 4 world-space
+        // planes to keep child meshes (text, panels, gradients) inside
+        // the plate's rectangular bounds. Without local clipping
+        // enabled here, the per-material `clippingPlanes` array is
+        // ignored by the renderer and content visibly leaks past the
+        // window edge.
+        localClippingEnabled: true
       }}
       dpr={[1, 1.75]}
       // Debounce the resize observer — when the user drags a side-panel
@@ -360,6 +367,15 @@ function Canvas3D() {
       // renderer buffer resizes + the scene reflows constantly, which looks
       // laggy. 200ms means the buffer only updates once the drag pauses.
       resize={{ debounce: 200 }}
+      onCreated={({ gl }) => {
+        // Bump the transmission framebuffer to full canvas resolution
+        // (default is 0.5 in older three.js). The bigger buffer means
+        // mip levels carry more detail, so the roughness-driven
+        // backdrop blur on glass plates stops "wiggling" as the
+        // camera moves — sub-pixel sampling shifts shrink and edges
+        // through the glass stay stable. Slight extra cost per frame.
+        gl.transmissionResolutionScale = 1.0
+      }}
     >
       {imageBg ? (
         <Suspense fallback={<color attach="background" args={[viewportBg]} />}>

@@ -45,7 +45,54 @@ import {
   // Other
   Hand, Space as LucideSpace, Divide,
   ClipboardList, SquareDashed, ListTree,
-  File as LucideFile, FilePlus
+  File as LucideFile, FilePlus,
+  // SF Symbol coverage (visionOS-curated set). Imports needed by the
+  // SF_TO_LUCIDE map below — kept in the same lucide-react import so
+  // tree-shaking gathers them in one chunk.
+  Home, Settings, User, Star, Heart, Bell, Mail, Send, FileText as Doc,
+  Trash2, Pencil, Check, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
+  Camera, Video, Play, Pause, StopCircle, Volume2, Mic, Phone,
+  MessageCircle, Map as LucideMap, MapPin, Clock, Bookmark, Lock, Unlock,
+  Wifi, Battery, Info, HelpCircle, FolderArchive, MoreHorizontal,
+  Users, Newspaper, Utensils, History, Cloud, Sun as SunIcon,
+  Accessibility, KeyRound as Key, BookOpen, Languages, Keyboard,
+  Laptop, Inbox, Archive, Flag, Music, Mic2, SkipForward, SkipBack,
+  Sofa, Bed, BookMarked, CornerUpLeft, CornerUpRight, Sparkles,
+  Apple, ToggleLeft, MonitorSmartphone, Library, MoveDiagonal2, Maximize2,
+  // Phase 9 — bigger catalogue
+  FileText as FileTextIcon, FilePlus as FilePlusIcon, Files, Copy, Clipboard, ClipboardCopy,
+  PenLine, Pen, Eraser, Paperclip, Link as LinkIcon2, Link2,
+  CheckCircle, CheckSquare, XCircle, XSquare, PlusCircle, PlusSquare,
+  MinusCircle, MinusSquare, Octagon, AlertCircle, AlertOctagon,
+  Filter, ArrowUpDown, SlidersHorizontal as Sliders,
+  Download, Upload, Share2, Share, CloudUpload, CloudDownload, Cloud as CloudIcon,
+  ArrowUpCircle, ArrowDownCircle, RefreshCw, RotateCcw, RotateCw as RotateCwIcon,
+  MessageSquare as MsgSquare, MailOpen,
+  PhoneIncoming, PhoneOutgoing, PhoneCall, MicOff, VideoOff,
+  Volume, Volume1, VolumeX, Shuffle, Repeat, Repeat1, FastForward, Rewind,
+  PlayCircle, PauseCircle, StopCircle as StopCircleIcon,
+  WifiOff, Bluetooth, Radio,
+  Cast,
+  Battery as BatteryIcon, BatteryLow, BatteryMedium, BatteryFull, BatteryCharging, Zap,
+  BarChart3, LineChart, PieChart, TrendingUp, TrendingDown,
+  Percent, Hash,
+  Timer, Hourglass, AlarmClock, CalendarPlus, CalendarMinus,
+  Pin as PinIcon, Navigation, Compass, Flag as FlagIcon,
+  Smartphone, Tablet, Monitor, Tv, Headphones as HeadphonesIcon, Gamepad2, Printer,
+  ShieldCheck, ShieldAlert,
+  Moon, CloudRain, CloudSnow, CloudSun, CloudLightning, Wind, Snowflake,
+  Thermometer, Droplets, Flame,
+  HeartPulse, Activity, Dumbbell, Bike,
+  ShoppingCart, ShoppingBag, CreditCard, DollarSign, Euro, PoundSterling, JapaneseYen,
+  Coffee, Wine, UtensilsCrossed,
+  Lightbulb, Lamp, Fan, Building, Building2,
+  DoorOpen, DoorClosed, Bath, Car, Plane, Train, Fuel, Sailboat,
+  Book, BookOpenCheck, GraduationCap, Newspaper as NewspaperIcon,
+  Trophy, Medal, Crown, Award,
+  ThumbsUp, ThumbsDown, Hand as HandIcon2, Smile, SmilePlus,
+  Wrench, Hammer, Brush, Pipette,
+  Scissors, Ruler, AlertTriangle as AlertTriangleIcon, Ear,
+  Power, CircleHelp, AsteriskSquare, AtSign
 } from 'lucide-react'
 
 // `size` is treated as both width and height (square viewBox). Lucide's
@@ -180,3 +227,525 @@ export const AnchorIcon       = wrap(Anchor, 12)
 export const EntityGroupIcon  = wrap(Boxes, 12)
 export const ModelEntityIcon  = wrap(Box, 12)
 export const MaterialIcon     = wrap(Paintbrush, 12)
+
+// ---- SF Symbols (visionOS) → Lucide component map ------------------
+//
+// The 3D canvas + DOM call sites used to render an SF Symbol as the
+// nearest Unicode codepoint (`☰`, `⌖`, …) — which collapses
+// to missing-glyph boxes in any non-Apple font. We swap to Lucide
+// React, which ships outline glyphs that read as "native" Apple-style
+// affordances at all sizes.
+//
+// Add to this map whenever a panel introduces a new symbolName. The
+// `fallback` (LucideCircle) keeps unknown names rendering instead of
+// silently going blank.
+export const SF_TO_LUCIDE = {
+  'house':                   Home,
+  'house.fill':              Home,
+  'gear':                    Settings,
+  'gearshape':               Settings,
+  'gearshape.fill':          Settings,
+  'gearshape.2.fill':        Settings,
+  'person':                  User,
+  'person.fill':             User,
+  'person.circle':           User,
+  'person.crop.circle':      User,
+  'person.crop.circle.fill': User,
+  'person.2.fill':           Users,
+  'star':                    Star,
+  'star.fill':               Star,
+  'heart':                   Heart,
+  'heart.fill':              Heart,
+  'magnifyingglass':         Search,
+  'bell':                    Bell,
+  'bell.fill':               Bell,
+  'bell.badge':              Bell,
+  'envelope':                Mail,
+  'envelope.fill':           Mail,
+  'paperplane':              Send,
+  'paperplane.fill':         Send,
+  'square.and.arrow.up':     CornerUpRight,
+  'doc':                     Doc,
+  'doc.fill':                Doc,
+  'doc.viewfinder.fill':     Doc,
+  'folder':                  LucideFolder,
+  'folder.fill':             LucideFolder,
+  'folder.badge.plus':       LucideFolderPlus,
+  'trash':                   Trash2,
+  'pencil':                  Pencil,
+  'plus':                    Plus,
+  'minus':                   Minus,
+  'xmark':                   X,
+  'checkmark':               Check,
+  'chevron.right':           LucideChevronRight,
+  'chevron.left':            ChevronLeft,
+  'chevron.up':              ChevronUp,
+  'chevron.down':            LucideChevronDown,
+  'arrow.left':              ArrowLeft,
+  'arrow.right':             ArrowRight,
+  'arrow.up':                ArrowUp,
+  'arrow.down':              ArrowDown,
+  'photo':                   LucideImage,
+  'photo.on.rectangle.angled': Images,
+  'camera':                  Camera,
+  'video':                   Video,
+  'play':                    Play,
+  'play.fill':               Play,
+  'pause':                   Pause,
+  'pause.fill':              Pause,
+  'stop':                    StopCircle,
+  'speaker.wave.2':          Volume2,
+  'mic':                     Mic,
+  'phone':                   Phone,
+  'bubble.left':             MessageCircle,
+  'map':                     LucideMap,
+  'location':                MapPin,
+  'clock':                   Clock,
+  'clock.fill':              Clock,
+  'calendar':                Calendar,
+  'bookmark':                Bookmark,
+  'bookmark.fill':           Bookmark,
+  'tag':                     Tag,
+  'lock':                    Lock,
+  'lock.open':               Unlock,
+  'eye':                     Eye,
+  'eye.slash':               EyeOff,
+  'wifi':                    Wifi,
+  'battery.100':             Battery,
+  'globe':                   Globe,
+  'info.circle':             Info,
+  'exclamationmark.triangle': AlertTriangle,
+  'questionmark.circle':     HelpCircle,
+  'list.bullet':             List,
+  'square.grid.2x2':         LayoutGrid,
+  'square.grid.2x2.fill':    LayoutGrid,
+  'square.stack':            Layers,
+  'square.stack.fill':       Layers,
+  'cube':                    Box,
+  'pano':                    RectangleHorizontal,
+  'ellipsis':                MoreHorizontal,
+  'newspaper.fill':          Newspaper,
+  'n.square.fill':           Newspaper,
+  'fork.knife':              Utensils,
+  'fork.knife.circle.fill':  Utensils,
+  'rectangle':               Square,
+  'rectangle.on.rectangle':  Layers,
+  'applewatch':              MonitorSmartphone,
+  'applelogo':               Apple,
+  'apple.logo':              Apple,
+  'mountain.2.fill':         Triangle,
+  'accessibility':           Accessibility,
+  'sun.max.fill':            SunIcon,
+  'switch.2':                ToggleLeft,
+  'key.fill':                Key,
+  'character.book.closed.fill': BookOpen,
+  'textformat':              Languages,
+  'keyboard':                Keyboard,
+  'visionpro':               Maximize2,
+  'laptopcomputer':          Laptop,
+  'tray':                    Inbox,
+  'tray.full':               Inbox,
+  'tray.full.fill':          Inbox,
+  'archivebox':              Archive,
+  'archivebox.fill':         Archive,
+  'flag':                    Flag,
+  'flag.fill':               Flag,
+  'music.note':              Music,
+  'music.mic':               Mic2,
+  'forward.fill':            SkipForward,
+  'backward.fill':           SkipBack,
+  'sofa':                    Sofa,
+  'sofa.fill':               Sofa,
+  'bed.double':              Bed,
+  'bed.double.fill':         Bed,
+  'books.vertical':          Library,
+  'books.vertical.fill':     Library,
+  'arrowshape.turn.up.left': CornerUpLeft,
+  'arrowshape.turn.up.left.fill': CornerUpLeft,
+  'arrowshape.turn.up.right': CornerUpRight,
+  'sparkles':                Sparkles,
+  // Phase 9 — broader visionOS catalogue
+  // Files & documents
+  'doc.text':                FileTextIcon,
+  'doc.text.fill':           FileTextIcon,
+  'doc.plaintext':           Doc,
+  'doc.on.doc':              Files,
+  'doc.on.clipboard':        Clipboard,
+  'square.and.pencil':       PenLine,
+  'pencil.tip':              Pencil,
+  'pencil.line':             PenLine,
+  'highlighter':             Brush,
+  'eraser':                  Eraser,
+  'paperclip':               Paperclip,
+  'link':                    LinkIcon2,
+  'link.circle':             Link2,
+  // Status / state
+  'checkmark.circle':        CheckCircle,
+  'checkmark.circle.fill':   CheckCircle,
+  'checkmark.square':        CheckSquare,
+  'checkmark.square.fill':   CheckSquare,
+  'xmark.circle':            XCircle,
+  'xmark.circle.fill':       XCircle,
+  'xmark.square':            XSquare,
+  'plus.circle':             PlusCircle,
+  'plus.circle.fill':        PlusCircle,
+  'plus.square':             PlusSquare,
+  'minus.circle':            MinusCircle,
+  'minus.circle.fill':       MinusCircle,
+  'minus.square':            MinusSquare,
+  'circle':                  LucideCircle,
+  'circle.fill':             LucideCircle,
+  'square':                  Square,
+  'square.fill':             Square,
+  'triangle':                Triangle,
+  'triangle.fill':           Triangle,
+  'octagon':                 Octagon,
+  // Filters / sorting / search
+  'line.3.horizontal':       List,
+  'line.3.horizontal.decrease': Filter,
+  'arrow.up.arrow.down':     ArrowUpDown,
+  'slider.horizontal.3':     Sliders,
+  // Sharing
+  'square.and.arrow.down':   Download,
+  'square.and.arrow.up.on.square': Share2,
+  'icloud':                  CloudIcon,
+  'icloud.and.arrow.up':     CloudUpload,
+  'icloud.and.arrow.down':   CloudDownload,
+  'arrow.down.circle':       ArrowDownCircle,
+  'arrow.up.circle':         ArrowUpCircle,
+  'arrow.clockwise':         RefreshCw,
+  'arrow.counterclockwise':  RotateCcw,
+  // Communication extra
+  'message':                 MsgSquare,
+  'message.fill':            MsgSquare,
+  'envelope.open':           MailOpen,
+  'envelope.badge':          Mail,
+  'envelope.arrow.triangle.branch': Send,
+  'phone.fill':              Phone,
+  'phone.arrow.up.right':    PhoneOutgoing,
+  'phone.arrow.down.left':   PhoneIncoming,
+  'video.fill':              Video,
+  'video.slash':             VideoOff,
+  'mic.fill':                Mic,
+  'mic.slash':               MicOff,
+  'mic.slash.fill':          MicOff,
+  // Media controls extra
+  'speaker':                 Volume,
+  'speaker.slash':           VolumeX,
+  'speaker.wave.1':          Volume1,
+  'speaker.wave.3':          Volume2,
+  'shuffle':                 Shuffle,
+  'repeat':                  Repeat,
+  'repeat.1':                Repeat1,
+  'goforward.10':            FastForward,
+  'gobackward.10':           Rewind,
+  'play.circle':             PlayCircle,
+  'play.circle.fill':        PlayCircle,
+  'pause.circle':            PauseCircle,
+  'pause.circle.fill':       PauseCircle,
+  'stop.circle':             StopCircleIcon,
+  'stop.circle.fill':        StopCircleIcon,
+  // Connectivity
+  'wifi.slash':              WifiOff,
+  'bluetooth':               Bluetooth,
+  'antenna.radiowaves.left.and.right': Radio,
+  'airplayvideo':            Cast,
+  'airplayaudio':            Cast,
+  // Battery
+  'battery.0':               BatteryLow,
+  'battery.25':              BatteryLow,
+  'battery.50':              BatteryMedium,
+  'battery.75':              BatteryFull,
+  'bolt':                    Zap,
+  'bolt.fill':               Zap,
+  // Charts & data
+  'chart.bar':               BarChart3,
+  'chart.bar.fill':          BarChart3,
+  'chart.line.uptrend.xyaxis': LineChart,
+  'chart.pie':               PieChart,
+  'chart.pie.fill':          PieChart,
+  'arrow.up.right':          TrendingUp,
+  'arrow.down.right':        TrendingDown,
+  'percent':                 Percent,
+  'number':                  Hash,
+  // Time
+  'timer':                   Timer,
+  'hourglass':               Hourglass,
+  'alarm':                   AlarmClock,
+  'alarm.fill':              AlarmClock,
+  'stopwatch':               Timer,
+  'calendar.badge.plus':     CalendarPlus,
+  'calendar.badge.minus':    CalendarMinus,
+  // Location extra
+  'mappin':                  MapPin,
+  'mappin.and.ellipse':      MapPin,
+  'location.fill':           MapPin,
+  'location.circle':         MapPin,
+  'arrow.triangle.turn.up.right.diamond': Navigation,
+  'flag.checkered':          FlagIcon,
+  'safari':                  Compass,
+  'compass':                 Compass,
+  'globe.americas':          Globe,
+  'globe.europe.africa':     Globe,
+  'globe.asia.australia':    Globe,
+  // Devices
+  'iphone':                  Smartphone,
+  'ipad':                    Tablet,
+  'desktopcomputer':         Monitor,
+  'macbook':                 Laptop,
+  'tv':                      Tv,
+  'tv.fill':                 Tv,
+  'headphones':              HeadphonesIcon,
+  'airpods':                 HeadphonesIcon,
+  'gamecontroller':          Gamepad2,
+  'gamecontroller.fill':     Gamepad2,
+  'printer':                 Printer,
+  'printer.fill':            Printer,
+  'speaker.zzz':             VolumeX,
+  // Security
+  'shield':                  ShieldAlert,
+  'shield.fill':             ShieldAlert,
+  'lock.fill':               Lock,
+  'lock.shield':             ShieldCheck,
+  'lock.open.fill':          Unlock,
+  'faceid':                  Smile,
+  'touchid':                 HandIcon2,
+  // Weather
+  'sun.max':                 SunIcon,
+  'sun.min':                 SunIcon,
+  'moon':                    Moon,
+  'moon.fill':               Moon,
+  'cloud':                   CloudIcon,
+  'cloud.fill':              CloudIcon,
+  'cloud.rain':              CloudRain,
+  'cloud.snow':              CloudSnow,
+  'cloud.sun':               CloudSun,
+  'cloud.bolt':              CloudLightning,
+  'wind':                    Wind,
+  'snowflake':               Snowflake,
+  'thermometer':             Thermometer,
+  'drop':                    Droplets,
+  'flame':                   Flame,
+  'flame.fill':              Flame,
+  // Health & activity
+  'heart.text.square':       HeartPulse,
+  'figure.walk':             Activity,
+  'figure.run':              Activity,
+  'dumbbell':                Dumbbell,
+  'dumbbell.fill':           Dumbbell,
+  'bicycle':                 Bike,
+  'figure.yoga':             Activity,
+  // Shopping & commerce
+  'cart':                    ShoppingCart,
+  'cart.fill':               ShoppingCart,
+  'creditcard':              CreditCard,
+  'creditcard.fill':         CreditCard,
+  'dollarsign.circle':       DollarSign,
+  'dollarsign.circle.fill':  DollarSign,
+  'eurosign.circle':         Euro,
+  'sterlingsign.circle':     PoundSterling,
+  'yensign.circle':          JapaneseYen,
+  'bag':                     ShoppingBag,
+  'bag.fill':                ShoppingBag,
+  'gift':                    Sparkles,
+  'gift.fill':               Sparkles,
+  // Food
+  'cup.and.saucer':          Coffee,
+  'cup.and.saucer.fill':     Coffee,
+  'mug':                     Coffee,
+  'wineglass':               Wine,
+  // Smart home extra
+  'lightbulb':               Lightbulb,
+  'lightbulb.fill':          Lightbulb,
+  'lamp.desk':               Lamp,
+  'lamp.ceiling':            Lamp,
+  'fan':                     Fan,
+  'fan.desk':                Fan,
+  'thermometer.sun':         Thermometer,
+  'house.lodge':             Home,
+  'building':                Building,
+  'building.2':              Building2,
+  'door.left.hand.open':     DoorOpen,
+  'door.left.hand.closed':   DoorClosed,
+  'window.vertical.open':    Square,
+  'bathtub':                 Bath,
+  'shower':                  Bath,
+  // Transport
+  'car':                     Car,
+  'car.fill':                Car,
+  'airplane':                Plane,
+  'airplane.departure':      Plane,
+  'airplane.arrival':        Plane,
+  'tram':                    Train,
+  'tram.fill':               Train,
+  'fuelpump':                Fuel,
+  'sailboat':                Sailboat,
+  // Knowledge & education
+  'book':                    Book,
+  'book.fill':               Book,
+  'book.closed':             Book,
+  'graduationcap':           GraduationCap,
+  'graduationcap.fill':      GraduationCap,
+  'pencil.and.ruler':        Pencil,
+  'magazine':                NewspaperIcon,
+  'magazine.fill':           NewspaperIcon,
+  // Awards & achievement
+  'trophy':                  Trophy,
+  'trophy.fill':             Trophy,
+  'medal':                   Medal,
+  'medal.fill':              Medal,
+  'crown':                   Crown,
+  'crown.fill':              Crown,
+  'rosette':                 Award,
+  // Reactions
+  'hand.thumbsup':           ThumbsUp,
+  'hand.thumbsup.fill':      ThumbsUp,
+  'hand.thumbsdown':         ThumbsDown,
+  'hand.thumbsdown.fill':    ThumbsDown,
+  'hand.wave':               HandIcon2,
+  'hand.wave.fill':          HandIcon2,
+  'face.smiling':            Smile,
+  'face.smiling.fill':       Smile,
+  // Tools / editing
+  'wrench':                  Wrench,
+  'wrench.fill':             Wrench,
+  'hammer':                  Hammer,
+  'hammer.fill':             Hammer,
+  'screwdriver':             Wrench,
+  'paintbrush':              Brush,
+  'paintbrush.fill':         Brush,
+  'paintpalette':            LucidePalette,
+  'eyedropper':              Pipette,
+  'scissors':                Scissors,
+  'ruler':                   Ruler,
+  // Vision & accessibility extra
+  'eye.fill':                Eye,
+  'eye.trianglebadge.exclamationmark': AlertTriangleIcon,
+  'ear':                     Ear,
+  'ear.fill':                Ear,
+  'figure.roll':             Accessibility,
+  // Misc
+  'tag.fill':                Tag,
+  'tag.circle':              Tag,
+  'bookmark.circle':         Bookmark,
+  'star.circle':             Star,
+  'star.circle.fill':        Star,
+  'heart.circle':            Heart,
+  'heart.circle.fill':       Heart,
+  'rectangle.stack':         Layers,
+  'rectangle.portrait':      RectangleHorizontal,
+  'rectangle.landscape':     RectangleHorizontal,
+  'square.grid.3x3':         Grid3x3,
+  'square.grid.4x3':         Grid3x3,
+  'circle.grid.2x2':         LayoutGrid,
+  'circle.grid.3x3':         LayoutGrid,
+  'power':                   Power,
+  'power.circle':            Power,
+  'powersleep':              Moon,
+  'questionmark':            HelpCircle,
+  'exclamationmark':         AlertCircle,
+  'exclamationmark.circle':  AlertCircle,
+  'exclamationmark.octagon': AlertOctagon,
+  'at':                      AtSign,
+  'asterisk':                AsteriskSquare,
+  'function':                Hash
+}
+
+// SwiftUI symbol-config → Lucide drawing knobs.
+//
+// `fontWeight` (SwiftUI weights propagate to symbols by default) maps
+// to Lucide's `strokeWidth`. Values are calibrated so a regular-weight
+// label reads the same as Lucide's stock 1.5pt stroke — close to SF
+// Pro's medium weight at body size.
+export const SYMBOL_WEIGHT_STROKES = {
+  ultraLight: 0.75,
+  thin:       1.0,
+  light:      1.2,
+  regular:    1.5,
+  medium:     1.75,
+  semibold:   2.0,
+  bold:       2.25,
+  heavy:      2.5,
+  black:      2.75
+}
+
+// `.imageScale(.small|.medium|.large)` — SwiftUI scales the symbol's
+// drawing box relative to the surrounding text. The multipliers below
+// match Apple's reference scale (small ≈ 0.84, medium 1.0, large ≈ 1.2).
+export const SYMBOL_IMAGE_SCALES = {
+  small:  0.84,
+  medium: 1.0,
+  large:  1.2
+}
+
+// SwiftUI `.symbolVariant(_:)` resolves a base symbol to a variant
+// glyph by appending the variant suffix to the name and looking it
+// up again. e.g. `house` + `.fill` → `house.fill`. When the variant
+// isn't in our catalogue, fall back to the base name so the picker
+// stays predictable.
+export function resolveSymbolName(name, variant) {
+  if (!name) return name
+  if (!variant || variant === 'default' || variant === 'none') return name
+  // SwiftUI variants only ever append, never replace prefix segments.
+  // Most fill/circle/square/slash variants follow the same pattern.
+  const candidate = `${name}.${variant}`
+  if (SF_TO_LUCIDE[candidate]) return candidate
+  return name
+}
+
+// SwiftUI `.symbolRenderingMode(_:)` adjusts how the symbol is painted.
+// Lucide icons are single-path outline glyphs, so the multi-layer modes
+// (hierarchical / palette / multicolor) can only be approximated. We
+// match the visual ordering Apple uses:
+//   - monochrome   → full tint, 1.0 opacity (default)
+//   - hierarchical → tint at 0.7 opacity (faded primary layer)
+//   - palette      → tint + secondary color hint (we shift stroke to
+//                    the second tint when provided)
+//   - multicolor   → full saturation tint with a slightly thicker stroke
+//                    so the glyph reads as "vivid"
+export function symbolModeStyling(mode, color, secondaryColor) {
+  if (mode === 'hierarchical') return { color, opacity: 0.7,  weightBoost: 0 }
+  if (mode === 'palette')      return { color: secondaryColor || color, opacity: 1.0, weightBoost: 0 }
+  if (mode === 'multicolor')   return { color, opacity: 1.0, weightBoost: 0.25 }
+  return { color, opacity: 1.0, weightBoost: 0 }
+}
+
+// Render an SF Symbol as a Lucide icon with SwiftUI-style settings.
+// `name`        — SF Symbol name (e.g. 'info.circle').
+// `size`        — base size in px (default 14, matches SwiftUI body).
+// `weight`      — SwiftUI font weight (drives stroke width).
+// `imageScale`  — '.imageScale(...)' (small / medium / large).
+// `color`       — CSS color string. Defaults to `currentColor` so DOM
+//                 call sites inherit foreground colour automatically.
+export function SymbolIcon({
+  name,
+  size = 14,
+  weight = 'regular',
+  imageScale = 'medium',
+  color = 'currentColor',
+  // `.symbolVariant(.fill | .circle | .square | .slash)` — appends a
+  // suffix and re-resolves via SF_TO_LUCIDE.
+  variant = null,
+  // `.symbolRenderingMode(_:)` — adjusts paint. Multi-layer modes are
+  // approximated since Lucide is single-path.
+  renderingMode = 'monochrome',
+  secondaryColor = null,
+  className,
+  style
+}) {
+  const resolved = resolveSymbolName(name, variant)
+  const Icon = SF_TO_LUCIDE[resolved] || LucideCircle
+  const mode = symbolModeStyling(renderingMode, color, secondaryColor)
+  const strokeWidth = (SYMBOL_WEIGHT_STROKES[weight] ?? 1.5) + mode.weightBoost
+  const scaled = Math.round(size * (SYMBOL_IMAGE_SCALES[imageScale] ?? 1.0))
+  return (
+    <Icon
+      size={scaled}
+      strokeWidth={strokeWidth}
+      color={mode.color}
+      absoluteStrokeWidth
+      className={className}
+      style={{ opacity: mode.opacity, ...style }}
+    />
+  )
+}

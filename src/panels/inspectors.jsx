@@ -14,10 +14,13 @@ import {
   SemanticColorPicker
 } from '../components/PropertiesPanel/primitives'
 import {
-  TextSection, FigmaFrameSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
+  TextSection, FigmaFrameSection, LayoutSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
 import { useStore } from '../store'
-import { resolveSemantic } from '../appleSystem'
+import { resolveSemantic, SF_SYMBOLS, SYMBOL_VARIANTS } from '../appleSystem'
+import { SymbolIcon } from '../components/icons'
+import SymbolPicker from '../components/SymbolPicker'
+import { useState } from 'react'
 import {
   BUTTON_BORDER_SHAPES, CONTROL_SIZES,
   BUTTON_SIZES, BUTTON_SIZE_ORDER, BUTTON_SHAPES, BUTTON_SHAPE_ORDER,
@@ -252,6 +255,93 @@ function TextInspector(ctx) {
       </Row>
       <FigmaFrameSection item={item} updateItem={ctx.updateItem} embedded />
       <TextSection {...ctx} embedded includeBody isText />
+    </Section>
+  )
+}
+
+// ---- Label inspector ------------------------------------------------
+//
+// One consolidated section that owns the entire SwiftUI `Label("text",
+// systemImage:)` surface area:
+//   - Identity (Name)
+//   - Frame (Width / Height) via embedded LayoutSection
+//   - Text body
+//   - SF Symbol picker (Lucide-rendered preview + Pick button)
+//   - Style / Image Scale / Rendering Mode / Variant
+//   - Icon Color
+//
+// Previously these lived in three separate dropdowns (Object — Label,
+// Label, SF Symbol). PANEL_META.label is `mergedIdentity: true` and
+// excluded from SYMBOL_USERS so PanelProps skips the duplicate sections
+// when this inspector is shown.
+function LabelInspector({ item, updateItem, scene }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const sym = item.symbolName ? SF_SYMBOLS[item.symbolName] : null
+  return (
+    <Section title="Label" defaultOpen={true}>
+      <Row label="Name">
+        <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+      </Row>
+      <LayoutSection item={item} updateItem={updateItem} scene={scene} embedded />
+      <Row label="Title">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Label" />
+      </Row>
+      <Row label="Symbol">
+        <button onClick={() => setPickerOpen(true)} className="btn flex-1 justify-between">
+          <span className="flex items-center gap-1.5">
+            {item.symbolName && (
+              <SymbolIcon
+                name={item.symbolName}
+                size={14}
+                variant={item.symbolVariant}
+                renderingMode={item.symbolRenderingMode}
+                color={item.iconColor || 'currentColor'}
+              />
+            )}
+            <span>{sym ? sym.label : 'None'}</span>
+          </span>
+          <span className="text-[9px] text-textMute">Pick</span>
+        </button>
+      </Row>
+      <Row label="Variant">
+        <Select
+          value={item.symbolVariant || ''}
+          options={SYMBOL_VARIANTS.map((s) => ({ ...s, value: s.value || '' }))}
+          onChange={(v) => updateItem(item.id, { symbolVariant: v || null })}
+        />
+      </Row>
+      <Row label="Mode">
+        <Select
+          value={item.symbolRenderingMode || 'monochrome'}
+          options={SYMBOL_RENDERING_MODES}
+          onChange={(v) => updateItem(item.id, { symbolRenderingMode: v })}
+        />
+      </Row>
+      <Row label="Icon Color">
+        <ColorRow value={item.iconColor || '#007aff'} onChange={(v) => updateItem(item.id, { iconColor: v })} />
+      </Row>
+      <Row label="Style">
+        <Select
+          value={item.styles?.labelStyle || 'automatic'}
+          options={LABEL_STYLES}
+          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, labelStyle: v } })}
+        />
+      </Row>
+      <Row label="Img Scale">
+        <Select
+          value={item.imageScale || 'medium'}
+          options={IMAGE_SCALES}
+          onChange={(v) => updateItem(item.id, { imageScale: v })}
+        />
+      </Row>
+      {pickerOpen && (
+        <SymbolPicker
+          current={item.symbolName}
+          onSelect={(name) => updateItem(item.id, { symbolName: name })}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </Section>
   )
 }
@@ -1158,38 +1248,7 @@ export const INSPECTORS = {
   ),
 
   // ---- Phase 3 type editors ----
-  label: ({ item, updateItem }) => (
-    <Section title="Label">
-      <Row label="Title"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" placeholder="Label" /></Row>
-      <Row label="Icon"><input value={item.iconName || ''} onChange={(e) => updateItem(item.id, { iconName: e.target.value })} className="field flex-1" placeholder="A" maxLength={2} /></Row>
-      <Row label="Icon Color"><ColorRow value={item.iconColor || '#007aff'} onChange={(v) => updateItem(item.id, { iconColor: v })} /></Row>
-      <Row label="Style">
-        <Select
-          value={item.styles?.labelStyle || 'automatic'}
-          options={LABEL_STYLES}
-          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, labelStyle: v } })}
-        />
-      </Row>
-      <Row label="Img Scale">
-        {/*
-          `.imageScale(_:)` defaults to `.medium`. Only applied when the
-          designer overrides; spec §1.12.
-        */}
-        <Select
-          value={item.imageScale || 'medium'}
-          options={IMAGE_SCALES}
-          onChange={(v) => updateItem(item.id, { imageScale: v })}
-        />
-      </Row>
-      <Row label="Symbol Mode">
-        <Select
-          value={item.symbolRenderingMode || 'monochrome'}
-          options={SYMBOL_RENDERING_MODES}
-          onChange={(v) => updateItem(item.id, { symbolRenderingMode: v })}
-        />
-      </Row>
-    </Section>
-  ),
+  label: (ctx) => <LabelInspector {...ctx} />,
   textfield: ({ item, updateItem, switchPanelType }) => (
     <>
       <VariantSwitcher panelType="textfield" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
@@ -1511,7 +1570,10 @@ const mergedFigmaFrame = { frameMode: 'figma', hasFill: false, mergedIdentity: t
 // section was previously rendered for every panel, which produced an empty
 // header on Text, Image, Slider, Progress, etc.
 const SYMBOL_USERS = new Set([
-  'button', 'label', 'link', 'navigationlink', 'contentUnavailable',
+  // `label` owns its symbol picker inside its own consolidated section,
+  // so it's intentionally excluded here — keeping it would double up
+  // the SF Symbol section (one inside the Label section, one stand-alone).
+  'button', 'link', 'navigationlink', 'contentUnavailable',
   'toggle', 'picker', 'menu'
 ])
 
@@ -1523,6 +1585,12 @@ const mergedShape = { frameMode: 'none', hasFill: false, mergedIdentity: true }
 export const PANEL_META = {
   text: mergedFigmaFrame,
   link: { ...figmaFrame, useSymbol: true },
+  // Label owns Name + Frame + Title + Icon + Symbol + Style + ImgScale +
+  // Mode + Variant inside one consolidated section. mergedIdentity drops
+  // the generic "Object — Label" header; useSymbol stays false (already
+  // excluded from SYMBOL_USERS) so the stand-alone SF Symbol section
+  // isn't rendered next to the merged one.
+  label: { frameMode: 'explicit', hasFill: true, mergedIdentity: true },
   list: { ...explicitFrame, lockHeight: true, lockHeightHint: 'Height is auto — grows with the row count at the style\'s fixed row height.' },
   // Buttons are sized by the Size selector inside the Button inspector
   // — frameMode 'none' hides the Object section's width/height fields

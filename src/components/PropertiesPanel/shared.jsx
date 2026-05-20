@@ -22,6 +22,7 @@ import {
   Row, Section, NumField, IntField, PtField, Slider,
   ColorRow, Select, SemanticColorPicker
 } from './primitives'
+import { SymbolIcon } from '../icons'
 import { makeModifier } from '../../modifiers/registry'
 import SymbolPicker from '../SymbolPicker'
 
@@ -352,7 +353,10 @@ export function SymbolSection({ item, updateItem }) {
     <Section title="SF Symbol" defaultOpen={false}>
       <Row label="Symbol">
         <button onClick={() => setPickerOpen(true)} className="btn flex-1 justify-between">
-          <span>{sym ? `${sym.glyph} ${sym.label}` : 'None'}</span>
+          <span className="flex items-center gap-1.5">
+            {item.symbolName && <SymbolIcon name={item.symbolName} size={14} />}
+            <span>{sym ? sym.label : 'None'}</span>
+          </span>
           <span className="text-[9px] text-textMute">Pick</span>
         </button>
       </Row>

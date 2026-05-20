@@ -10,7 +10,7 @@ The companion docs are [README.md](README.md) (run/build) and
 implementer's map — paths, defaults, emit patterns, and the path from the
 inspector field to the SwiftUI export.
 
-> **Last updated:** 2026-05-20 *(SwiftUI text pipeline, modifier-driven Fit/Fixed/Fill, Inputs group, unified ShapeInspector, navbar)*
+> **Last updated:** 2026-05-20 *(Liquid Glass materials with transmission blur, gradient strokes, Lucide SF-Symbol pipeline, window clipping + scroll, expanded sample library)*
 
 ---
 
@@ -86,12 +86,14 @@ Stack, Panel, or Entity. Each has its own defaults block in
 | `size` | `[1200pt, 800pt]` | Plate frame in points (stored as units). Matches `WINDOW_PRESETS.regular`. |
 | `cornerRadius` | `30pt` | Outer plate radius. Matches Apple's visionOS Figma kit. |
 | `position` | `[0, 1.4, -1.0]` (m) | Chest height, 1m in front of wearer. |
-| `material` | `'regular'` | Liquid Glass tier — see `MATERIALS` in [appleSystem.js](src/appleSystem.js). |
-| `colorToken` / `color` | `'designWindow'` / `#ecedef` | Near-white visionOS plate fill. |
-| `fillOpacity` | `1.0` | Plate alpha (glass renderer adds its own translucency). |
+| `material` | `'glass'` | Liquid Glass tier — see `MATERIALS` in [appleSystem.js](src/appleSystem.js). Default is `glass` (#808080 @ 30% with bg blur on). |
+| `colorToken` / `color` | `null` / `null` | Per-window overrides — both null in the factory so the material's own `color` flows through. Setting either wins over the material. |
+| `fillOpacity` | `null` | Per-window override; null = use `MATERIALS[material].opacity`. When blur is on, the value drives `transmission = 1 − fillOpacity` (lower opacity = clearer glass). |
+| `blur` / `blurAmount` | `null` / `null` | Per-window override; null = use material defaults. `blurAmount` (pt) maps to `roughness = min(0.85, blurAmount/60)` on `meshPhysicalMaterial`. |
 | `padding` | `14pt` | Inner content padding (matches visionOS reference layouts). |
 | `windowStyle` | `'automatic'` | `'automatic'` \| `'plain'` \| `'volumetric'` — drives `.windowStyle()` on export. |
-| `scrollable` | `false` | When true the exporter wraps content in `ScrollView`. |
+| `scrollable` | `false` | When true the canvas wires a wheel handler that drives `scrollY`, and the SwiftUI exporter wraps content in `ScrollView`. |
+| `scrollY` | `0` (units) | Vertical scroll offset of the content sub-group. Only consulted when `scrollable` is true. Bounds-clamped to `[0, contentHeight − innerHeight]`. |
 | `volumeDepthMeters` | `0.6` | `.defaultSize` depth in metres when volumetric. |
 | `worldScalingBehavior` | `'automatic'` | `.defaultWorldScalingBehavior(...)`. |
 | `volumeBaseplateVisibility` | `'automatic'` | `'automatic'` \| `'visible'` \| `'hidden'`. |
@@ -771,9 +773,77 @@ read-only — components consume it but never mutate it.
 
 ### Materials (Liquid Glass tiers — `MATERIALS`)
 
-ultraThin (0.42 opacity), thin (0.55), regular (0.72) ← window default,
-thick (0.88), ultraThick (0.96), opaque (1.0), bar (0.62 — toolbar /
-chrome).
+Each entry in `MATERIALS` carries the full property set the renderer
+consumes. Per-scene overrides land in `scene.materialProps[key]` and
+`resolveMaterial(key, scene.materialProps)` (in
+[appleSystem.js](src/appleSystem.js)) returns the merged config the
+window plate reads.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `label` | string | Display name in the picker. |
+| `fillType` | `'solid'` \| `'gradient'` | Solid uses `color`; gradient bakes a CanvasTexture from `gradientFrom` → `gradientTo` at `gradientAngle`° and samples it across the plate. |
+| `color` | hex | Base fill tint (solid mode). |
+| `gradientFrom` / `gradientTo` / `gradientAngle` | hex / hex / deg | Stops + SwiftUI-style angle (0° = top→bottom). |
+| `opacity` | 0..1 | Base alpha when blur is off. When blur is on, drives `transmission = max(0.05, 1 − opacity)`. |
+| `blur` | bool | Toggles the visionOS frosted-glass look — see Backdrop blur below. |
+| `blurAmount` | pt (0..40) | Drives `roughness = min(0.85, blurAmount/60)` on the transmission material. |
+| `innerShadow` | `{offsetX, offsetY, blur, color, opacity}` \| `null` | Drawn as a rim overlay inside the plate. Off by default. |
+| `dropShadow` | `{offsetX, offsetY, blur, color, opacity}` \| `null` | Drawn as a slightly-inflated rounded rect behind the plate. Off by default. |
+| `layers` | `[{color, opacity}, …]` \| undefined | Optional layered composite — `viewsRegular` stacks `#D6D6D6 @ 45%` + `#000000 @ 8%`. |
+
+#### Tier defaults
+
+| Key | label | color | opacity | blur | blurAmt | layers |
+| --- | --- | --- | --- | --- | --- | --- |
+| **`glass`** *(window default)* | Glass | `#808080` | 0.30 | **on** | 24 | — |
+| `viewsRegular` | Views Regular | `#D6D6D6` | 0.45 | off | 12 | D6D6D6@45% + #000000@8% |
+| `ultraThin` | Ultra Thin | `#ffffff` | 0.42 | on | 30 | — |
+| `thin` | Thin | `#ffffff` | 0.55 | on | 20 | — |
+| `regular` | Regular | `#ffffff` | 0.72 | on | 16 | — |
+| `thick` | Thick | `#ffffff` | 0.88 | on | 12 | — |
+| `ultraThick` | Ultra Thick | `#ffffff` | 0.96 | on | 8 | — |
+| `opaque` | Opaque | `#ffffff` | 1.00 | off | 0 | — |
+| `bar` | Bar | `#ffffff` | 0.62 | on | 18 | — |
+
+`MATERIAL_ORDER` lists keys in picker order. Every tier defaults to
+`fillType: 'solid'`, `innerShadow: null`, `dropShadow: null`.
+
+#### Backdrop blur (real, GPU-side)
+
+When `material.blur` is true the window plate uses three.js's built-in
+`meshPhysicalMaterial` with `transmission`, `roughness`, `thickness`,
+`ior=1.5`. The renderer copies the scene into a shared transmission
+framebuffer once per frame and the plate samples it via mipmaps driven
+by `roughness` — the higher the blur amount, the coarser the mip and
+the softer the backdrop. `Canvas3D.onCreated` sets
+`gl.transmissionResolutionScale = 1.0` so the framebuffer matches
+canvas resolution and the blur stays stable on camera movement.
+Earlier attempts using drei's `MeshTransmissionMaterial` were
+abandoned — per-instance render targets fought our `localClippingEnabled`
+setup and caused GL-context loss.
+
+#### Plate stroke
+
+Every window plate carries a **3pt linear-gradient stroke** built from
+`rimRingShape` (outer rounded rect minus inset inner ring). The texture
+is a 45° diagonal sweep — `#ffffff @ 40%` → `0%` (41% stop) → `0%`
+(57% stop) → `#ffffff @ 10%` — giving a bright top-left wash and a
+soft bottom-right highlight. Cached once at module level
+(`getStrokeGradientTexture` in [SceneTree.jsx](src/components/SceneTree.jsx))
+and reused across every window.
+
+#### Content clipping + scroll
+
+Window content lives inside a `<group ref={contentClipRef}>` and the
+renderer attaches four world-space `THREE.Plane` clip planes — anchored
+to the window's bounds every frame — to every descendant material. The
+renderer has `localClippingEnabled: true` (`Canvas3D.jsx`). Result:
+text, panels, gradients can never leak past the plate edges. When
+`scrollable` is true a wheel handler on the inner group updates
+`scrollY` (clamped to the content overflow); the group translates by
+`scrollY` while the clip planes stay pinned, so off-bounds content is
+discarded.
 
 ### Lists (`LIST_STYLES`)
 
@@ -822,13 +892,41 @@ toolbarItemGroup.
 - `VOLUME_WORLD_ALIGNMENT` — adaptive (default, visionOS 2+), gravityAligned.
 - `VOLUME_VIEWPOINTS` — all (default), front, frontBack.
 
-### SF Symbols
+### SF Symbols (rendered via Lucide)
 
-`SF_SYMBOLS` exports a curated ~100-symbol map (name → `{ glyph, label }`)
-covering the symbols the bundled templates use (Photos / News /
-Shortcuts / Settings / Music / Smart Home / Mail / Files / Tab Bar).
-`SYMBOL_RENDERING_MODES` — monochrome / hierarchical / palette /
-multicolor. `SYMBOL_VARIANTS` — default / fill / circle / square / slash.
+`SF_SYMBOLS` exports a curated ~380-name map (name → `{ glyph, label }`)
+covering the symbols the bundled templates use, plus broad coverage of
+the visionOS / iOS 17 catalogue (files, status, media controls,
+weather, health, smart home, transport, awards, reactions, tools, etc).
+The `glyph` field is a legacy Unicode codepoint kept only for older
+DOM call sites — every modern call site renders the SF Symbol as a
+**Lucide icon** via the `SF_TO_LUCIDE` map in
+[src/components/icons.jsx](src/components/icons.jsx).
+
+| Component | Where it lives | Used by |
+| --- | --- | --- |
+| `SymbolIcon` (DOM) | [icons.jsx](src/components/icons.jsx) | LayersPanel rows, IconPickerPopover, SymbolPicker grid, inspector previews |
+| `SymbolIcon3D` (canvas) | [SymbolIcon3D.jsx](src/components/SymbolIcon3D.jsx) | Panel3D label/button/list-row icons, SceneTree tab + window-group pills, Entity3D attachment symbols |
+
+Both honour SwiftUI symbol traits:
+
+- **`weight`** → `strokeWidth` via `SYMBOL_WEIGHT_STROKES`
+  (ultraLight 0.75 … black 2.75; regular = 1.5)
+- **`imageScale`** → size multiplier via `SYMBOL_IMAGE_SCALES`
+  (small 0.84, medium 1.0, large 1.2)
+- **`variant`** (`.fill` / `.circle` / `.square` / `.slash`) → resolved
+  by `resolveSymbolName(name, variant)` which tries `${name}.${variant}`
+  in the map and falls back to the base name when the variant isn't in
+  the catalogue.
+- **`renderingMode`** (`monochrome` / `hierarchical` / `palette` /
+  `multicolor`) → `symbolModeStyling(mode, color, secondaryColor)`
+  applies the matching tint/opacity/strokeBoost.
+
+`SymbolIcon3D` rasterises the Lucide SVG to a `CanvasTexture` once per
+`(name, color, weight, pixelSize)` key (cached at module level) and
+paints it onto a planeGeometry sized in scene units. `SYMBOL_RENDERING_MODES`,
+`SYMBOL_VARIANTS` still live in [appleSystem.js](src/appleSystem.js)
+for the inspector dropdowns.
 
 ### Semantic colours (`SYSTEM_COLORS`)
 

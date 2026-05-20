@@ -232,62 +232,173 @@ export const BUTTON_BORDER_SHAPES = [
 // SwiftUI semantics: lower tiers let more of the world through.
 //
 // Per-tier constants consumed by the liquid-glass renderer in SceneTree.
+// Each material entry carries the full property set the renderer
+// needs: base color (single-fill tint), composite opacity, optional
+// layered passes (D6D6D6 + #000000-style), a frosted-glass blur toggle
+// + radius, and optional inner / drop shadow descriptors. The Scene →
+// Materials & Colors editor lets the user override any of these
+// per-scene via `scene.materialProps[key]`; the renderer merges the
+// override on top of the defaults below at draw time.
+const NO_SHADOW = null
+
 export const MATERIALS = {
+  // Glass — visionOS plate default. 50% gray at 30% alpha, backed by a
+  // backdrop blur. Matches the windowGlass token in DEFAULT_SCENE_COLORS
+  // so a fresh window lands on Apple's reference plate look. Shadows
+  // are opt-in: the user toggles them from the Materials & Colors
+  // editor when they actively want a contact cue.
+  glass: {
+    label: 'Glass',
+    fillType: 'solid',
+    color: '#808080',
+    gradientFrom: '#808080',
+    gradientTo: '#cccccc',
+    gradientAngle: 180,
+    opacity: 0.30,
+    blur: true,
+    blurAmount: 24,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
+    rimOpacity: 0.45,
+    specularOpacity: 0.30,
+    shadowOpacity: 0.20
+  },
+  // Views/Regular — layered composite plate (D6D6D6 @ 45% + #000000 @ 8%).
+  // The renderer reads `.layers` and paints both passes; the legacy
+  // single-`opacity` path still works for every other tier.
+  viewsRegular: {
+    label: 'Views Regular',
+    fillType: 'solid',
+    color: '#D6D6D6',
+    gradientFrom: '#D6D6D6',
+    gradientTo: '#a0a0a0',
+    gradientAngle: 180,
+    opacity: 0.45,
+    blur: false,
+    blurAmount: 12,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
+    rimOpacity: 0.0,
+    specularOpacity: 0.0,
+    shadowOpacity: 0.0,
+    layers: [
+      { color: '#D6D6D6', opacity: 0.45 },
+      { color: '#000000', opacity: 0.08 }
+    ]
+  },
   ultraThin: {
     label: 'Ultra Thin',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#d0d0d0', gradientAngle: 180,
     opacity: 0.42,
+    blur: true,
+    blurAmount: 30,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.55,
     specularOpacity: 0.35,
     shadowOpacity: 0.18
   },
   thin: {
     label: 'Thin',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#c0c0c0', gradientAngle: 180,
     opacity: 0.55,
+    blur: true,
+    blurAmount: 20,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.60,
     specularOpacity: 0.40,
     shadowOpacity: 0.22
   },
   regular: {
     label: 'Regular',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#b0b0b0', gradientAngle: 180,
     opacity: 0.72,
+    blur: true,
+    blurAmount: 16,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.68,
     specularOpacity: 0.45,
     shadowOpacity: 0.28
   },
   thick: {
     label: 'Thick',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#a0a0a0', gradientAngle: 180,
     opacity: 0.88,
+    blur: true,
+    blurAmount: 12,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.62,
     specularOpacity: 0.42,
     shadowOpacity: 0.32
   },
   ultraThick: {
     label: 'Ultra Thick',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#909090', gradientAngle: 180,
     opacity: 0.96,
+    blur: true,
+    blurAmount: 8,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.55,
     specularOpacity: 0.38,
     shadowOpacity: 0.36
   },
   opaque: {
     label: 'Opaque',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#888888', gradientAngle: 180,
     opacity: 1.0,
+    blur: false,
+    blurAmount: 0,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.0,
     specularOpacity: 0.0,
     shadowOpacity: 0.30
   },
-  // `.bar` material — used for toolbar/navigation chrome on visionOS.
-  // Visually sits between thin and regular; the system tunes it for legibility
-  // against toolbar-chrome backgrounds.
+  // `.bar` material — toolbar / chrome on visionOS.
   bar: {
     label: 'Bar',
+    fillType: 'solid',
+    color: '#ffffff',
+    gradientFrom: '#ffffff', gradientTo: '#a0a0a0', gradientAngle: 180,
     opacity: 0.62,
+    blur: true,
+    blurAmount: 18,
+    innerShadow: NO_SHADOW,
+    dropShadow: NO_SHADOW,
     rimOpacity: 0.58,
     specularOpacity: 0.38,
     shadowOpacity: 0.20
   }
 }
 
-export const MATERIAL_ORDER = ['ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque', 'bar']
+export const MATERIAL_ORDER = ['glass', 'viewsRegular', 'ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque', 'bar']
+
+// Resolve a material's final property set from MATERIALS defaults +
+// optional `scene.materialProps[key]` user overrides. The Materials &
+// Colors editor writes overrides; the LiquidGlass renderer + the
+// window inspector preview both read through this helper so they stay
+// in sync.
+export function resolveMaterial(key, sceneMaterialProps) {
+  const base = MATERIALS[key] || {}
+  const override = (sceneMaterialProps || {})[key] || {}
+  return { ...base, ...override }
+}
 
 // HDRIs bundled with the app (public/hdri/). Each `file` is loaded by drei's
 // <Environment files=...> via the RGBELoader. Keeping them local-first keeps
@@ -969,7 +1080,296 @@ export const SF_SYMBOLS = {
   'arrowshape.turn.up.right':    { glyph: '\u21AA', label: 'Forward' },
   'square.stack':                { glyph: '\u29C9', label: 'Stack' },
   // Layout / misc
-  'sparkles':                    { glyph: '\u2728', label: 'Sparkles' }
+  'sparkles':                    { glyph: '\u2728', label: 'Sparkles' },
+  // ---- Phase 9 additions: broader coverage of the visionOS / iOS 17
+  // symbol catalogue. Lookups in the picker stay alphabetically ordered
+  // by insertion; the SymbolIcon3D / SymbolIcon DOM renderer maps each
+  // name to a Lucide glyph via SF_TO_LUCIDE in src/components/icons.jsx.
+  // Unicode `glyph` is a legacy fallback only \u2014 never user-facing now.
+  // Files & documents
+  'doc.text':                    { glyph: '\u25a1', label: 'Text Document' },
+  'doc.text.fill':               { glyph: '\u25a0', label: 'Text Document Fill' },
+  'doc.plaintext':               { glyph: '\u25a1', label: 'Plain Text' },
+  'doc.on.doc':                  { glyph: '\u25a2', label: 'Copy' },
+  'doc.on.clipboard':            { glyph: '\u25a2', label: 'Paste' },
+  'square.and.pencil':           { glyph: '\u270f', label: 'Compose' },
+  'pencil.tip':                  { glyph: '\u270f', label: 'Pencil Tip' },
+  'pencil.line':                 { glyph: '\u270f', label: 'Pencil Line' },
+  'highlighter':                 { glyph: '\u270e', label: 'Highlighter' },
+  'eraser':                      { glyph: '\u25a1', label: 'Eraser' },
+  'paperclip':                   { glyph: '\u2702', label: 'Paperclip' },
+  'link':                        { glyph: '\u2693', label: 'Link' },
+  'link.circle':                 { glyph: '\u2693', label: 'Link Circle' },
+  // Status / state
+  'checkmark.circle':            { glyph: '\u2713', label: 'Checkmark Circle' },
+  'checkmark.circle.fill':       { glyph: '\u2713', label: 'Checkmark Circle Fill' },
+  'checkmark.square':            { glyph: '\u2611', label: 'Checkmark Square' },
+  'checkmark.square.fill':       { glyph: '\u2611', label: 'Checkmark Square Fill' },
+  'xmark.circle':                { glyph: '\u2715', label: 'Close Circle' },
+  'xmark.circle.fill':           { glyph: '\u2715', label: 'Close Circle Fill' },
+  'xmark.square':                { glyph: '\u2612', label: 'Close Square' },
+  'plus.circle':                 { glyph: '\u2295', label: 'Plus Circle' },
+  'plus.circle.fill':            { glyph: '\u2295', label: 'Plus Circle Fill' },
+  'plus.square':                 { glyph: '\u229e', label: 'Plus Square' },
+  'minus.circle':                { glyph: '\u2296', label: 'Minus Circle' },
+  'minus.circle.fill':           { glyph: '\u2296', label: 'Minus Circle Fill' },
+  'minus.square':                { glyph: '\u229f', label: 'Minus Square' },
+  'circle':                      { glyph: '\u25cb', label: 'Circle' },
+  'circle.fill':                 { glyph: '\u25cf', label: 'Circle Fill' },
+  'square':                      { glyph: '\u25a1', label: 'Square' },
+  'square.fill':                 { glyph: '\u25a0', label: 'Square Fill' },
+  'triangle':                    { glyph: '\u25b3', label: 'Triangle' },
+  'triangle.fill':               { glyph: '\u25b2', label: 'Triangle Fill' },
+  'octagon':                     { glyph: '\u2b22', label: 'Octagon' },
+  // Filters / sorting / search
+  'line.3.horizontal':           { glyph: '\u2630', label: 'Menu' },
+  'line.3.horizontal.decrease':  { glyph: '\u2630', label: 'Filter' },
+  'arrow.up.arrow.down':         { glyph: '\u21c5', label: 'Sort' },
+  'slider.horizontal.3':         { glyph: '\u2261', label: 'Adjustments' },
+  // Sharing
+  'square.and.arrow.down':       { glyph: '\u21e9', label: 'Download' },
+  'square.and.arrow.up.on.square': { glyph: '\u21e7', label: 'Share' },
+  'icloud':                      { glyph: '\u2601', label: 'iCloud' },
+  'icloud.and.arrow.up':         { glyph: '\u2601', label: 'iCloud Upload' },
+  'icloud.and.arrow.down':       { glyph: '\u2601', label: 'iCloud Download' },
+  'arrow.down.circle':           { glyph: '\u2193', label: 'Download Circle' },
+  'arrow.up.circle':             { glyph: '\u2191', label: 'Upload Circle' },
+  'arrow.clockwise':             { glyph: '\u21bb', label: 'Refresh' },
+  'arrow.counterclockwise':      { glyph: '\u21ba', label: 'Undo' },
+  // Communication extra
+  'message':                     { glyph: '\u2709', label: 'Message' },
+  'message.fill':                { glyph: '\u2709', label: 'Message Fill' },
+  'envelope.open':               { glyph: '\u2709', label: 'Envelope Open' },
+  'envelope.badge':              { glyph: '\u2709', label: 'Envelope Badge' },
+  'envelope.arrow.triangle.branch': { glyph: '\u2709', label: 'Mail Routing' },
+  'phone.fill':                  { glyph: '\u260e', label: 'Phone Fill' },
+  'phone.arrow.up.right':        { glyph: '\u260e', label: 'Outgoing Call' },
+  'phone.arrow.down.left':       { glyph: '\u260e', label: 'Incoming Call' },
+  'video.fill':                  { glyph: '\u25b6', label: 'Video Fill' },
+  'video.slash':                 { glyph: '\u25b6', label: 'Video Off' },
+  'mic.fill':                    { glyph: '\u2316', label: 'Mic Fill' },
+  'mic.slash':                   { glyph: '\u2316', label: 'Mic Off' },
+  'mic.slash.fill':              { glyph: '\u2316', label: 'Mic Off Fill' },
+  // Media controls extra
+  'speaker':                     { glyph: '\u266b', label: 'Speaker' },
+  'speaker.slash':               { glyph: '\u266b', label: 'Mute' },
+  'speaker.wave.1':              { glyph: '\u266b', label: 'Speaker Low' },
+  'speaker.wave.3':              { glyph: '\u266b', label: 'Speaker High' },
+  'shuffle':                     { glyph: '\u21c6', label: 'Shuffle' },
+  'repeat':                      { glyph: '\u21bb', label: 'Repeat' },
+  'repeat.1':                    { glyph: '\u21bb', label: 'Repeat One' },
+  'goforward.10':                { glyph: '\u21bb', label: 'Skip Forward 10s' },
+  'gobackward.10':               { glyph: '\u21ba', label: 'Skip Back 10s' },
+  'play.circle':                 { glyph: '\u25b6', label: 'Play Circle' },
+  'play.circle.fill':            { glyph: '\u25b6', label: 'Play Circle Fill' },
+  'pause.circle':                { glyph: '\u2016', label: 'Pause Circle' },
+  'pause.circle.fill':           { glyph: '\u2016', label: 'Pause Circle Fill' },
+  'stop.circle':                 { glyph: '\u25a0', label: 'Stop Circle' },
+  'stop.circle.fill':            { glyph: '\u25a0', label: 'Stop Circle Fill' },
+  // Connectivity
+  'wifi.slash':                  { glyph: '\u2630', label: 'WiFi Off' },
+  'bluetooth':                   { glyph: '\u2225', label: 'Bluetooth' },
+  'antenna.radiowaves.left.and.right': { glyph: '\u2630', label: 'Signal' },
+  'airplayvideo':                { glyph: '\u25b6', label: 'AirPlay Video' },
+  'airplayaudio':                { glyph: '\u266b', label: 'AirPlay Audio' },
+  // Battery
+  'battery.0':                   { glyph: '\u2588', label: 'Battery 0%' },
+  'battery.25':                  { glyph: '\u2588', label: 'Battery 25%' },
+  'battery.50':                  { glyph: '\u2588', label: 'Battery 50%' },
+  'battery.75':                  { glyph: '\u2588', label: 'Battery 75%' },
+  'bolt':                        { glyph: '\u26a1', label: 'Bolt' },
+  'bolt.fill':                   { glyph: '\u26a1', label: 'Bolt Fill' },
+  // Charts & data
+  'chart.bar':                   { glyph: '\u2588', label: 'Bar Chart' },
+  'chart.bar.fill':              { glyph: '\u2588', label: 'Bar Chart Fill' },
+  'chart.line.uptrend.xyaxis':   { glyph: '\u2197', label: 'Line Chart' },
+  'chart.pie':                   { glyph: '\u25d4', label: 'Pie Chart' },
+  'chart.pie.fill':              { glyph: '\u25d4', label: 'Pie Chart Fill' },
+  'arrow.up.right':              { glyph: '\u2197', label: 'Trending Up' },
+  'arrow.down.right':            { glyph: '\u2198', label: 'Trending Down' },
+  'percent':                     { glyph: '%',      label: 'Percent' },
+  'number':                      { glyph: '#',      label: 'Number' },
+  // Time
+  'timer':                       { glyph: '\u23f2', label: 'Timer' },
+  'hourglass':                   { glyph: '\u231b', label: 'Hourglass' },
+  'alarm':                       { glyph: '\u23f0', label: 'Alarm' },
+  'alarm.fill':                  { glyph: '\u23f0', label: 'Alarm Fill' },
+  'stopwatch':                   { glyph: '\u23f1', label: 'Stopwatch' },
+  'calendar.badge.plus':         { glyph: '\u2637', label: 'Calendar Plus' },
+  'calendar.badge.minus':        { glyph: '\u2637', label: 'Calendar Minus' },
+  // Location extra
+  'mappin':                      { glyph: '\u2316', label: 'Pin' },
+  'mappin.and.ellipse':          { glyph: '\u2316', label: 'Place' },
+  'location.fill':               { glyph: '\u2316', label: 'Location Fill' },
+  'location.circle':             { glyph: '\u2316', label: 'Location Circle' },
+  'arrow.triangle.turn.up.right.diamond': { glyph: '\u27a4', label: 'Directions' },
+  'flag.checkered':              { glyph: '\u2691', label: 'Flag Checkered' },
+  'safari':                      { glyph: '\u25cc', label: 'Safari' },
+  'compass':                     { glyph: '\u29b5', label: 'Compass' },
+  'globe.americas':              { glyph: '\u2641', label: 'Americas' },
+  'globe.europe.africa':         { glyph: '\u2641', label: 'Europe/Africa' },
+  'globe.asia.australia':        { glyph: '\u2641', label: 'Asia/Australia' },
+  // Devices
+  'iphone':                      { glyph: '\u25ad', label: 'iPhone' },
+  'ipad':                        { glyph: '\u25ad', label: 'iPad' },
+  'desktopcomputer':             { glyph: '\u2328', label: 'Desktop' },
+  'macbook':                     { glyph: '\u2328', label: 'MacBook' },
+  'tv':                          { glyph: '\u25ad', label: 'TV' },
+  'tv.fill':                     { glyph: '\u25ad', label: 'TV Fill' },
+  'headphones':                  { glyph: '\u266a', label: 'Headphones' },
+  'airpods':                     { glyph: '\u266a', label: 'AirPods' },
+  'gamecontroller':              { glyph: '\u2660', label: 'Game Controller' },
+  'gamecontroller.fill':         { glyph: '\u2660', label: 'Game Controller Fill' },
+  'printer':                     { glyph: '\u2399', label: 'Printer' },
+  'printer.fill':                { glyph: '\u2399', label: 'Printer Fill' },
+  'speaker.zzz':                 { glyph: '\u266b', label: 'Speaker Off' },
+  // Security
+  'shield':                      { glyph: '\u26e8', label: 'Shield' },
+  'shield.fill':                 { glyph: '\u26e8', label: 'Shield Fill' },
+  'lock.fill':                   { glyph: '\u26bf', label: 'Lock Fill' },
+  'lock.shield':                 { glyph: '\u26bf', label: 'Lock Shield' },
+  'lock.open.fill':              { glyph: '\u26bf', label: 'Unlock Fill' },
+  'faceid':                      { glyph: '\u263a', label: 'Face ID' },
+  'touchid':                     { glyph: '\u261a', label: 'Touch ID' },
+  // Weather
+  'sun.max':                     { glyph: '\u2600', label: 'Sun' },
+  'sun.min':                     { glyph: '\u2600', label: 'Sun Min' },
+  'moon':                        { glyph: '\u263d', label: 'Moon' },
+  'moon.fill':                   { glyph: '\u263d', label: 'Moon Fill' },
+  'cloud':                       { glyph: '\u2601', label: 'Cloud' },
+  'cloud.fill':                  { glyph: '\u2601', label: 'Cloud Fill' },
+  'cloud.rain':                  { glyph: '\u2614', label: 'Rain' },
+  'cloud.snow':                  { glyph: '\u2603', label: 'Snow' },
+  'cloud.sun':                   { glyph: '\u26c5', label: 'Partly Cloudy' },
+  'cloud.bolt':                  { glyph: '\u26c8', label: 'Thunderstorm' },
+  'wind':                        { glyph: '\u2603', label: 'Wind' },
+  'snowflake':                   { glyph: '\u2744', label: 'Snowflake' },
+  'thermometer':                 { glyph: '\u2615', label: 'Thermometer' },
+  'drop':                        { glyph: '\u25cc', label: 'Drop' },
+  'flame':                       { glyph: '\u2615', label: 'Flame' },
+  'flame.fill':                  { glyph: '\u2615', label: 'Flame Fill' },
+  // Health & activity
+  'heart.text.square':           { glyph: '\u2665', label: 'Health' },
+  'figure.walk':                 { glyph: '\u263a', label: 'Walk' },
+  'figure.run':                  { glyph: '\u263a', label: 'Run' },
+  'dumbbell':                    { glyph: '\u2692', label: 'Dumbbell' },
+  'dumbbell.fill':               { glyph: '\u2692', label: 'Dumbbell Fill' },
+  'bicycle':                     { glyph: '\u26b2', label: 'Bicycle' },
+  'figure.yoga':                 { glyph: '\u263a', label: 'Yoga' },
+  // Shopping & commerce
+  'cart':                        { glyph: '\u26c1', label: 'Cart' },
+  'cart.fill':                   { glyph: '\u26c1', label: 'Cart Fill' },
+  'creditcard':                  { glyph: '\u25ad', label: 'Credit Card' },
+  'creditcard.fill':             { glyph: '\u25ad', label: 'Credit Card Fill' },
+  'dollarsign.circle':           { glyph: '$',      label: 'Dollar' },
+  'dollarsign.circle.fill':      { glyph: '$',      label: 'Dollar Fill' },
+  'eurosign.circle':             { glyph: '\u20ac',      label: 'Euro' },
+  'sterlingsign.circle':         { glyph: '\u00a3',      label: 'Pound' },
+  'yensign.circle':              { glyph: '\u00a5',      label: 'Yen' },
+  'bag':                         { glyph: '\u26c1', label: 'Bag' },
+  'bag.fill':                    { glyph: '\u26c1', label: 'Bag Fill' },
+  'gift':                        { glyph: '\u2603', label: 'Gift' },
+  'gift.fill':                   { glyph: '\u2603', label: 'Gift Fill' },
+  // Food
+  'cup.and.saucer':              { glyph: '\u2615', label: 'Coffee' },
+  'cup.and.saucer.fill':         { glyph: '\u2615', label: 'Coffee Fill' },
+  'mug':                         { glyph: '\u2615', label: 'Mug' },
+  'wineglass':                   { glyph: '\u26c0', label: 'Wine Glass' },
+  // Smart home extra
+  'lightbulb':                   { glyph: '\u2600', label: 'Lightbulb' },
+  'lightbulb.fill':              { glyph: '\u2600', label: 'Lightbulb Fill' },
+  'lamp.desk':                   { glyph: '\u2600', label: 'Desk Lamp' },
+  'lamp.ceiling':                { glyph: '\u2600', label: 'Ceiling Lamp' },
+  'fan':                         { glyph: '\u2735', label: 'Fan' },
+  'fan.desk':                    { glyph: '\u2735', label: 'Desk Fan' },
+  'thermometer.sun':             { glyph: '\u2600', label: 'Temperature' },
+  'house.lodge':                 { glyph: '\u2302', label: 'Lodge' },
+  'building':                    { glyph: '\u25a6', label: 'Building' },
+  'building.2':                  { glyph: '\u25a6', label: 'Buildings' },
+  'door.left.hand.open':         { glyph: '\u25a1', label: 'Door Open' },
+  'door.left.hand.closed':       { glyph: '\u25a0', label: 'Door Closed' },
+  'window.vertical.open':        { glyph: '\u25a1', label: 'Window Open' },
+  'bathtub':                     { glyph: '\u26c0', label: 'Bath' },
+  'shower':                      { glyph: '\u26c0', label: 'Shower' },
+  // Transport
+  'car':                         { glyph: '\u26f4', label: 'Car' },
+  'car.fill':                    { glyph: '\u26f4', label: 'Car Fill' },
+  'airplane':                    { glyph: '\u2708', label: 'Airplane' },
+  'airplane.departure':          { glyph: '\u2708', label: 'Departure' },
+  'airplane.arrival':            { glyph: '\u2708', label: 'Arrival' },
+  'tram':                        { glyph: '\u26f4', label: 'Tram' },
+  'tram.fill':                   { glyph: '\u26f4', label: 'Tram Fill' },
+  'fuelpump':                    { glyph: '\u26fd', label: 'Gas Station' },
+  'sailboat':                    { glyph: '\u26f5', label: 'Sailboat' },
+  // Knowledge & education
+  'book':                        { glyph: '\u26c0', label: 'Book' },
+  'book.fill':                   { glyph: '\u26c0', label: 'Book Fill' },
+  'book.closed':                 { glyph: '\u26c0', label: 'Closed Book' },
+  'graduationcap':               { glyph: '\u2302', label: 'Graduation' },
+  'graduationcap.fill':          { glyph: '\u2302', label: 'Graduation Fill' },
+  'pencil.and.ruler':            { glyph: '\u270f', label: 'Pencil + Ruler' },
+  'magazine':                    { glyph: '\u25a4', label: 'Magazine' },
+  'magazine.fill':               { glyph: '\u25a4', label: 'Magazine Fill' },
+  // Awards & achievement
+  'trophy':                      { glyph: '\u2605', label: 'Trophy' },
+  'trophy.fill':                 { glyph: '\u2605', label: 'Trophy Fill' },
+  'medal':                       { glyph: '\u2606', label: 'Medal' },
+  'medal.fill':                  { glyph: '\u2605', label: 'Medal Fill' },
+  'crown':                       { glyph: '\u2654', label: 'Crown' },
+  'crown.fill':                  { glyph: '\u2654', label: 'Crown Fill' },
+  'rosette':                     { glyph: '\u2606', label: 'Rosette' },
+  // Reactions
+  'hand.thumbsup':               { glyph: '\u261d', label: 'Thumbs Up' },
+  'hand.thumbsup.fill':          { glyph: '\u261d', label: 'Thumbs Up Fill' },
+  'hand.thumbsdown':             { glyph: '\u261f', label: 'Thumbs Down' },
+  'hand.thumbsdown.fill':        { glyph: '\u261f', label: 'Thumbs Down Fill' },
+  'hand.wave':                   { glyph: '\u270b', label: 'Wave' },
+  'hand.wave.fill':              { glyph: '\u270b', label: 'Wave Fill' },
+  'face.smiling':                { glyph: '\u263a', label: 'Smile' },
+  'face.smiling.fill':           { glyph: '\u263a', label: 'Smile Fill' },
+  // Tools / editing
+  'wrench':                      { glyph: '\u2692', label: 'Wrench' },
+  'wrench.fill':                 { glyph: '\u2692', label: 'Wrench Fill' },
+  'hammer':                      { glyph: '\u2692', label: 'Hammer' },
+  'hammer.fill':                 { glyph: '\u2692', label: 'Hammer Fill' },
+  'screwdriver':                 { glyph: '\u2692', label: 'Screwdriver' },
+  'paintbrush':                  { glyph: '\u270e', label: 'Paintbrush' },
+  'paintbrush.fill':             { glyph: '\u270e', label: 'Paintbrush Fill' },
+  'paintpalette':                { glyph: '\u26c0', label: 'Palette' },
+  'eyedropper':                  { glyph: '\u25cc', label: 'Eyedropper' },
+  'scissors':                    { glyph: '\u2702', label: 'Scissors' },
+  'ruler':                       { glyph: '\u2197', label: 'Ruler' },
+  // Vision & accessibility extra
+  'eye.fill':                    { glyph: '\u25c9', label: 'Eye Fill' },
+  'eye.trianglebadge.exclamationmark': { glyph: '\u25c9', label: 'Eye Alert' },
+  'ear':                         { glyph: '\u263a', label: 'Ear' },
+  'ear.fill':                    { glyph: '\u263a', label: 'Ear Fill' },
+  'figure.roll':                 { glyph: '\u267f', label: 'Wheelchair' },
+  // Misc
+  'tag.fill':                    { glyph: '\u2606', label: 'Tag Fill' },
+  'tag.circle':                  { glyph: '\u2606', label: 'Tag Circle' },
+  'bookmark.circle':             { glyph: '\u2610', label: 'Bookmark Circle' },
+  'star.circle':                 { glyph: '\u2605', label: 'Star Circle' },
+  'star.circle.fill':            { glyph: '\u2605', label: 'Star Circle Fill' },
+  'heart.circle':                { glyph: '\u2665', label: 'Heart Circle' },
+  'heart.circle.fill':           { glyph: '\u2665', label: 'Heart Circle Fill' },
+  'rectangle.stack':             { glyph: '\u25a2', label: 'Card Stack' },
+  'rectangle.portrait':          { glyph: '\u25ad', label: 'Portrait Rect' },
+  'rectangle.landscape':         { glyph: '\u25ad', label: 'Landscape Rect' },
+  'square.grid.3x3':             { glyph: '\u29c9', label: 'Grid 3\u00d73' },
+  'square.grid.4x3':             { glyph: '\u29c9', label: 'Grid 4\u00d73' },
+  'circle.grid.2x2':             { glyph: '\u29c9', label: 'Circle Grid' },
+  'circle.grid.3x3':             { glyph: '\u29c9', label: 'Circle Grid 3\u00d73' },
+  'power':                       { glyph: '\u23fb', label: 'Power' },
+  'power.circle':                { glyph: '\u23fb', label: 'Power Circle' },
+  'powersleep':                  { glyph: '\u23fe', label: 'Sleep' },
+  'questionmark':                { glyph: '?',      label: 'Question Mark' },
+  'exclamationmark':             { glyph: '!',      label: 'Exclamation' },
+  'exclamationmark.circle':      { glyph: '!',      label: 'Alert Circle' },
+  'exclamationmark.octagon':     { glyph: '!',      label: 'Stop Sign' },
+  'at':                          { glyph: '@',      label: 'At' },
+  'asterisk':                    { glyph: '*',      label: 'Asterisk' },
+  'function':                    { glyph: 'f',      label: 'Function' }
 }
 
 export const SF_SYMBOL_ORDER = Object.keys(SF_SYMBOLS)

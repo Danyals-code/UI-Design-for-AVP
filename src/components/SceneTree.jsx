@@ -1,16 +1,16 @@
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
-import { roundedRectShape, unevenRoundedRectShape } from '../shapes'
-import { resolveSemantic, ptToUnits, ORNAMENT_GAP, SF_SYMBOLS, NAVBAR_HEIGHT_PT } from '../appleSystem'
+import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
+import { resolveSemantic, ptToUnits, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveMaterial } from '../appleSystem'
 
-const getSymbolGlyph = (name) => SF_SYMBOLS[name]?.glyph || '\u25CF'
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 import { EntityChildren } from './Entity3D'
+import { SymbolIcon3D } from './SymbolIcon3D'
 
 // ---- Plane fill ----
 // Earlier we layered a six-pass approximation of visionOS Liquid Glass
@@ -21,6 +21,68 @@ import { EntityChildren } from './Entity3D'
 // soft drop shadow, which is what the user asked for (plain colour, no
 // glass). Semantic colour tokens still resolve per-scheme so the fill picks
 // up the dark-mode palette.
+// Paint a gradient fill texture for a material. The angle is in degrees
+// (SwiftUI-style: 0° = top→bottom, 90° = leading→trailing). Cached by
+// `${from}|${to}|${angle}` so flipping back and forth on the editor
+// reuses the previous bake.
+const _fillGradientCache = new Map()
+function getFillGradientTexture(from, to, angleDeg) {
+  const key = `${from}|${to}|${angleDeg}`
+  const cached = _fillGradientCache.get(key)
+  if (cached) return cached
+  if (typeof document === 'undefined') return null
+  const N = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = N
+  canvas.height = N
+  const ctx = canvas.getContext('2d')
+  const rad = ((angleDeg ?? 180) * Math.PI) / 180
+  const cx = N / 2, cy = N / 2
+  const dx = Math.sin(rad) * (N / 2)
+  const dy = -Math.cos(rad) * (N / 2)
+  const g = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy)
+  g.addColorStop(0, from || '#808080')
+  g.addColorStop(1, to || '#cccccc')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, N, N)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  _fillGradientCache.set(key, tex)
+  return tex
+}
+
+// Paint the 3pt linear-grading stroke that wraps every main window
+// plate. Stops mirror the Figma reference: white at 0% / 41% / 57% /
+// 100% with alphas 40 / 0 / 0 / 10 percent — a bright top-left wash,
+// a hollow midsection, and a soft bottom-right glow. The gradient
+// runs at 45° (top-left → bottom-right corner of the square texture)
+// so the highlight sweeps diagonally across the window's perimeter.
+let _strokeTextureCache = null
+function getStrokeGradientTexture() {
+  if (_strokeTextureCache) return _strokeTextureCache
+  if (typeof document === 'undefined') return null
+  const N = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = N
+  canvas.height = N
+  const ctx = canvas.getContext('2d')
+  // 45° linear gradient — top-left corner to bottom-right corner of
+  // the square canvas. The UV map on the ring shape samples this in
+  // [0..1]² coordinates, so the gradient is read across the diagonal
+  // of the window's bounding rectangle.
+  const g = ctx.createLinearGradient(0, 0, N, N)
+  g.addColorStop(0.00, 'rgba(255,255,255,0.40)')
+  g.addColorStop(0.41, 'rgba(255,255,255,0.00)')
+  g.addColorStop(0.57, 'rgba(255,255,255,0.00)')
+  g.addColorStop(1.00, 'rgba(255,255,255,0.10)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, N, N)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  _strokeTextureCache = tex
+  return tex
+}
+
 function LiquidGlass({
   size,
   cornerRadius,
@@ -32,6 +94,17 @@ function LiquidGlass({
   cornerRadii,
   color,
   fillOpacity = 0.92,
+  // Liquid Glass material tier (key into MATERIALS). `viewsRegular`
+  // (and any future tier that defines a `.layers` array) renders as a
+  // multi-pass composite instead of the single `color` fill — bottom
+  // layer first, top layers stacked on a tiny z offset. Flat tiers
+  // ignore this entirely and draw the legacy single-plane fill.
+  material = 'regular',
+  // Merged material config (MATERIALS[key] + scene.materialProps[key]
+  // overrides) — supplied by the call site so we don't re-resolve
+  // inside the renderer. Carries `.layers`, `.innerShadow`,
+  // `.dropShadow` etc. When omitted we fall back to MATERIALS[material].
+  materialConfig = null,
   // Frosted-glass blur. We approximate a real backdrop blur (which
   // would need a render-target + Gaussian shader) by adding a soft
   // white overlay layer on top of the base fill — the more the
@@ -40,9 +113,13 @@ function LiquidGlass({
   // `.background(.regularMaterial)` modifier with the right radius.
   blur = false,
   blurAmount = 12,
+  // Paint the 1pt linear-grading stroke around the plate perimeter.
+  // Off by default; the window renderer turns it on for the main
+  // baseplate so stacks / ornaments stay free of the ring.
+  strokeRing = false,
   hitEvents = {}
-  // `material`, `schemeDark`, `capsule` are accepted (but unused) for
-  // call-site compatibility with the previous glass implementation.
+  // `schemeDark`, `capsule` are accepted (but unused) for call-site
+  // compatibility with the previous glass implementation.
 }) {
   const [w, h] = size
   const fillShape = useMemo(() => {
@@ -52,6 +129,20 @@ function LiquidGlass({
     }
     return roundedRectShape(w, h, cornerRadius)
   }, [w, h, cornerRadius, cornerRadii?.[0], cornerRadii?.[1], cornerRadii?.[2], cornerRadii?.[3]])
+  // Geometry with UVs mapped to the bounding box — needed when the
+  // fill is a gradient CanvasTexture so the gradient samples evenly
+  // across the plate regardless of corner-radius cutouts.
+  const fillGeometry = useMemo(() => {
+    const g = new THREE.ShapeGeometry(fillShape, 32)
+    const pos = g.attributes.position
+    const uvs = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) {
+      uvs[i * 2]     = (pos.getX(i) + w / 2) / w
+      uvs[i * 2 + 1] = (pos.getY(i) + h / 2) / h
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    return g
+  }, [fillShape, w, h])
   // No drop shadow — visionOS glass plates rely on translucency and
   // the environment lighting for their depth cue, not a contact
   // shadow. The earlier rectangular shadow also bulged past uneven-
@@ -62,29 +153,156 @@ function LiquidGlass({
   // Blur overlay intensity scales the amount (in pt) into a 0..0.45
   // alpha range — enough to read as a frost without nuking the
   // backdrop contrast.
-  const frostOpacity = blur ? Math.min(0.45, Math.max(0, blurAmount) / 80) : 0
+  // Multi-layer materials (e.g. viewsRegular) paint their `.layers`
+  // composite over the base fill instead of using the single `color`
+  // prop. Each layer gets its own thin mesh stacked above the base on
+  // a 0.0002-unit z step so transparency composites cleanly.
+  const materialSpec = materialConfig || MATERIALS[material] || {}
+  const extraLayers = materialSpec.layers || null
+  // Inner / drop shadow descriptors come from the merged material
+  // config so the editor's overrides flow straight into the rendered
+  // plate.
+  const innerShadow = materialSpec.innerShadow || null
+  const dropShadow = materialSpec.dropShadow || null
+  // 3pt stroke ring metric — rimRingShape carves the inner hole; the
+  // CanvasTexture is sampled across the bounding box so the 45°
+  // gradient sweeps from the top-left corner to the bottom-right
+  // corner of the window's perimeter.
+  const strokeThickness = ptToUnits(3)
+  const ringShape = useMemo(() => {
+    if (!strokeRing) return null
+    return rimRingShape(w, h, cornerRadius, strokeThickness)
+  }, [strokeRing, w, h, cornerRadius, strokeThickness])
+  const ringGeometry = useMemo(() => {
+    if (!ringShape) return null
+    const g = new THREE.ShapeGeometry(ringShape, 32)
+    const pos = g.attributes.position
+    const uvs = new Float32Array(pos.count * 2)
+    for (let i = 0; i < pos.count; i++) {
+      uvs[i * 2]     = (pos.getX(i) + w / 2) / w
+      uvs[i * 2 + 1] = (pos.getY(i) + h / 2) / h
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    return g
+  }, [ringShape, w, h])
+  const strokeTexture = strokeRing ? getStrokeGradientTexture() : null
+  // Drop / inner shadow geometry — we render the drop shadow as a
+  // slightly-scaled plate set behind the fill, the inner shadow as a
+  // ring overlay (inset by the shadow blur radius) on top. Both are
+  // opt-in via the material config.
+  const dropShadowShape = useMemo(() => {
+    if (!dropShadow) return null
+    const offX = ptToUnits(dropShadow.offsetX ?? 0)
+    const offY = ptToUnits(dropShadow.offsetY ?? 8)
+    const blurR = ptToUnits(dropShadow.blur ?? 24)
+    // Drop shadow shape is a slightly inflated rounded rect to
+    // approximate the soft falloff a real blur would produce.
+    void offX; void offY
+    const r = Math.max(0, cornerRadius + blurR * 0.5)
+    return roundedRectShape(w + blurR, h + blurR, r)
+  }, [dropShadow, w, h, cornerRadius])
+  const innerShadowRing = useMemo(() => {
+    if (!innerShadow) return null
+    const t = ptToUnits(Math.max(2, innerShadow.blur ?? 6))
+    return rimRingShape(w, h, cornerRadius, t)
+  }, [innerShadow, w, h, cornerRadius])
   return (
     <group>
-      <mesh position={[0, 0, -0.001]} renderOrder={-1} {...hitEvents}>
-        <shapeGeometry args={[fillShape]} />
-        <meshBasicMaterial
-          color={color}
-          side={THREE.DoubleSide}
-          transparent={fillOpacity < 1}
-          opacity={fillOpacity}
-          polygonOffset
-          polygonOffsetFactor={1}
-          polygonOffsetUnits={1}
-        />
+      {dropShadow && dropShadowShape && (
+        <mesh
+          position={[
+            ptToUnits(dropShadow.offsetX ?? 0),
+            -ptToUnits(dropShadow.offsetY ?? 8),
+            -0.003
+          ]}
+          renderOrder={-3}
+        >
+          <shapeGeometry args={[dropShadowShape]} />
+          <meshBasicMaterial
+            color={dropShadow.color || '#000000'}
+            transparent
+            opacity={dropShadow.opacity ?? 0.2}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+      <mesh position={[0, 0, -0.001]} renderOrder={-1} geometry={fillGeometry} {...hitEvents}>
+        {blur ? (
+          // Real backdrop blur via three.js's built-in transmission
+          // feature. Mip-based blur driven by `roughness`; `ior=1.5`
+          // and absence of `transparent` keep the mip sampling path
+          // active (transparent materials skip transmission).
+          <meshPhysicalMaterial
+            color={color}
+            transmission={Math.max(0.05, 1 - fillOpacity)}
+            roughness={Math.min(0.85, Math.max(0, blurAmount) / 60)}
+            thickness={0.2}
+            ior={1.5}
+            metalness={0}
+            clearcoat={0}
+            attenuationColor={color}
+            attenuationDistance={20}
+            side={THREE.FrontSide}
+          />
+        ) : materialSpec.fillType === 'gradient' ? (
+          <meshBasicMaterial
+            map={getFillGradientTexture(
+              materialSpec.gradientFrom || color,
+              materialSpec.gradientTo || color,
+              materialSpec.gradientAngle ?? 180
+            )}
+            side={THREE.DoubleSide}
+            transparent={fillOpacity < 1}
+            opacity={fillOpacity}
+            polygonOffset
+            polygonOffsetFactor={1}
+            polygonOffsetUnits={1}
+          />
+        ) : (
+          <meshBasicMaterial
+            color={color}
+            side={THREE.DoubleSide}
+            transparent={fillOpacity < 1}
+            opacity={fillOpacity}
+            polygonOffset
+            polygonOffsetFactor={1}
+            polygonOffsetUnits={1}
+          />
+        )}
       </mesh>
-      {blur && (
-        <mesh position={[0, 0, 0.0005]} renderOrder={0}>
+      {extraLayers && extraLayers.map((layer, i) => (
+        <mesh key={`mat-layer-${i}`} position={[0, 0, -0.0008 + i * 0.0002]} renderOrder={-1 + (i + 1) * 0.01}>
           <shapeGeometry args={[fillShape]} />
           <meshBasicMaterial
-            color="#ffffff"
+            color={layer.color}
             side={THREE.DoubleSide}
             transparent
-            opacity={frostOpacity}
+            opacity={layer.opacity}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
+      {/* No frost overlay — when blur is on, the plate's
+          `meshPhysicalMaterial` (above) handles the real backdrop
+          blur via three.js's built-in transmission framebuffer. */}
+      {strokeRing && ringGeometry && strokeTexture && (
+        <mesh position={[0, 0, 0.001]} renderOrder={2} geometry={ringGeometry}>
+          <meshBasicMaterial
+            map={strokeTexture}
+            side={THREE.DoubleSide}
+            transparent
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+      {innerShadow && innerShadowRing && (
+        <mesh position={[0, 0, 0.0008]} renderOrder={1}>
+          <shapeGeometry args={[innerShadowRing]} />
+          <meshBasicMaterial
+            color={innerShadow.color || '#000000'}
+            transparent
+            opacity={innerShadow.opacity ?? 0.25}
+            depthWrite={false}
           />
         </mesh>
       )}
@@ -211,6 +429,8 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           cornerRadii={stack.cornerRadii}
           color={bgColor}
           material={stack.material || 'regular'}
+          blur={!!stack.blur}
+          blurAmount={stack.blurAmount ?? 12}
           schemeDark={scene.designScheme === 'dark'}
           hitEvents={{ onPointerDown: onDown }}
           capsule={stack.ornament != null}
@@ -378,15 +598,13 @@ function TabBar3D({ stack, children, w, h, scene }) {
             }}
           >
             {tab.tabIcon && (
-              <Text
-                position={[0, ptToUnits(8), 0.001]}
-                fontSize={ptToUnits(18)}
+              <SymbolIcon3D
+                name={tab.tabIcon}
+                sizeUnits={ptToUnits(20)}
                 color={active ? tint : dimColor}
-                anchorX="center"
-                anchorY="middle"
-              >
-                {getSymbolGlyph(tab.tabIcon)}
-              </Text>
+                weight={active ? 'semibold' : 'regular'}
+                position={[0, ptToUnits(8), 0.001]}
+              />
             )}
             <Text
               position={[0, -ptToUnits(14), 0.001]}
@@ -424,11 +642,29 @@ function Window3D({ window: win, items, previewPosition }) {
   const intersect = useMemo(() => new THREE.Vector3(), [])
   const offset = useMemo(() => new THREE.Vector3(), [])
 
+  // Four world-space clipping planes (left / right / bottom / top) the
+  // renderer uses to discard pixels outside the window's rectangular
+  // bounds. Kept in a stable ref so we can update plane constants each
+  // frame without re-allocating. Local clipping is turned on globally
+  // in Canvas3D's `gl` config; without that flag the renderer ignores
+  // every material's `clippingPlanes` array.
+  const clipPlanes = useMemo(() => [
+    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),   // x ≥ leftEdge
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // x ≤ rightEdge
+    new THREE.Plane(new THREE.Vector3(0,  1, 0), 0),   // y ≥ bottomEdge
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),   // y ≤ topEdge
+  ], [])
+  const contentClipRef = useRef()
+
   const [w, h] = win.size
   const cornerR = win.cornerRadius ?? 0
+  // Resolve the material's default color / opacity / blur set —
+  // window-level overrides on the item take precedence, so a designer
+  // can still tweak per-window without touching the shared material.
+  const matCfg = resolveMaterial(win.material || 'glass', scene.materialProps)
   const fillColor = win.colorToken
     ? resolveSemantic(win.colorToken, scene)
-    : (win.color || '#f2f2f7')
+    : (win.color || matCfg.color || '#f2f2f7')
 
   // Outline padding scales with window size. Tuned to read as a thin
   // selection ring rather than a fat halo — 0.25% of the longer side
@@ -581,6 +817,40 @@ function Window3D({ window: win, items, previewPosition }) {
     )
   })
 
+  // Per-frame: re-anchor the four clipping planes at the window's
+  // current world bounds and patch every descendant material in the
+  // content sub-group so the renderer discards pixels past those edges.
+  // Walking the subtree each frame is cheap (≤ a few hundred meshes per
+  // window) and means we never miss late-mounted descendants like text
+  // glyphs or symbol textures that resolve asynchronously.
+  useFrame(() => {
+    const outer = positionRef.current
+    const inner = contentClipRef.current
+    if (!outer || !inner) return
+    outer.updateMatrixWorld()
+    const wx = outer.matrixWorld.elements[12]
+    const wy = outer.matrixWorld.elements[13]
+    const halfW = w / 2
+    const halfH = h / 2
+    // Plane equation: dot(normal, p) + constant >= 0 means "keep". So
+    // for the left edge (normal +X) the constant is the *negative* of
+    // the leftmost world-x. Same shape for the other three sides.
+    clipPlanes[0].constant = -(wx - halfW)
+    clipPlanes[1].constant =  (wx + halfW)
+    clipPlanes[2].constant = -(wy - halfH)
+    clipPlanes[3].constant =  (wy + halfH)
+    inner.traverse((obj) => {
+      const m = obj.material
+      if (!m) return
+      if (Array.isArray(m)) {
+        for (const mm of m) { mm.clippingPlanes = clipPlanes; mm.clipIntersection = false }
+      } else {
+        m.clippingPlanes = clipPlanes
+        m.clipIntersection = false
+      }
+    })
+  })
+
   if (isPreviewActive && !previewPosition) {
     // Reset the seed so the next preview-mount animates from scratch.
     initialPosRef.current = null
@@ -629,10 +899,12 @@ function Window3D({ window: win, items, previewPosition }) {
           size={[w, h]}
           cornerRadius={cornerR}
           color={fillColor}
-          fillOpacity={typeof win.fillOpacity === 'number' ? win.fillOpacity : 0.92}
-          material={win.material || 'regular'}
-          blur={!!win.blur}
-          blurAmount={win.blurAmount ?? 12}
+          fillOpacity={typeof win.fillOpacity === 'number' ? win.fillOpacity : (matCfg.opacity ?? 0.92)}
+          material={win.material || 'glass'}
+          materialConfig={matCfg}
+          blur={typeof win.blur === 'boolean' ? win.blur : !!matCfg.blur}
+          blurAmount={win.blurAmount ?? matCfg.blurAmount ?? 12}
+          strokeRing
           schemeDark={scene.designScheme === 'dark'}
           hitEvents={{
             onPointerDown,
@@ -656,6 +928,36 @@ function Window3D({ window: win, items, previewPosition }) {
         </mesh>
       )}
 
+      {/* Clipped + (optionally) scrollable content layer. The four
+          clipping planes anchored to the window's world bounds are
+          attached to every descendant material via the useFrame walk
+          above. `scrollY` shifts the content upward inside the plate;
+          ornaments and chrome stay outside this group so they can
+          overlap the edge. Wheel events on the plate's hit surface
+          bubble up here when the window is marked scrollable. */}
+      <group
+        ref={contentClipRef}
+        position={[0, win.scrollable ? (win.scrollY || 0) : 0, 0]}
+        onWheel={!win.scrollable ? undefined : (e) => {
+          e.stopPropagation()
+          // Compute the cumulative content height so we can clamp the
+          // scroll to the natural overflow. `computeSize` returns
+          // intrinsic dims (units) so the math works in scene units.
+          let total = 0
+          for (const c of contentChildren) {
+            const [, ch] = computeSize(c, items)
+            total += ch
+          }
+          const padU = ptToUnits(win.padding ?? 14)
+          const maxScroll = Math.max(0, total - (h - padU * 2))
+          if (maxScroll === 0) return
+          const cur = Number(win.scrollY) || 0
+          const next = Math.max(0, Math.min(maxScroll, cur + e.deltaY * 0.0015))
+          if (Math.abs(next - cur) > 0.0001) {
+            updateItem(win.id, { scrollY: next })
+          }
+        }}
+      >
       {/* Depth layering for the 3D preview (volume mode only). visionOS
           parallaxes three tiers: the window sits at the back, content stacks
           float just in front, and chrome (ornaments, tab bars, nav bars) is
@@ -712,6 +1014,14 @@ function Window3D({ window: win, items, previewPosition }) {
         })
       })()}
 
+      {/* RealityKit entities sitting directly under the window stay
+          INSIDE the clipped content group so a too-large model doesn't
+          spill past the plate. */}
+      {entityChildren.length > 0 && (
+        <EntityChildren hostId={win.id} items={items} scene={scene} />
+      )}
+      </group>
+
       {/* Ornaments — pinned to edges. Sit a touch in front of content
           (which is at 0.012-0.020) so toolbar items overlap content
           when they share screen space, without floating off the
@@ -730,14 +1040,6 @@ function Window3D({ window: win, items, previewPosition }) {
           />
         )
       })}
-
-      {/* RealityKit entities sitting directly under the window. Volumetric
-          windows are RealityView hosts implicitly; we render the entity
-          tree at the window's local origin so designers see their
-          spatial layout in the canvas. */}
-      {entityChildren.length > 0 && (
-        <EntityChildren hostId={win.id} items={items} scene={scene} />
-      )}
 
       {/* Presentation overlays (sheet / alert / popover) — rendered above
           the window content. In SwiftUI these modals are always *contained*
@@ -821,7 +1123,6 @@ function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHe
       {tabs.map((tab, i) => {
         const yOffset = barH / 2 - padding - tabH / 2 - i * (tabH + gap)
         const active = tab.id === activeTabId
-        const glyph = getSymbolGlyph(tab.icon)
         const chipShape = roundedRectShape(tabW, tabH, tabH / 2)
         return (
           <group
@@ -838,15 +1139,13 @@ function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHe
                 <meshBasicMaterial color={tint} transparent opacity={0.18} />
               </mesh>
             )}
-            <Text
-              position={[0, ptToUnits(6), 0.001]}
-              fontSize={ptToUnits(20)}
+            <SymbolIcon3D
+              name={tab.icon || 'folder'}
+              sizeUnits={ptToUnits(22)}
               color={active ? tint : dimColor}
-              anchorX="center"
-              anchorY="middle"
-            >
-              {glyph}
-            </Text>
+              weight={active ? 'semibold' : 'regular'}
+              position={[0, ptToUnits(6), 0.001]}
+            />
             <Text
               position={[0, -ptToUnits(14), 0.001]}
               font={getInterFont('medium')}
@@ -984,7 +1283,6 @@ function WindowGroupTabBar3D({ groups, activeGroupId, anchorPosition, anchorWidt
       {groups.map((g, i) => {
         const yOffset = barH / 2 - padding - tabH / 2 - i * (tabH + gap)
         const active = g.id === activeGroupId
-        const glyph = getSymbolGlyph(g.icon)
         // The active tint chip extends rightward as the bar expands so
         // it always sits behind the full icon+label run. Inner area =
         // animBarW - 2*padding (matches the inner gutter). When fully
@@ -1012,15 +1310,13 @@ function WindowGroupTabBar3D({ groups, activeGroupId, anchorPosition, anchorWidt
                 <meshBasicMaterial color={tint} transparent opacity={0.18} />
               </mesh>
             )}
-            <Text
-              position={[iconX, 0, 0.001]}
-              fontSize={ptToUnits(22)}
+            <SymbolIcon3D
+              name={g.icon || 'rectangle'}
+              sizeUnits={ptToUnits(24)}
               color={active ? tint : dimColor}
-              anchorX="center"
-              anchorY="middle"
-            >
-              {glyph}
-            </Text>
+              weight={active ? 'semibold' : 'regular'}
+              position={[iconX, 0, 0.001]}
+            />
             {labelOpacity > 0.01 && (
               <Text
                 position={[labelX, 0, 0.001]}

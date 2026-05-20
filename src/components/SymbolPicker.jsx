@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { SF_SYMBOLS, SF_SYMBOL_ORDER } from '../appleSystem'
+import { SymbolIcon } from './icons'
 
 // A modal grid picker for SF Symbols. Opens as a popover-style overlay.
 // `onSelect(symbolName)` fires when the user picks a symbol.
@@ -54,13 +55,13 @@ export default function SymbolPicker({ current, onSelect, onClose }) {
                   key={name}
                   onClick={() => { onSelect(name); onClose() }}
                   title={`${sym.label} (${name})`}
-                  className={`w-10 h-10 flex items-center justify-center rounded text-[16px] transition-colors ${
+                  className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
                     isCurrent
                       ? 'bg-accent text-white'
                       : 'text-text hover:bg-hover'
                   }`}
                 >
-                  {sym.glyph}
+                  <SymbolIcon name={name} size={18} weight="medium" />
                 </button>
               )
             })}

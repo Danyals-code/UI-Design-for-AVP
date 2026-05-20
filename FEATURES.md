@@ -13,7 +13,7 @@ Three docs at the repo root work together:
   view *do* and what are its defaults" map. Update whenever you add or
   change a view type, default, or design-system constant.
 
-> **Last updated:** 2026-05-20
+> **Last updated:** 2026-05-20 *(Liquid Glass materials w/ transmission blur, gradient stroke, scrollable + clipped windows, Materials & Colors editor, Lucide-rendered SF Symbols, expanded sample library)*
 
 ---
 
@@ -365,9 +365,20 @@ secondary tone that harmonises with the near-white window plate
 Two top-level tabs: **Object** (selected item) and **Scene** (global).
 
 ### Object — Window
-- **Window:** name
+- **Window:** name, Group ID, Tab Icon, Primary (this/auto), Scrollable.
+  When **Scrollable** is on, the canvas wires a wheel handler that
+  scrolls content inside the plate; world-space clip planes keep
+  off-bounds content hidden regardless of the toggle (no leaks past
+  the rounded edge, ever).
 - **Frame:** size W/H, corner radius, padding; world position X/Y/Z
-- **Material:** glass material, tint token, fallback colour
+- **Appearance:** Liquid Glass material (default **Glass** —
+  `#808080` @ 30% + backdrop blur on), tint token, fallback colour,
+  Bg Blur on/off + amount slider. Per-property overrides on the window
+  win over the material defaults; null fields let the material drive.
+- **Plate chrome:** every window plate ships with a **3pt linear-
+  gradient stroke** around the perimeter (45° sweep, white at
+  40 / 0 / 0 / 10 percent across 0 / 41 / 57 / 100 % stops) — a soft
+  visionOS-style edge highlight, no inspector control needed.
 - **Volume** (only when `windowStyle === 'volumetric'`): depth, world-
   scaling behaviour, baseplate visibility, alignment, viewpoints
 - **Spatial:** immersion style, hover effect, window resizability,
@@ -427,7 +438,24 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   binding.
 - **SF Symbol** (types that support it — buttons, labels, links,
   navigationlinks, contentUnavailable, toggles, pickers, menus):
-  symbol name, rendering mode, variant, "Remove Symbol" button.
+  symbol name, rendering mode (monochrome / hierarchical / palette /
+  multicolor), variant (.fill / .circle / .square / .slash), "Remove
+  Symbol" button. Variant + mode actually drive the rendered glyph —
+  picking `.fill` swaps `house` → `house.fill` via `resolveSymbolName`,
+  and `hierarchical` mode drops opacity to 70% while `multicolor`
+  boosts stroke weight. (Label panel rolls SF Symbol controls into its
+  single consolidated "Label" section — the standalone SF Symbol
+  dropdown is suppressed for that type.)
+- **Icons everywhere are Lucide-rendered.** Every SF Symbol name
+  resolves through `SF_TO_LUCIDE` ([icons.jsx](src/components/icons.jsx))
+  to a real Lucide React glyph — in the DOM (`SymbolIcon`) for the
+  Layers tree, IconPickerPopover, SymbolPicker grid, and inspector
+  previews, and on the canvas (`SymbolIcon3D` —
+  [SymbolIcon3D.jsx](src/components/SymbolIcon3D.jsx)) for Label /
+  Button / List-row icons, tab + window-group pills, and entity
+  attachments. SwiftUI font weight maps to Lucide stroke width;
+  `imageScale` (small / medium / large) scales the drawing box. The
+  catalogue covers ~380 visionOS-relevant symbol names.
 - **Behaviors** (placeholder for window-level interactions; the live
   runtime is wired for entities).
 
@@ -447,6 +475,26 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   (always targets stage centre), Environment preset.
 - **Design:** accent Tint (`.tint()`). (The old global Scheme toggle
   was removed — visionOS has no system-wide light/dark.)
+- **Materials & Colors** *(renamed from "Colors")*:
+  - **Solid Colors** — 15-swatch palette grid (system Red / Orange /
+    Yellow / Green / Mint / Teal / Cyan / Blue / Indigo / Purple / Pink
+    / Brown / Gray / Black / White). Hover any chip to see `Name · #HEX`;
+    click to open the native colour picker.
+  - **Text / Controls / Views / Windows / Separators** — per-token row
+    pickers (swatch + hex field) for the named visionOS slots.
+  - **Materials** — single dropdown picks the active Liquid Glass tier
+    (`glass` / `viewsRegular` / `ultraThin` / `thin` / `regular` /
+    `thick` / `ultraThick` / `opaque` / `bar`). The details panel below
+    exposes:
+      - **Fill** — Solid (single colour) or Gradient (From / To / Angle)
+      - **Color** (solid mode) or gradient stops + angle
+      - **Opacity** — drives `transmission = 1 − opacity` when blur is on
+      - **Bg Blur** on/off + **Amount** slider (drives `roughness` on
+        the meshPhysicalMaterial transmission pass)
+      - **Inner Shadow** on/off + X / Y / Blur / Color / Opacity
+      - **Drop Shadow** on/off + X / Y / Blur / Color / Opacity
+    Edits land in `scene.materialProps[key]` and the renderer merges
+    them with the stock `MATERIALS[key]` defaults at draw time.
 - **Immersive Space:** mode (Off / Immersive), immersion style,
   progressive range + initial, upper-limb visibility, preferred
   surroundings effect (with optional colorMultiply colour),
@@ -466,6 +514,11 @@ Every numeric field is a scrub-or-type input:
 
 - **Built-in templates** appear as a virtual `Templates` folder. Click
   a template tile to apply it (replaces the scene; undoable).
+- **Built-in samples** live under `Samples` → `Images` — 9 sample
+  photos (`Sample 01 … Sample 09.jpg`) shipped under
+  [public/samples/images/](public/samples/images/). Drop one onto a
+  panel's Image field, or drag onto the canvas to spawn a textured
+  plane.
 - **User assets:** drag-drop or import button accepts USDZ, GLB,
   glTF, OBJ, and images. They appear as tiles with rename / delete on
   hover.
