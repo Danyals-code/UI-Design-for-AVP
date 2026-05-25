@@ -28,7 +28,7 @@
 import {
   makeStack, makePanel, textStyleToFontSize
 } from '../store/factories'
-import { ptToUnits } from '../appleSystem'
+import { ptToUnits, segmentedFrame } from '../appleSystem'
 
 // ---- sample fillers ----------------------------------------------------
 //
@@ -498,6 +498,7 @@ const segmentedWizard = {
     const panel = makePanel('segmented', {
       parentId: ctx.windowId,
       segments,
+      size: segmentedFrame(segments.length),
       selectedSegment: Math.max(0, Math.min(segments.length - 1, (params.selected || 1) - 1))
     })
     return { items: [panel], selectedId: panel.id }

@@ -11,8 +11,10 @@ import {
   NAVBAR_STYLE_SPECS,
   NAVBAR_SIDE_PADDING_PT, NAVBAR_ITEM_PT, NAVBAR_ITEM_GAP_PT,
   NAVBAR_AVATAR_PT, NAVBAR_SEARCH_W_PT,
-  NAVBAR_BACK_CAPSULE_W_PT, NAVBAR_BACK_ICON_TEXT_GAP_PT
+  NAVBAR_BACK_CAPSULE_W_PT, NAVBAR_BACK_ICON_TEXT_GAP_PT,
+  SEGMENT_MATERIALS
 } from '../appleSystem'
+import { lerpColorHex } from '../behaviors/tween'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { measureSwiftUIText } from '../text'
@@ -425,7 +427,9 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // at any size. The Edge toggle sets `fieldShape: 'rounded'` to fall back
   // to the stored corner radius.
   const isInputField = panelType === 'textfield' || panelType === 'securefield' || panelType === 'search'
-  const cornerRadius = (isInputField && (panel.fieldShape || 'pill') === 'pill')
+  // Segmented controls are always a full pill (radius tracks the height),
+  // matching SwiftUI's `.pickerStyle(.segmented)` track on visionOS.
+  const cornerRadius = ((isInputField && (panel.fieldShape || 'pill') === 'pill') || panelType === 'segmented')
     ? Math.min(size[0], size[1]) / 2
     : (panel.cornerRadius ?? 0)
   // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
@@ -733,6 +737,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     }
   }
 
+  // Segmented control — the base pill is the raised *rim* that catches
+  // light; the overlay paints a darker inset well inside it (the recess)
+  // and a raised selection pill on top. A light rim + dark well is the
+  // flat-shaded way to read as sunken without real lighting.
+  if (panelType === 'segmented') {
+    resolvedFill = scheme === 'dark' ? '#5c5c60' : '#e6e6ea'
+    resolvedFillOpacity = 0.98
+  }
+
   // Spacer: invisible flexible gap — render nothing
   if (panelType === 'spacer') {
     return <group position={localPosition || [0, 0, 0]} />
@@ -849,27 +862,67 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
 
   // ---- type-specific overlays ----
 
+  // Segmented control — SwiftUI `.pickerStyle(.segmented)`. Equal-width
+  // segments laid out on the recessed pill track with a 4pt edge inset and
+  // 4pt gaps between segments; the selected segment carries a raised pill
+  // thumb (88×36 at the default 188-wide / 2-segment frame). Labels are
+  // 15pt semibold — selected reads in the primary colour, the rest dim to
+  // secondary. Geometry derives from the panel frame so the control stays
+  // correct if the user resizes it; the default frame and the inspector's
+  // refit keep each segment at the spec'd 88pt.
   const segments = panel.segments || []
-  const selectedSeg = panel.selectedSegment ?? 0
-  const segInnerW = size[0] - 0.02
-  const segW = segments.length > 0 ? segInnerW / segments.length : segInnerW
+  const selectedSeg = Math.max(0, Math.min(segments.length - 1, panel.selectedSegment ?? 0))
+  const SEG_PAD = ptToUnits(4)
+  const segCount = Math.max(1, segments.length)
+  const segTrackInnerW = size[0] - SEG_PAD * 2
+  const segH = size[1] - SEG_PAD * 2
+  const segW = (segTrackInnerW - SEG_PAD * (segCount - 1)) / segCount
+  // The selection is a true pill — radius tracks its own height.
+  const segRadius = segH / 2
+  const segStartX = -segTrackInnerW / 2 + segW / 2
+  // Recessed well: a darker pill inset 1.5pt inside the light base rim.
+  // The material tier lerps the well a touch toward the rim so switching
+  // materials is visible (thicker = shallower-looking recess).
+  const SEG_WELL_INSET = ptToUnits(1.5)
+  const segWellW = size[0] - SEG_WELL_INSET * 2
+  const segWellH = size[1] - SEG_WELL_INSET * 2
+  const segRim = scheme === 'dark' ? '#5c5c60' : '#e6e6ea'
+  const segWellBase = scheme === 'dark' ? '#2f2f31' : '#c4c4c9'
+  const segTierT = (SEGMENT_MATERIALS.find((m) => m.value === (panel.material || 'regular'))?.tint ?? 0.28) * 0.6
+  const segWellColor = lerpColorHex(segWellBase, segRim, segTierT)
+  const segThumbColor = scheme === 'dark' ? '#7e7e82' : '#ffffff'
   const segmentOverlay = panelType === 'segmented' && (
-    <>
+    <group>
+      {/* Recessed well — the sunken track the pill floats inside */}
+      <mesh position={[0, 0, 0.001]}>
+        <shapeGeometry args={[roundedRectShape(segWellW, segWellH, segWellH / 2)]} />
+        <meshBasicMaterial color={segWellColor} />
+      </mesh>
       {segments.map((seg, i) => {
-        const x = -segInnerW / 2 + segW * (i + 0.5)
+        const x = segStartX + i * (segW + SEG_PAD)
         const isSel = i === selectedSeg
         return (
           <group key={i} position={[x, 0, 0.004]}>
             {isSel && (
-              <mesh>
-                <shapeGeometry args={[roundedRectShape(segW - 0.02, size[1] - 0.02, ptToUnits(6))]} />
-                <meshBasicMaterial color={scene.colorScheme === 'dark' ? '#3a3a3c' : '#ffffff'} />
-              </mesh>
+              <>
+                {/* Soft contact shadow under the pill — sells the lift */}
+                <mesh position={[0, -ptToUnits(1.5), -0.001]}>
+                  <shapeGeometry args={[roundedRectShape(segW, segH, segRadius)]} />
+                  <meshBasicMaterial color="#000000" transparent opacity={0.2} />
+                </mesh>
+                {/* Raised selection pill */}
+                <mesh>
+                  <shapeGeometry args={[roundedRectShape(segW, segH, segRadius)]} />
+                  <meshBasicMaterial color={segThumbColor} />
+                </mesh>
+              </>
             )}
             <Text
               position={[0, 0, 0.002]}
-              fontSize={ptToUnits(12)}
-              color={resolveSemantic('primary', scene)}
+              font={getInterFont('semibold')}
+              fontSize={ptToUnits(15)}
+              fontWeight="semibold"
+              color={isSel ? resolveSemantic('primary', scene) : resolveSemantic('secondary', scene)}
               anchorX="center"
               anchorY="middle"
               maxWidth={segW * 0.9}
@@ -880,7 +933,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
           </group>
         )
       })}
-    </>
+    </group>
   )
 
   // Toggle: label on the leading edge, fixed 52×32 switch on the

@@ -22,6 +22,18 @@ export const unitsToPt = (u) => Math.round(u * POINTS_PER_UNIT)
 export const metersToUnits = (m) => m
 export const unitsToMeters = (u) => u
 
+// Segmented control frame, fitted to its segment count. Each segment is
+// 88pt wide with 4pt gaps between segments and a 4pt edge inset, on a
+// fixed 44pt-tall pill: width = 88·n + 4·(n−1) + 4·2 = 92·n + 4. So two
+// segments = 188×44 (88px selection thumb + 36 tall after the 4pt inset).
+export const SEGMENT_PT = 88
+export const SEGMENT_GAP_PT = 4
+export const SEGMENT_HEIGHT_PT = 44
+export const segmentedFrame = (n) => {
+  const count = Math.max(1, n || 1)
+  return [ptToUnits(92 * count + 4), ptToUnits(SEGMENT_HEIGHT_PT)]
+}
+
 // SwiftUI Font.TextStyle — authoritative set.
 //
 // Weights follow Apple's visionOS typography spec (WWDC23 #10076 + Apple
@@ -388,6 +400,19 @@ export const MATERIALS = {
 }
 
 export const MATERIAL_ORDER = ['glass', 'viewsRegular', 'ultraThin', 'thin', 'regular', 'thick', 'ultraThick', 'opaque', 'bar']
+
+// SwiftUI material tiers offered as the segmented control's track
+// background — the only appearance control for a segmented picker (it
+// has no user fill colour). `swift` maps 1:1 to a SwiftUI `Material`
+// value for export. `tint` is the 0–1 lerp toward the lighter rim used
+// to nudge the recessed-well shade in the preview so the choice reads.
+export const SEGMENT_MATERIALS = [
+  { value: 'ultraThin',  label: 'Ultra Thin',  swift: '.ultraThinMaterial',  tint: 0.0 },
+  { value: 'thin',       label: 'Thin',        swift: '.thinMaterial',       tint: 0.14 },
+  { value: 'regular',    label: 'Regular',     swift: '.regularMaterial',    tint: 0.28 },
+  { value: 'thick',      label: 'Thick',       swift: '.thickMaterial',      tint: 0.44 },
+  { value: 'ultraThick', label: 'Ultra Thick', swift: '.ultraThickMaterial', tint: 0.6 }
+]
 
 // Resolve a material's final property set from MATERIALS defaults +
 // optional `scene.materialProps[key]` user overrides. The Materials &

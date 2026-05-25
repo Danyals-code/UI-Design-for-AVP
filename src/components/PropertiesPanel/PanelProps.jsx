@@ -248,7 +248,7 @@ export function PanelProps({ item, scene }) {
   // include Size (and style) in their own merged section, so duplicating
   // them under "Styles" produced confusing twin pickers. Pickers remain
   // the main type that still needs the standalone Styles section.
-  const stylesOwnsSize = ['button', 'toggle', 'slider', 'textfield', 'securefield', 'search'].includes(item.panelType)
+  const stylesOwnsSize = ['button', 'toggle', 'slider', 'textfield', 'securefield', 'search', 'segmented'].includes(item.panelType)
   const showStyles = interactive && !stylesOwnsSize
 
   return (
