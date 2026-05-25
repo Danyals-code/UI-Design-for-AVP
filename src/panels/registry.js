@@ -383,9 +383,13 @@ export const PANELS = {
       // search field is the same dimensions as the text field — only the
       // leading mic affordance differs.
       size: [ptToUnits(305), ptToUnits(44)],
-      color: '#e3e3e8',
-      colorToken: 'systemFill',
+      // Default material is the Recessed view tier (visionOS search look);
+      // the Material picker swaps among the view tiers.
+      color: '#2c2c2e',
+      colorToken: 'viewRecessed',
       cornerRadius: ptToUnits(12),
+      // Pill (capsule) edge by default; the Edge toggle can switch to Rounded.
+      fieldShape: 'pill',
       text: 'Search',
       // Live value the wearer typed in preview mode. Persisted on the
       // panel so the preview round-trips through state updates; emit
@@ -600,8 +604,10 @@ export const PANELS = {
   slider: {
     defaults: {
       size: [ptToUnits(280), ptToUnits(60)],
-      color: '#e3e3e8',
-      colorToken: 'systemFill',
+      // No background plate — a SwiftUI Slider draws only its track +
+      // thumb (rendered by the canvas overlay), so the panel fill is null.
+      color: null,
+      colorToken: null,
       cornerRadius: ptToUnits(2),
       sliderValue: 0.5,
       // Spec §1.5 — bounds default `0...1`, step `0` (continuous), no labels.
@@ -892,9 +898,13 @@ export const PANELS = {
       // Matches Apple's visionOS Figma kit: 305×44, radius 12, placeholder
       // text in #545454 on the recessed glass plate.
       size: [ptToUnits(305), ptToUnits(44)],
-      color: '#e3e3e8',
-      colorToken: 'systemFill',
+      // Recessed glass material by default (visionOS field look); the
+      // Material picker swaps among the view tiers.
+      color: '#2c2c2e',
+      colorToken: 'viewRecessed',
       cornerRadius: ptToUnits(12),
+      // Pill (capsule) edge by default; the Edge toggle can switch to Rounded.
+      fieldShape: 'pill',
       text: 'Placeholder',
       textfieldValue: '',
       textStyle: 'body',
@@ -952,9 +962,13 @@ export const PANELS = {
       // deliberately uses a larger corner radius than TextField (16 vs 12)
       // in Apple's kit — kept here so the two read as distinct.
       size: [ptToUnits(305), ptToUnits(44)],
-      color: '#e3e3e8',
-      colorToken: 'systemFill',
+      // Recessed glass material by default (visionOS field look); the
+      // Material picker swaps among the view tiers.
+      color: '#2c2c2e',
+      colorToken: 'viewRecessed',
       cornerRadius: ptToUnits(16),
+      // Pill (capsule) edge by default; the Edge toggle can switch to Rounded.
+      fieldShape: 'pill',
       text: 'Password',
       // Live value the wearer typed in preview mode. Rendered as a row
       // of dot glyphs the same way SwiftUI's SecureField masks input.

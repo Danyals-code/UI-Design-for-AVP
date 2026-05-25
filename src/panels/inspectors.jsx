@@ -14,7 +14,8 @@ import {
   SemanticColorPicker
 } from '../components/PropertiesPanel/primitives'
 import {
-  TextSection, FigmaFrameSection, LayoutSection, LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
+  TextSection, FigmaFrameSection, LayoutSection, SymbolSection,
+  LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
 import { useStore } from '../store'
 import { resolveSemantic, SF_SYMBOLS, SYMBOL_VARIANTS } from '../appleSystem'
@@ -28,7 +29,7 @@ import {
   MENU_STYLES, MENU_ORDER, MENU_INDICATOR_VISIBILITY,
   FORM_STYLES, GROUP_BOX_STYLES, DISCLOSURE_GROUP_STYLES,
   TABLE_STYLES, TAB_VIEW_STYLES, WINDOW_STYLES,
-  PICKER_STYLES, TOGGLE_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
+  PICKER_STYLES, TOGGLE_STYLES, LABEL_STYLES,
   SYMBOL_RENDERING_MODES,
   KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
   DATE_COMPONENTS, IMAGE_SCALES,
@@ -38,8 +39,17 @@ import {
 
 // ---- shared mini-inspectors -------------------------------------------
 
-const ImageInspector = ({ item, updateItem, switchPanelType }) => (
-  <Section title="Image">
+// Image inspector — Name + Frame + Appearance + the image-specific
+// controls merged into ONE section. PANEL_META marks image/asyncimage
+// as `mergedIdentity` so the generic "Object — Image" header is dropped.
+const ImageInspector = ({ item, updateItem, switchPanelType, scene }) => {
+  const renameItem = useStore((s) => s.renameItem)
+  return (
+  <Section title="Image" defaultOpen={true}>
+    <Row label="Name">
+      <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+    </Row>
+    <LayoutSection item={item} updateItem={updateItem} scene={scene} embedded />
     <Row label="Async">
       <div className="segmented flex-1">
         <button className={item.panelType === 'image' ? 'active' : ''} onClick={() => switchPanelType(item.id, 'image')}>Off</button>
@@ -83,7 +93,8 @@ const ImageInspector = ({ item, updateItem, switchPanelType }) => (
       </div>
     </Row>
   </Section>
-)
+  )
+}
 
 const VariantSwitcher = ({ panelType, switchPanelType, item, label, options }) => (
   <Section title={label}>
@@ -346,6 +357,280 @@ function LabelInspector({ item, updateItem, scene }) {
   )
 }
 
+// Button inspector — Name + Size/Style/Role/Tint + Label + SF Symbol all
+// in ONE section. PANEL_META.button is `mergedIdentity` (no generic
+// "Object — Button" header) and excluded from SYMBOL_USERS (no standalone
+// SF Symbol section), so this single dropdown owns the whole button.
+//
+// Width / height aren't user-editable: the frame tracks the Size preset
+// (small/regular/large) so every button matches an Apple-spec size.
+function ButtonInspector({ item, updateItem, scene }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const applySize = (key) => {
+    const s = BUTTON_SIZES[key] || BUTTON_SIZES.regular
+    updateItem(item.id, {
+      buttonSize: key,
+      size: [ptToUnits(s.width), ptToUnits(s.height)],
+      fontSize: ptToUnits(s.fontPt),
+      controlSize: key === 'small' ? 'small' : key === 'large' ? 'large' : 'regular'
+    })
+  }
+  const applyShape = (key) => {
+    const s = BUTTON_SHAPES[key] || BUTTON_SHAPES.capsule
+    updateItem(item.id, {
+      buttonShape: key,
+      buttonBorderShape: key,
+      cornerRadius: ptToUnits(s.radiusPt)
+    })
+  }
+  return (
+    <Section title="Button" defaultOpen={true}>
+      <Row label="Name">
+        <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+      </Row>
+      <Row label="Size">
+        <Select
+          value={item.buttonSize || 'regular'}
+          options={BUTTON_SIZE_ORDER.map((k) => ({
+            value: k,
+            label: `${BUTTON_SIZES[k].label} (${BUTTON_SIZES[k].width}×${BUTTON_SIZES[k].height})`
+          }))}
+          onChange={applySize}
+        />
+      </Row>
+      <Row label="Style">
+        <Select
+          value={item.buttonShape || 'capsule'}
+          options={BUTTON_SHAPE_ORDER.map((k) => ({
+            value: k,
+            label: BUTTON_SHAPES[k].label
+          }))}
+          onChange={applyShape}
+        />
+      </Row>
+      <Row label="Role">
+        <Select
+          value={item.buttonRole || 'none'}
+          options={[
+            { value: 'none',        label: 'None' },
+            { value: 'destructive', label: 'Destructive' },
+            { value: 'cancel',      label: 'Cancel' }
+          ]}
+          onChange={(v) => updateItem(item.id, { buttonRole: v })}
+        />
+      </Row>
+      <Row label="Tint">
+        <ColorRow
+          value={item.tint || '#0a84ff'}
+          onChange={(v) => updateItem(item.id, { tint: v })}
+        />
+        {item.tint && (
+          <button
+            className="btn btn-ghost text-[9px]"
+            title="Use system tint"
+            onClick={() => updateItem(item.id, { tint: null })}
+          >×</button>
+        )}
+      </Row>
+
+      {/* Label sub-section. Buttons always render the label centred on
+          both axes (no alignment picker) and the text size is locked to
+          the Size dropdown above (no style picker) — only the content
+          body, its weight, and its colour are editable. */}
+      <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Label</div>
+      <Row label="Content">
+        <textarea
+          value={item.text || ''}
+          onChange={(e) => updateItem(item.id, { text: e.target.value })}
+          rows={2}
+          className="field flex-1 resize-none"
+          placeholder="Button label"
+        />
+      </Row>
+      <Row label="Weight">
+        <Select
+          value={item.fontWeight || 'semibold'}
+          options={[
+            { value: 'regular',  label: 'Regular' },
+            { value: 'medium',   label: 'Medium' },
+            { value: 'semibold', label: 'Semibold' },
+            { value: 'bold',     label: 'Bold' }
+          ]}
+          onChange={(v) => updateItem(item.id, { fontWeight: v })}
+        />
+      </Row>
+      <Row label="Color">
+        <SemanticColorPicker
+          token={item.textColorToken}
+          onChange={(t) => {
+            if (t) updateItem(item.id, { textColorToken: t, textColor: resolveSemantic(t, scene) })
+            else   updateItem(item.id, { textColorToken: null })
+          }}
+        />
+      </Row>
+
+      <SymbolSection item={item} updateItem={updateItem} embedded />
+    </Section>
+  )
+}
+
+// Slider inspector — Name + Frame + value range + control Size in ONE
+// section. PANEL_META.slider is `mergedIdentity`, and PanelProps treats
+// slider as owning its own size (so no separate "Styles" section). A
+// SwiftUI Slider has no background plate, so there's no Fill control —
+// the renderer skips the frame fill for sliders too.
+function SliderInspector({ item, updateItem }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const lo = item.sliderMin ?? 0
+  const hi = item.sliderMax ?? 1
+  const step = item.sliderStep ?? 0
+  return (
+    <Section title="Slider" defaultOpen={true}>
+      <Row label="Name">
+        <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+      </Row>
+      <Row label="Width"><PtField value={item.size?.[0] ?? 0} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size?.[1] ?? 0.05] })} /></Row>
+      <Row label="Height"><PtField value={item.size?.[1] ?? 0} onChange={(v) => updateItem(item.id, { size: [item.size?.[0] ?? 0.05, Math.max(0.05, v)] })} /></Row>
+      <Row label="Value">
+        <Slider
+          value={item.sliderValue ?? lo}
+          min={lo}
+          max={hi}
+          step={step > 0 ? step : 0.01}
+          onChange={(v) => updateItem(item.id, { sliderValue: v })}
+        />
+      </Row>
+      <Row label="Min"><NumField value={lo} step={1} onChange={(v) => updateItem(item.id, { sliderMin: v })} /></Row>
+      <Row label="Max"><NumField value={hi} step={1} onChange={(v) => updateItem(item.id, { sliderMax: v })} /></Row>
+      {/*
+        `step:` defaults to 0 (continuous). Spec §1.5 emits `step:` only
+        when non-zero so SwiftUI keeps the continuous behaviour by default.
+      */}
+      <Row label="Step"><NumField value={step} step={0.05} onChange={(v) => updateItem(item.id, { sliderStep: Math.max(0, v) })} /></Row>
+      <Row label="Min Label"><input value={item.sliderMinLabel || ''} onChange={(e) => updateItem(item.id, { sliderMinLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+      <Row label="Max Label"><input value={item.sliderMaxLabel || ''} onChange={(e) => updateItem(item.id, { sliderMaxLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
+      <Row label="Size"><Select value={item.styles?.controlSize || 'regular'} options={CONTROL_SIZES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, controlSize: v } })} /></Row>
+    </Section>
+  )
+}
+
+// visionOS "Views" material tiers — the recessed→thicker glass scale a
+// field sits on. Stored as the field's `colorToken` so the existing fill
+// pipeline tints the plate. Used by the search field's Material picker.
+const VIEW_MATERIALS = [
+  { value: 'viewRecessed', label: 'Recessed' },
+  { value: 'viewThin',     label: 'Thin' },
+  { value: 'viewRegular',  label: 'Regular' },
+  { value: 'viewThicker',  label: 'Thicker' }
+]
+
+// Unified inspector for the three SwiftUI input fields (TextField,
+// SecureField, search). One consolidated section that owns Name, the
+// Input Type variant switcher, Frame, the Pill/Rounded edge, the
+// per-variant controls, and the control Size — replacing the previous
+// chain of Object + Input Type + per-field + Styles dropdowns. PANEL_META
+// marks all three `mergedIdentity`, and PanelProps treats them as owning
+// their size so no separate Styles section is rendered.
+function InputFieldInspector({ item, updateItem, switchPanelType, scene }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const t = item.panelType
+  const isText   = t === 'textfield'
+  const isSecure = t === 'securefield'
+  const isSearch = t === 'search'
+  const title = isText ? 'Text Field' : isSecure ? 'Secure Field' : 'Search Field'
+  const edge = item.fieldShape || 'pill'
+  // Search's Material picker maps onto the view-tier color tokens; fall
+  // back to Recessed when the field carries a non-view token (legacy).
+  const material = VIEW_MATERIALS.some((m) => m.value === item.colorToken) ? item.colorToken : 'viewRecessed'
+  return (
+    <Section title={title} defaultOpen={true}>
+      <Row label="Name">
+        <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+      </Row>
+      <Row label="Input Type">
+        <Select value={t} options={INPUT_VARIANTS} onChange={(v) => switchPanelType(item.id, v)} />
+      </Row>
+      <Row label="Width"><PtField value={item.size?.[0] ?? 0} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size?.[1] ?? 0.05] })} /></Row>
+      <Row label="Height"><PtField value={item.size?.[1] ?? 0} onChange={(v) => updateItem(item.id, { size: [item.size?.[0] ?? 0.05, Math.max(0.05, v)] })} /></Row>
+      {/* Edge — Pill (capsule, default) tracks the field height; Rounded
+          uses the stored corner radius. */}
+      <Row label="Edge">
+        <div className="segmented flex-1">
+          <button className={edge === 'pill' ? 'active' : ''} onClick={() => updateItem(item.id, { fieldShape: 'pill' })}>Pill</button>
+          <button className={edge === 'rounded' ? 'active' : ''} onClick={() => updateItem(item.id, { fieldShape: 'rounded' })}>Rounded</button>
+        </div>
+      </Row>
+      {/* Material — the recessed→thicker glass tier the field sits on. All
+          three input variants share this; Recessed is the visionOS default. */}
+      <Row label="Material">
+        <Select
+          value={material}
+          options={VIEW_MATERIALS}
+          onChange={(v) => updateItem(item.id, { colorToken: v, color: resolveSemantic(v, scene) })}
+        />
+      </Row>
+      <Row label="Placeholder">
+        <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" />
+      </Row>
+      <Row label="Value">
+        {isSecure
+          ? <input type="password" value={item.securefieldValue || ''} onChange={(e) => updateItem(item.id, { securefieldValue: e.target.value })} className="field flex-1" placeholder="(empty)" />
+          : <input value={isText ? (item.textfieldValue || '') : (item.searchValue || '')} onChange={(e) => updateItem(item.id, { [isText ? 'textfieldValue' : 'searchValue']: e.target.value })} className="field flex-1" placeholder="(empty)" />
+        }
+      </Row>
+
+      {isText && (
+        <>
+          <Row label="Axis">
+            <div className="segmented flex-1">
+              <button className={item.axis !== 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'horizontal' })}>Horizontal</button>
+              <button className={item.axis === 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'vertical' })}>Vertical</button>
+            </div>
+          </Row>
+          {item.axis === 'vertical' && (
+            <Row label="Lines"><IntField value={item.lineLimit ?? 1} min={1} max={20} onChange={(v) => updateItem(item.id, { lineLimit: Math.max(1, v) })} /></Row>
+          )}
+          <Row label="Keyboard">
+            <Select value={item.keyboardType || 'default'} options={KEYBOARD_TYPES} onChange={(v) => updateItem(item.id, { keyboardType: v })} />
+          </Row>
+          <Row label="Content">
+            <Select value={item.textContentType || ''} options={TEXT_CONTENT_TYPES} onChange={(v) => updateItem(item.id, { textContentType: v })} />
+          </Row>
+          <Row label="Submit">
+            <Select value={item.submitLabel || 'return'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
+          </Row>
+          <Row label="Autocap">
+            <Select value={item.textInputAutocapitalization || 'sentences'} options={TEXT_AUTOCAPITALIZATION} onChange={(v) => updateItem(item.id, { textInputAutocapitalization: v })} />
+          </Row>
+          <Row label="Autocorrect">
+            <div className="segmented flex-1">
+              <button className={!item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: false })}>On</button>
+              <button className={item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: true })}>Off</button>
+            </div>
+          </Row>
+        </>
+      )}
+
+      {isSecure && (
+        <>
+          <Row label="Empty Dots"><IntField value={item.dotCount || 8} min={1} max={20} onChange={(v) => updateItem(item.id, { dotCount: v })} /></Row>
+          <Row label="Submit">
+            <Select value={item.submitLabel || 'done'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
+          </Row>
+        </>
+      )}
+
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        {isSearch
+          ? <>In preview, click the field to focus and type. Export emits <code>.searchable(text:prompt:)</code> on the parent view.</>
+          : isSecure
+            ? <>SecureField forces <code>.textContentType(.password)</code> and masks input. Click the field in preview to type.</>
+            : <>In preview, click the field to focus and type — the value lives on the panel and persists across selections.</>}
+      </div>
+    </Section>
+  )
+}
+
 export const INSPECTORS = {
   text: (ctx) => <TextInspector {...ctx} />,
 
@@ -465,121 +750,7 @@ export const INSPECTORS = {
     </>
   ),
 
-  button: (ctx) => {
-    // Simplified Button inspector. The button has only two structural
-    // controls — Size (small/regular/large) and Style (Capsule/Rounded
-    // Rect). Each picker writes a small set of derived fields so the
-    // canvas, the SwiftUI exporter, and the renderer always agree on
-    // the frame, font size, and corner radius.
-    //
-    // Width / height are NOT user-editable here. The button's frame
-    // tracks the Size selection so every button on the canvas matches
-    // one of the three Apple-spec sizes. PanelProps reads
-    // PANEL_META.button.frameMode === 'none' to hide the Object frame
-    // rows for buttons.
-    const applySize = (key) => {
-      const s = BUTTON_SIZES[key] || BUTTON_SIZES.regular
-      ctx.updateItem(ctx.item.id, {
-        buttonSize: key,
-        size: [ptToUnits(s.width), ptToUnits(s.height)],
-        fontSize: ptToUnits(s.fontPt),
-        controlSize: key === 'small' ? 'small' : key === 'large' ? 'large' : 'regular'
-      })
-    }
-    const applyShape = (key) => {
-      const s = BUTTON_SHAPES[key] || BUTTON_SHAPES.capsule
-      ctx.updateItem(ctx.item.id, {
-        buttonShape: key,
-        buttonBorderShape: key,
-        cornerRadius: ptToUnits(s.radiusPt)
-      })
-    }
-    return (
-      <Section title="Button" defaultOpen={true}>
-        <Row label="Size">
-          <Select
-            value={ctx.item.buttonSize || 'regular'}
-            options={BUTTON_SIZE_ORDER.map((k) => ({
-              value: k,
-              label: `${BUTTON_SIZES[k].label} (${BUTTON_SIZES[k].width}×${BUTTON_SIZES[k].height})`
-            }))}
-            onChange={applySize}
-          />
-        </Row>
-        <Row label="Style">
-          <Select
-            value={ctx.item.buttonShape || 'capsule'}
-            options={BUTTON_SHAPE_ORDER.map((k) => ({
-              value: k,
-              label: BUTTON_SHAPES[k].label
-            }))}
-            onChange={applyShape}
-          />
-        </Row>
-        <Row label="Role">
-          <Select
-            value={ctx.item.buttonRole || 'none'}
-            options={[
-              { value: 'none',        label: 'None' },
-              { value: 'destructive', label: 'Destructive' },
-              { value: 'cancel',      label: 'Cancel' }
-            ]}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { buttonRole: v })}
-          />
-        </Row>
-        <Row label="Tint">
-          <ColorRow
-            value={ctx.item.tint || '#0a84ff'}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { tint: v })}
-          />
-          {ctx.item.tint && (
-            <button
-              className="btn btn-ghost text-[9px]"
-              title="Use system tint"
-              onClick={() => ctx.updateItem(ctx.item.id, { tint: null })}
-            >×</button>
-          )}
-        </Row>
-
-        {/* Label sub-section. Buttons always render the label centred
-            on both axes, so there's no alignment picker; the text size
-            is locked to the Size dropdown above, so there's no Style
-            picker either. Only the text body, its weight, and its colour
-            are user-editable here. */}
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Label</div>
-        <Row>
-          <textarea
-            value={ctx.item.text || ''}
-            onChange={(e) => ctx.updateItem(ctx.item.id, { text: e.target.value })}
-            rows={2}
-            className="field resize-none"
-            placeholder="Button label"
-          />
-        </Row>
-        <Row label="Weight">
-          <Select
-            value={ctx.item.fontWeight || 'semibold'}
-            options={[
-              { value: 'regular',  label: 'Regular' },
-              { value: 'medium',   label: 'Medium' },
-              { value: 'semibold', label: 'Semibold' },
-              { value: 'bold',     label: 'Bold' }
-            ]}
-            onChange={(v) => ctx.updateItem(ctx.item.id, { fontWeight: v })}
-          />
-        </Row>
-        <Row label="Color">
-          <SemanticColorPicker
-            token={ctx.item.textColorToken}
-            onChange={(t) => {
-              if (t) ctx.updateItem(ctx.item.id, { textColorToken: t, textColor: resolveSemantic(t, ctx.scene) })
-              else   ctx.updateItem(ctx.item.id, { textColorToken: null })
-            }}
-          />
-        </Row>
-      </Section>
-    )
-  },
+  button: (ctx) => <ButtonInspector {...ctx} />,
 
   toggle: ({ item, updateItem }) => (
     <Section title="Toggle">
@@ -675,23 +846,7 @@ export const INSPECTORS = {
   image: ImageInspector,
   asyncimage: ImageInspector,
 
-  search: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="search" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
-      <Section title="Search Field">
-        <Row label="Placeholder">
-          <input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" />
-        </Row>
-        <Row label="Value">
-          <input value={item.searchValue || ''} onChange={(e) => updateItem(item.id, { searchValue: e.target.value })} className="field flex-1" placeholder="(empty)" />
-        </Row>
-        <div className="text-[10px] text-textMute leading-snug mt-1">
-          In preview, click the field to focus and type. SwiftUI export emits
-          <code> .searchable(text: $searchText, prompt: …)</code> on the parent view.
-        </div>
-      </Section>
-    </>
-  ),
+  search: (ctx) => <InputFieldInspector {...ctx} />,
 
   // Navigation Bar — fixed-height (92pt) chrome strip. The style picker
   // swaps between 6 visionOS-kit layouts; structural defaults (item
@@ -1028,33 +1183,7 @@ export const INSPECTORS = {
     </Section>
   ),
 
-  slider: ({ item, updateItem }) => {
-    const lo = item.sliderMin ?? 0
-    const hi = item.sliderMax ?? 1
-    const step = item.sliderStep ?? 0
-    return (
-      <Section title="Slider">
-        <Row label="Value">
-          <Slider
-            value={item.sliderValue ?? lo}
-            min={lo}
-            max={hi}
-            step={step > 0 ? step : 0.01}
-            onChange={(v) => updateItem(item.id, { sliderValue: v })}
-          />
-        </Row>
-        <Row label="Min"><NumField value={lo} step={1} onChange={(v) => updateItem(item.id, { sliderMin: v })} /></Row>
-        <Row label="Max"><NumField value={hi} step={1} onChange={(v) => updateItem(item.id, { sliderMax: v })} /></Row>
-        {/*
-          `step:` defaults to 0 (continuous). Spec §1.5 emits `step:` only
-          when non-zero so SwiftUI keeps the continuous behaviour by default.
-        */}
-        <Row label="Step"><NumField value={step} step={0.05} onChange={(v) => updateItem(item.id, { sliderStep: Math.max(0, v) })} /></Row>
-        <Row label="Min Label"><input value={item.sliderMinLabel || ''} onChange={(e) => updateItem(item.id, { sliderMinLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
-        <Row label="Max Label"><input value={item.sliderMaxLabel || ''} onChange={(e) => updateItem(item.id, { sliderMaxLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
-      </Section>
-    )
-  },
+  slider: (ctx) => <SliderInspector {...ctx} />,
 
   stepper: ({ item, updateItem }) => (
     <Section title="Stepper">
@@ -1249,86 +1378,8 @@ export const INSPECTORS = {
 
   // ---- Phase 3 type editors ----
   label: (ctx) => <LabelInspector {...ctx} />,
-  textfield: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="textfield" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
-    <Section title="Text Field">
-      <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
-      <Row label="Value"><input value={item.textfieldValue || ''} onChange={(e) => updateItem(item.id, { textfieldValue: e.target.value })} className="field flex-1" placeholder="(empty)" /></Row>
-      <Row label="Style">
-        {/*
-          `.automatic` resolves to recessed glass (`.thickMaterial`) on
-          visionOS — keep it out of the exporter so the system look wins.
-        */}
-        <Select
-          value={item.styles?.textFieldStyle || 'automatic'}
-          options={TEXTFIELD_STYLES}
-          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, textFieldStyle: v } })}
-        />
-      </Row>
-      <Row label="Axis">
-        {/*
-          `.axis: .vertical` (visionOS 1+) lets the field grow into multiple
-          lines — `lineLimit` controls the cap.
-        */}
-        <div className="segmented flex-1">
-          <button className={item.axis !== 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'horizontal' })}>Horizontal</button>
-          <button className={item.axis === 'vertical' ? 'active' : ''} onClick={() => updateItem(item.id, { axis: 'vertical' })}>Vertical</button>
-        </div>
-      </Row>
-      {item.axis === 'vertical' && (
-        <Row label="Lines"><IntField value={item.lineLimit ?? 1} min={1} max={20} onChange={(v) => updateItem(item.id, { lineLimit: Math.max(1, v) })} /></Row>
-      )}
-      <Row label="Keyboard">
-        <Select value={item.keyboardType || 'default'} options={KEYBOARD_TYPES} onChange={(v) => updateItem(item.id, { keyboardType: v })} />
-      </Row>
-      <Row label="Content">
-        <Select value={item.textContentType || ''} options={TEXT_CONTENT_TYPES} onChange={(v) => updateItem(item.id, { textContentType: v })} />
-      </Row>
-      <Row label="Submit">
-        <Select value={item.submitLabel || 'return'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
-      </Row>
-      <Row label="Autocap">
-        <Select value={item.textInputAutocapitalization || 'sentences'} options={TEXT_AUTOCAPITALIZATION} onChange={(v) => updateItem(item.id, { textInputAutocapitalization: v })} />
-      </Row>
-      <Row label="Autocorrect">
-        <div className="segmented flex-1">
-          <button className={!item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: false })}>On</button>
-          <button className={item.autocorrectionDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { autocorrectionDisabled: true })}>Off</button>
-        </div>
-      </Row>
-      <div className="text-[10px] text-textMute leading-snug mt-1">
-        In preview, click the field to focus and type — the value lives on
-        the panel and persists across selections.
-      </div>
-    </Section>
-    </>
-  ),
-  securefield: ({ item, updateItem, switchPanelType }) => (
-    <>
-      <VariantSwitcher panelType="securefield" switchPanelType={switchPanelType} item={item} label="Input Type" options={INPUT_VARIANTS} />
-      <Section title="Secure Field">
-        <Row label="Placeholder"><input value={item.text || ''} onChange={(e) => updateItem(item.id, { text: e.target.value })} className="field flex-1" /></Row>
-        <Row label="Value">
-          <input
-            type="password"
-            value={item.securefieldValue || ''}
-            onChange={(e) => updateItem(item.id, { securefieldValue: e.target.value })}
-            className="field flex-1"
-            placeholder="(empty)"
-          />
-        </Row>
-        <Row label="Empty Dots"><IntField value={item.dotCount || 8} min={1} max={20} onChange={(v) => updateItem(item.id, { dotCount: v })} /></Row>
-        <Row label="Submit">
-          <Select value={item.submitLabel || 'done'} options={SUBMIT_LABELS} onChange={(v) => updateItem(item.id, { submitLabel: v })} />
-        </Row>
-        <div className="text-[10px] text-textMute leading-snug mt-1">
-          SecureField forces <code>.textContentType(.password)</code> and masks
-          input. In preview, clicking the field shows a real password input.
-        </div>
-      </Section>
-    </>
-  ),
+  textfield:   (ctx) => <InputFieldInspector {...ctx} />,
+  securefield: (ctx) => <InputFieldInspector {...ctx} />,
   texteditor: ({ item, updateItem }) => (
     <Section title="TextEditor">
       <Row label="Lines"><IntField value={item.lineCount || 5} min={1} max={20} onChange={(v) => updateItem(item.id, { lineCount: v })} /></Row>
@@ -1570,10 +1621,11 @@ const mergedFigmaFrame = { frameMode: 'figma', hasFill: false, mergedIdentity: t
 // section was previously rendered for every panel, which produced an empty
 // header on Text, Image, Slider, Progress, etc.
 const SYMBOL_USERS = new Set([
-  // `label` owns its symbol picker inside its own consolidated section,
-  // so it's intentionally excluded here — keeping it would double up
-  // the SF Symbol section (one inside the Label section, one stand-alone).
-  'button', 'link', 'navigationlink', 'contentUnavailable',
+  // `label` and `button` own their symbol picker inside their own
+  // consolidated section, so they're intentionally excluded here —
+  // keeping them would double up the SF Symbol section (one inside the
+  // merged inspector, one stand-alone).
+  'link', 'navigationlink', 'contentUnavailable',
   'toggle', 'picker', 'menu'
 ])
 
@@ -1592,10 +1644,24 @@ export const PANEL_META = {
   // isn't rendered next to the merged one.
   label: { frameMode: 'explicit', hasFill: true, mergedIdentity: true },
   list: { ...explicitFrame, lockHeight: true, lockHeightHint: 'Height is auto — grows with the row count at the style\'s fixed row height.' },
-  // Buttons are sized by the Size selector inside the Button inspector
-  // — frameMode 'none' hides the Object section's width/height fields
-  // so the only way to change a button's dimensions is via that picker.
-  button: { frameMode: 'none', hasFill: false },
+  // Button owns Name + Size/Style/Role/Tint + Label + SF Symbol inside
+  // one consolidated section. mergedIdentity drops the generic "Object —
+  // Button" header; frameMode 'none' is moot once merged (the inspector
+  // controls size via the Size preset). Excluded from SYMBOL_USERS so the
+  // stand-alone SF Symbol section isn't rendered alongside the merged one.
+  button: { frameMode: 'none', hasFill: false, mergedIdentity: true },
+  // Slider owns Name + Frame + range + control Size in one section; no
+  // Fill (a SwiftUI Slider has no background plate).
+  slider: { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  // Image / AsyncImage own Name + Frame + Appearance + media controls in
+  // one consolidated section.
+  image:      { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  asyncimage: { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  // Input fields (TextField / SecureField / search) own Name + Input Type +
+  // Frame + Edge + per-variant controls + Size in one consolidated section.
+  textfield:   { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  securefield: { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  search:      { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
   // Navbar is locked to 92pt height / parent-width — the user only edits
   // style, title, and the button arrays in the per-type inspector.
   navbar: { frameMode: 'none', hasFill: false },

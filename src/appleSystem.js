@@ -242,21 +242,21 @@ export const BUTTON_BORDER_SHAPES = [
 const NO_SHADOW = null
 
 export const MATERIALS = {
-  // Glass — visionOS plate default. 50% gray at 30% alpha, backed by a
-  // backdrop blur. Matches the windowGlass token in DEFAULT_SCENE_COLORS
-  // so a fresh window lands on Apple's reference plate look. Shadows
-  // are opt-in: the user toggles them from the Materials & Colors
-  // editor when they actively want a contact cue.
+  // Glass — visionOS plate default. Neutral #b8b8b8 at 25% alpha, backed
+  // by a 40pt backdrop blur. Matches the windowGlass token in
+  // DEFAULT_SCENE_COLORS so a fresh window lands on Apple's reference
+  // plate look. Shadows are opt-in: the user toggles them from the
+  // Materials & Colors editor when they actively want a contact cue.
   glass: {
     label: 'Glass',
     fillType: 'solid',
-    color: '#808080',
-    gradientFrom: '#808080',
+    color: '#b8b8b8',
+    gradientFrom: '#b8b8b8',
     gradientTo: '#cccccc',
     gradientAngle: 180,
-    opacity: 0.30,
+    opacity: 0.25,
     blur: true,
-    blurAmount: 24,
+    blurAmount: 40,
     innerShadow: NO_SHADOW,
     dropShadow: NO_SHADOW,
     rimOpacity: 0.45,
@@ -577,12 +577,13 @@ export const DEFAULT_SCENE_COLORS = {
   viewThin:           '#45454a',
   viewRegular:        '#39393c',
   viewThicker:        '#5a5a5e',
-  // Windows — neutral 50% gray with 30% opacity baked in. The renderer
-  // blends this over the studio backdrop the way visionOS does over the
-  // wearer's room. designWindow in SYSTEM_COLORS is kept for the legacy
-  // scheme tables.
-  windowGlass:        '#808080',
-  windowGlassOpacity: 0.3,
+  // Windows — neutral #b8b8b8 with 25% opacity baked in. Kept in sync
+  // with MATERIALS.glass so the "Glass" token and the Glass material
+  // read identically. The renderer blends this over the studio backdrop
+  // the way visionOS does over the wearer's room. designWindow in
+  // SYSTEM_COLORS is kept for the legacy scheme tables.
+  windowGlass:        '#b8b8b8',
+  windowGlassOpacity: 0.25,
   windowGlassKeyboard:'#2c2c2e',
   // Separators — Apple's tertiary-on-dark hairline.
   separator:          '#38383a',
@@ -617,8 +618,13 @@ export const buildDefaultSceneColors = () => ({ ...DEFAULT_SCENE_COLORS })
 // table for tokens the scene palette doesn't cover (systemBackground,
 // glassRegular, designWindow, …).
 export const resolveSemantic = (token, sceneOrScheme) => {
-  // Caller passed a scene object — check scene.colors first.
+  // Caller passed a scene object — check material/color overrides first.
   if (sceneOrScheme && typeof sceneOrScheme === 'object') {
+    // Tokens edited via the Materials editor store their color in
+    // materialProps[token]; honour that first so a material-color edit
+    // flows to every consumer that resolves this token.
+    const matColor = sceneOrScheme.materialProps?.[token]?.color
+    if (matColor) return matColor
     const override = sceneOrScheme.colors?.[token]
     if (override) return override
     const scheme = sceneOrScheme.designScheme || 'light'

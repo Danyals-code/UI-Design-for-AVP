@@ -5,12 +5,80 @@ import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
-import { resolveSemantic, ptToUnits, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveMaterial } from '../appleSystem'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveMaterial } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
+
+// Build a real soft shadow as a CanvasTexture. The canvas 2D `shadowBlur`
+// gives a true Gaussian falloff (not the old hard inflated-rect / ring),
+// and `shadowOffsetX/Y` make the X/Y offsets actually move the shadow.
+// `inner` casts the shadow inside the shape (inner shadow); otherwise it's
+// a drop shadow with the shape itself knocked out so only the halo shows.
+// Dimensions are in points; the returned plane size is in world units.
+function makeShadowCanvas(wPt, hPt, radiusPt, shadow, inner) {
+  if (typeof document === 'undefined') return null
+  const w = Math.max(1, Math.round(wPt))
+  const h = Math.max(1, Math.round(hPt))
+  const r = Math.max(0, Math.min(radiusPt, w / 2, h / 2))
+  const blur = Math.max(0, shadow.blur ?? 12)
+  const ox = shadow.offsetX ?? 0
+  const oy = shadow.offsetY ?? 0
+  const color = shadow.color || '#000000'
+  const pad = Math.ceil(blur * 3 + Math.max(Math.abs(ox), Math.abs(oy)) + 8)
+  const cw = w + pad * 2
+  const ch = h + pad * 2
+  const cnv = document.createElement('canvas')
+  cnv.width = cw
+  cnv.height = ch
+  const ctx = cnv.getContext('2d')
+  // Append a rounded-rect subpath to the current path (no beginPath) so we
+  // can compose multi-subpath fills (e.g. even-odd for the inner shadow).
+  const addRR = (x, y, ww, hh, rr) => {
+    ctx.moveTo(x + rr, y)
+    ctx.arcTo(x + ww, y, x + ww, y + hh, rr)
+    ctx.arcTo(x + ww, y + hh, x, y + hh, rr)
+    ctx.arcTo(x, y + hh, x, y, rr)
+    ctx.arcTo(x, y, x + ww, y, rr)
+    ctx.closePath()
+  }
+  const sx = pad, sy = pad
+  if (!inner) {
+    // Drop shadow: stamp the shape with a canvas shadow, then punch the
+    // shape itself out so only the soft halo remains.
+    ctx.save()
+    ctx.shadowColor = color
+    ctx.shadowBlur = blur
+    ctx.shadowOffsetX = ox
+    ctx.shadowOffsetY = oy
+    ctx.fillStyle = '#000'
+    ctx.beginPath(); addRR(sx, sy, w, h, r); ctx.fill()
+    ctx.restore()
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.beginPath(); addRR(sx, sy, w, h, r); ctx.fill()
+  } else {
+    // Inner shadow: clip to the shape, then fill the region *outside* it
+    // (even-odd) with a canvas shadow so the blur bleeds inward.
+    ctx.save()
+    ctx.beginPath(); addRR(sx, sy, w, h, r); ctx.clip()
+    ctx.shadowColor = color
+    ctx.shadowBlur = blur
+    ctx.shadowOffsetX = ox
+    ctx.shadowOffsetY = oy
+    ctx.fillStyle = '#000'
+    ctx.beginPath()
+    ctx.rect(0, 0, cw, ch)
+    addRR(sx, sy, w, h, r)
+    ctx.fill('evenodd')
+    ctx.restore()
+  }
+  const tex = new THREE.CanvasTexture(cnv)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.needsUpdate = true
+  return { tex, wUnits: ptToUnits(cw), hUnits: ptToUnits(ch) }
+}
 
 // ---- Plane fill ----
 // Earlier we layered a six-pass approximation of visionOS Liquid Glass
@@ -186,40 +254,32 @@ function LiquidGlass({
     return g
   }, [ringShape, w, h])
   const strokeTexture = strokeRing ? getStrokeGradientTexture() : null
-  // Drop / inner shadow geometry — we render the drop shadow as a
-  // slightly-scaled plate set behind the fill, the inner shadow as a
-  // ring overlay (inset by the shadow blur radius) on top. Both are
-  // opt-in via the material config.
-  const dropShadowShape = useMemo(() => {
-    if (!dropShadow) return null
-    const offX = ptToUnits(dropShadow.offsetX ?? 0)
-    const offY = ptToUnits(dropShadow.offsetY ?? 8)
-    const blurR = ptToUnits(dropShadow.blur ?? 24)
-    // Drop shadow shape is a slightly inflated rounded rect to
-    // approximate the soft falloff a real blur would produce.
-    void offX; void offY
-    const r = Math.max(0, cornerRadius + blurR * 0.5)
-    return roundedRectShape(w + blurR, h + blurR, r)
-  }, [dropShadow, w, h, cornerRadius])
-  const innerShadowRing = useMemo(() => {
-    if (!innerShadow) return null
-    const t = ptToUnits(Math.max(2, innerShadow.blur ?? 6))
-    return rimRingShape(w, h, cornerRadius, t)
-  }, [innerShadow, w, h, cornerRadius])
+  // Drop / inner shadow as real soft-blur CanvasTextures (see
+  // makeShadowCanvas). The offset is baked into the texture, so the
+  // carrying plane stays centred on the plate. Deps cover only the
+  // texture-relevant fields so dragging the Opacity slider (applied via
+  // material opacity) doesn't rebuild the texture.
+  const dropShadowTex = useMemo(
+    () => dropShadow
+      ? makeShadowCanvas(unitsToPt(w), unitsToPt(h), unitsToPt(cornerRadius), dropShadow, false)
+      : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [!!dropShadow, dropShadow?.offsetX, dropShadow?.offsetY, dropShadow?.blur, dropShadow?.color, w, h, cornerRadius]
+  )
+  const innerShadowTex = useMemo(
+    () => innerShadow
+      ? makeShadowCanvas(unitsToPt(w), unitsToPt(h), unitsToPt(cornerRadius), innerShadow, true)
+      : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [!!innerShadow, innerShadow?.offsetX, innerShadow?.offsetY, innerShadow?.blur, innerShadow?.color, w, h, cornerRadius]
+  )
   return (
     <group>
-      {dropShadow && dropShadowShape && (
-        <mesh
-          position={[
-            ptToUnits(dropShadow.offsetX ?? 0),
-            -ptToUnits(dropShadow.offsetY ?? 8),
-            -0.003
-          ]}
-          renderOrder={-3}
-        >
-          <shapeGeometry args={[dropShadowShape]} />
+      {dropShadowTex && (
+        <mesh position={[0, 0, -0.003]} renderOrder={-3}>
+          <planeGeometry args={[dropShadowTex.wUnits, dropShadowTex.hUnits]} />
           <meshBasicMaterial
-            color={dropShadow.color || '#000000'}
+            map={dropShadowTex.tex}
             transparent
             opacity={dropShadow.opacity ?? 0.2}
             depthWrite={false}
@@ -242,7 +302,7 @@ function LiquidGlass({
             clearcoat={0}
             attenuationColor={color}
             attenuationDistance={20}
-            side={THREE.FrontSide}
+            side={THREE.DoubleSide}
           />
         ) : materialSpec.fillType === 'gradient' ? (
           <meshBasicMaterial
@@ -295,11 +355,11 @@ function LiquidGlass({
           />
         </mesh>
       )}
-      {innerShadow && innerShadowRing && (
+      {innerShadowTex && (
         <mesh position={[0, 0, 0.0008]} renderOrder={1}>
-          <shapeGeometry args={[innerShadowRing]} />
+          <planeGeometry args={[innerShadowTex.wUnits, innerShadowTex.hUnits]} />
           <meshBasicMaterial
-            color={innerShadow.color || '#000000'}
+            map={innerShadowTex.tex}
             transparent
             opacity={innerShadow.opacity ?? 0.25}
             depthWrite={false}
