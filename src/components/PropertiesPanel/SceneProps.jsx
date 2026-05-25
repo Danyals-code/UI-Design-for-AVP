@@ -9,7 +9,7 @@ import { Row, Section, ColorRow, Select, NumField, Slider, IntField } from './pr
 import {
   HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES,
   SCENE_COLOR_GROUPS, SCENE_COLOR_LABELS, DEFAULT_SCENE_COLORS,
-  MATERIALS, MATERIAL_ORDER, resolveMaterial
+  MATERIALS, MATERIAL_ORDER
 } from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
 
@@ -331,12 +331,50 @@ export function SceneProps({ scene, updateScene }) {
 // palette. The section header is renamed "Materials & Colors" — the
 // Views + Windows tiers in here are the visionOS material library,
 // so calling the whole panel just "Colors" was undersell.
+// Only the system-colour wheel stays a plain colour; every other token
+// (Text / Controls / Views / Windows / Separators) and the liquid-glass
+// tiers are materials with the full editor. Selection key encodes the
+// focus: "color:<token>" for a system colour, "mat:<key>" for a material
+// (token or tier). Shared between the clickable browser and the dropdown.
+const swatchOfColor = (scene, token) =>
+  (scene.colors || {})[token] || DEFAULT_SCENE_COLORS[token] || '#000000'
+// Representative swatch for any material key — a stored material-colour
+// override wins, then the tier's stock colour, then the token's palette
+// colour, then the default.
+const swatchOfMaterial = (scene, key) => {
+  const stored = (scene.materialProps || {})[key]
+  if (stored?.color) return stored.color
+  if (MATERIALS[key]?.color) return MATERIALS[key].color
+  return (scene.colors || {})[key] || DEFAULT_SCENE_COLORS[key] || '#808080'
+}
+
+// One clickable swatch+label chip used throughout the browser.
+function TokenChip({ color, label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      className={`flex items-center gap-1.5 px-1.5 py-1 rounded border text-left transition-colors min-w-0 ${
+        active
+          ? 'border-accent bg-accent/15 text-text'
+          : 'border-border bg-surface3/40 text-textDim hover:text-text hover:bg-surface3'
+      }`}
+    >
+      <span
+        className="w-3.5 h-3.5 rounded-[3px] border border-black/25 flex-shrink-0"
+        style={{ background: color }}
+      />
+      <span className="text-[10px] truncate">{label}</span>
+    </button>
+  )
+}
+
 function SceneColorsSection({ scene, updateScene }) {
-  const palette = scene.colors || {}
-  const setColor = (token, hex) =>
-    updateScene({ colors: { ...palette, [token]: hex } })
+  // Default focus = first system colour. (Text/Controls/etc. are now
+  // materials, so the old 'color:primary' key would no longer resolve.)
+  const [selected, setSelected] = useState(() => `color:${SCENE_COLOR_GROUPS[0].tokens[0]}`)
   const resetAll = () =>
-    updateScene({ colors: { ...DEFAULT_SCENE_COLORS } })
+    updateScene({ colors: { ...DEFAULT_SCENE_COLORS }, materialProps: {} })
   return (
     <Section
       title="Materials & Colors"
@@ -344,77 +382,192 @@ function SceneColorsSection({ scene, updateScene }) {
         <button
           className="text-[9px] text-textMute hover:text-text uppercase tracking-wider"
           onClick={resetAll}
-          title="Reset every token to the visionOS defaults"
-        >Reset</button>
+          title="Reset every token and material to the visionOS defaults"
+        >Reset All</button>
       }
     >
-      {SCENE_COLOR_GROUPS.map((group) => {
-        // The free-pick palette renders as a swatch grid; named-slot
-        // groups stay row-based per the spec.
-        const isSwatchGrid = group.key === 'colors'
-        const groupLabel = isSwatchGrid ? 'Solid Colors' : group.label
-        return (
-          <div key={group.key} className="mb-3 last:mb-0">
-            <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
-              {groupLabel}
-            </div>
-            {isSwatchGrid ? (
-              <div className="grid grid-cols-8 gap-1">
-                {group.tokens.map((token) => {
-                  const hex = palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'
-                  const label = SCENE_COLOR_LABELS[token] || token
-                  return (
-                    <label
-                      key={token}
-                      title={`${label} · ${hex.toUpperCase()}`}
-                      className="relative w-6 h-6 rounded border border-border cursor-pointer hover:ring-1 hover:ring-accent block"
-                      style={{ background: hex }}
-                    >
-                      <input
-                        type="color"
-                        value={hex}
-                        onChange={(e) => setColor(token, e.target.value)}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      />
-                    </label>
-                  )
-                })}
+      {/* Browser — every palette token and material tier as a clickable
+          chip. Picking one focuses it in the detail editor below; the
+          two stay in sync. */}
+      <div className="space-y-2.5">
+        {SCENE_COLOR_GROUPS.map((group) => {
+          // Only the system-colour wheel is plain colour; every other
+          // group's tokens are materials (focus key `mat:<token>`).
+          const isSystemColors = group.key === 'colors'
+          const groupLabel = isSystemColors ? 'System Colors' : group.label
+          return (
+            <div key={group.key}>
+              <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
+                {groupLabel}
               </div>
-            ) : (
-              group.tokens.map((token) => (
-                <Row key={token} label={SCENE_COLOR_LABELS[token] || token} labelWidth={120}>
-                  <ColorRow
-                    value={palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'}
-                    onChange={(v) => setColor(token, v)}
-                  />
-                </Row>
-              ))
-            )}
+              {isSystemColors ? (
+                <div className="grid grid-cols-8 gap-1">
+                  {group.tokens.map((token) => {
+                    const hex = swatchOfColor(scene, token)
+                    const active = selected === `color:${token}`
+                    return (
+                      <button
+                        key={token}
+                        onClick={() => setSelected(`color:${token}`)}
+                        title={`${SCENE_COLOR_LABELS[token] || token} · ${hex.toUpperCase()}`}
+                        className={`w-6 h-6 rounded border cursor-pointer transition-shadow ${
+                          active ? 'border-accent ring-2 ring-accent' : 'border-border hover:ring-1 hover:ring-accent'
+                        }`}
+                        style={{ background: hex }}
+                      />
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1">
+                  {group.tokens.map((token) => (
+                    <TokenChip
+                      key={token}
+                      color={swatchOfMaterial(scene, token)}
+                      label={SCENE_COLOR_LABELS[token] || token}
+                      active={selected === `mat:${token}`}
+                      onClick={() => setSelected(`mat:${token}`)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {/* Liquid-glass material tiers. */}
+        <div>
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
+            Materials
           </div>
-        )
-      })}
-      {/* Materials editor — one dropdown that picks which tier (Glass
-          / Views Regular / Ultra Thin / Thin / Regular / Thick / Ultra
-          Thick / Opaque / Bar) is in focus, plus an inline property
-          panel below for that tier. Edits land in
-          `scene.materialProps[key]`; the renderer merges them on top
-          of the stock defaults via `resolveMaterial(...)`. */}
-      <div className="mb-3">
-        <div className="text-[9px] text-textMute uppercase tracking-wider mb-1.5">
-          Materials
+          <div className="grid grid-cols-2 gap-1">
+            {MATERIAL_ORDER.map((key) => (
+              <TokenChip
+                key={key}
+                color={swatchOfMaterial(scene, key)}
+                label={MATERIALS[key]?.label || key}
+                active={selected === `mat:${key}`}
+                onClick={() => setSelected(`mat:${key}`)}
+              />
+            ))}
+          </div>
         </div>
-        <MaterialEditor scene={scene} updateScene={updateScene} />
       </div>
+
+      {/* Detail editor — dropdown mirrors the browser selection, with a
+          per-item Reset and the controls for the focused token/material. */}
+      <DetailEditor selected={selected} setSelected={setSelected} scene={scene} updateScene={updateScene} />
     </Section>
   )
 }
 
-// Single-material editor. A Select at the top picks the active tier;
-// the property panel below shows that tier's color / fill type / opacity
-// / blur / shadow controls. Edits go to `scene.materialProps[key]`.
-function MaterialEditor({ scene, updateScene }) {
-  const [materialKey, setMaterialKey] = useState(MATERIAL_ORDER[0])
-  const mat = resolveMaterial(materialKey, scene.materialProps)
+// Detail panel for the focused token/material. The dropdown lists every
+// token (grouped) plus the material tiers, so it doubles as the picker
+// the browser syncs with.
+function DetailEditor({ selected, setSelected, scene, updateScene }) {
+  const [kind, key] = selected.split(':')
+  const palette = scene.colors || {}
+  const materialProps = scene.materialProps || {}
+  const title = MATERIALS[key]?.label || SCENE_COLOR_LABELS[key] || key
+  const resetItem = () => {
+    if (kind === 'mat') {
+      const next = { ...materialProps }
+      delete next[key]
+      const patch = { materialProps: next }
+      // Token-materials also carry a legacy palette colour — clear it back
+      // to the default so the reset is complete. Tier keys (glass, …) have
+      // no palette entry, so leave `colors` untouched.
+      if (DEFAULT_SCENE_COLORS[key] !== undefined) {
+        patch.colors = { ...palette, [key]: DEFAULT_SCENE_COLORS[key] }
+      }
+      updateScene(patch)
+    } else {
+      updateScene({ colors: { ...palette, [key]: DEFAULT_SCENE_COLORS[key] || '#000000' } })
+    }
+  }
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="field flex-1 cursor-pointer"
+        >
+          {SCENE_COLOR_GROUPS.map((g) => {
+            const isSystemColors = g.key === 'colors'
+            return (
+              <optgroup key={g.key} label={isSystemColors ? 'System Colors' : g.label}>
+                {g.tokens.map((t) => (
+                  <option key={t} value={`${isSystemColors ? 'color' : 'mat'}:${t}`}>{SCENE_COLOR_LABELS[t] || t}</option>
+                ))}
+              </optgroup>
+            )
+          })}
+          <optgroup label="Materials">
+            {MATERIAL_ORDER.map((k) => (
+              <option key={k} value={`mat:${k}`}>{MATERIALS[k]?.label || k}</option>
+            ))}
+          </optgroup>
+        </select>
+        <button
+          className="btn btn-ghost text-[9px] flex-shrink-0"
+          onClick={resetItem}
+          title={`Reset ${title} to its default`}
+        >Reset</button>
+      </div>
+      {kind === 'mat'
+        ? <MaterialDetail materialKey={key} scene={scene} updateScene={updateScene} />
+        : <ColorDetail token={key} scene={scene} updateScene={updateScene} />}
+    </div>
+  )
+}
+
+// Color-token editor — a large swatch that opens the native picker plus a
+// hex field, for the one selected palette token.
+function ColorDetail({ token, scene, updateScene }) {
+  const palette = scene.colors || {}
+  const hex = palette[token] || DEFAULT_SCENE_COLORS[token] || '#000000'
+  const setColor = (v) => updateScene({ colors: { ...palette, [token]: v } })
+  return (
+    <div className="border border-border rounded px-2 py-2 bg-surface3/40">
+      <div className="flex items-center gap-2">
+        <label
+          className="relative w-9 h-9 rounded border border-border cursor-pointer block flex-shrink-0"
+          style={{ background: hex }}
+          title="Pick a color"
+        >
+          <input
+            type="color"
+            value={hex}
+            onChange={(e) => setColor(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+        </label>
+        <input
+          value={hex}
+          onChange={(e) => setColor(e.target.value)}
+          spellCheck={false}
+          className="field font-mono uppercase"
+        />
+      </div>
+    </div>
+  )
+}
+
+// Material-tier editor — color / fill type / opacity / blur / shadow
+// controls for one tier. `materialKey` is controlled by DetailEditor; edits
+// go to `scene.materialProps[key]`.
+function MaterialDetail({ materialKey, scene, updateScene }) {
+  // Resolve the material. Tier keys (glass, …) get their stock spec from
+  // MATERIALS; token-materials (primary, viewRecessed, …) get a generic
+  // base with their colour seeded from the palette / defaults. Stored
+  // overrides in materialProps win.
+  const stored = (scene.materialProps || {})[materialKey] || {}
+  const base = MATERIALS[materialKey] || { fillType: 'solid', opacity: 1, blur: false, blurAmount: 12 }
+  const seedColor = base.color
+    || (scene.colors || {})[materialKey]
+    || DEFAULT_SCENE_COLORS[materialKey]
+    || '#808080'
+  const mat = { ...base, color: seedColor, ...stored }
   const setProp = (key, value) => {
     const current = (scene.materialProps || {})[materialKey] || {}
     updateScene({
@@ -436,14 +589,6 @@ function MaterialEditor({ scene, updateScene }) {
   }
   const fillType = mat.fillType || 'solid'
   return (
-    <div className="space-y-1.5">
-      <Row label="Material" labelWidth={100}>
-        <Select
-          value={materialKey}
-          options={MATERIAL_ORDER.map((k) => ({ value: k, label: MATERIALS[k]?.label || k }))}
-          onChange={(v) => setMaterialKey(v)}
-        />
-      </Row>
       <div className="border border-border rounded px-2 py-1.5 space-y-1 bg-surface3/40">
         <Row label="Fill" labelWidth={100}>
           <div className="segmented flex-1">
@@ -496,8 +641,8 @@ function MaterialEditor({ scene, updateScene }) {
         )}
         <Row label="Inner Shadow" labelWidth={100}>
           <div className="segmented flex-1">
-            <button className={mat.innerShadow ? 'active' : ''} onClick={() => toggleShadow('innerShadow')}>On</button>
-            <button className={!mat.innerShadow ? 'active' : ''} onClick={() => toggleShadow('innerShadow')}>Off</button>
+            <button className={mat.innerShadow ? 'active' : ''} onClick={() => { if (!mat.innerShadow) toggleShadow('innerShadow') }}>On</button>
+            <button className={!mat.innerShadow ? 'active' : ''} onClick={() => { if (mat.innerShadow) toggleShadow('innerShadow') }}>Off</button>
           </div>
         </Row>
         {mat.innerShadow && (
@@ -505,36 +650,39 @@ function MaterialEditor({ scene, updateScene }) {
         )}
         <Row label="Drop Shadow" labelWidth={100}>
           <div className="segmented flex-1">
-            <button className={mat.dropShadow ? 'active' : ''} onClick={() => toggleShadow('dropShadow')}>On</button>
-            <button className={!mat.dropShadow ? 'active' : ''} onClick={() => toggleShadow('dropShadow')}>Off</button>
+            <button className={mat.dropShadow ? 'active' : ''} onClick={() => { if (!mat.dropShadow) toggleShadow('dropShadow') }}>On</button>
+            <button className={!mat.dropShadow ? 'active' : ''} onClick={() => { if (mat.dropShadow) toggleShadow('dropShadow') }}>Off</button>
           </div>
         </Row>
         {mat.dropShadow && (
           <ShadowSubFields shadow={mat.dropShadow} onPatch={(p) => setShadow('dropShadow', p)} />
         )}
       </div>
-    </div>
   )
 }
 
+// Shadow sub-settings — shown as a tidy nested card under the shadow's
+// On/Off toggle. Offset X/Y share one row; Blur / Color / Opacity follow
+// with the same label column as the rest of the material editor.
 function ShadowSubFields({ shadow, onPatch }) {
   return (
-    <div className="pl-2 border-l border-border space-y-1">
-      <div className="grid grid-cols-2 gap-1">
-        <Row label="X" labelWidth={42}>
+    <div className="rounded border border-border/70 bg-surface2/40 px-2 py-1.5 mt-1 mb-1 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-textDim text-[10px]" style={{ minWidth: 92 }}>Offset</span>
+        <div className="flex-1 flex items-center gap-1.5">
+          <span className="text-[9px] text-textMute">X</span>
           <IntField value={shadow.offsetX ?? 0} onChange={(v) => onPatch({ offsetX: v })} />
-        </Row>
-        <Row label="Y" labelWidth={42}>
+          <span className="text-[9px] text-textMute">Y</span>
           <IntField value={shadow.offsetY ?? 0} onChange={(v) => onPatch({ offsetY: v })} />
-        </Row>
+        </div>
       </div>
-      <Row label="Blur" labelWidth={50}>
+      <Row label="Blur" labelWidth={92}>
         <IntField value={shadow.blur ?? 12} min={0} onChange={(v) => onPatch({ blur: v })} />
       </Row>
-      <Row label="Color" labelWidth={50}>
+      <Row label="Color" labelWidth={92}>
         <ColorRow value={shadow.color || '#000000'} onChange={(v) => onPatch({ color: v })} />
       </Row>
-      <Row label="Opacity" labelWidth={50}>
+      <Row label="Opacity" labelWidth={92}>
         <Slider
           value={shadow.opacity ?? 0.2}
           min={0} max={1} step={0.01}

@@ -346,11 +346,18 @@ export function StylesSection({ item, updateItem }) {
 
 // ---- SF Symbol section -----------------------------------------------
 
-export function SymbolSection({ item, updateItem }) {
+export function SymbolSection({ item, updateItem, embedded = false }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const sym = item.symbolName ? SF_SYMBOLS[item.symbolName] : null
+  // `embedded` folds the symbol controls into a parent section (e.g. the
+  // consolidated Button inspector) instead of owning a standalone
+  // "SF Symbol" dropdown — a mini-header keeps the grouping legible.
+  const Wrap = embedded
+    ? ({ children }) => <>{children}</>
+    : ({ children }) => <Section title="SF Symbol" defaultOpen={false}>{children}</Section>
   return (
-    <Section title="SF Symbol" defaultOpen={false}>
+    <Wrap>
+      {embedded && <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">SF Symbol</div>}
       <Row label="Symbol">
         <button onClick={() => setPickerOpen(true)} className="btn flex-1 justify-between">
           <span className="flex items-center gap-1.5">
@@ -374,7 +381,7 @@ export function SymbolSection({ item, updateItem }) {
           onClose={() => setPickerOpen(false)}
         />
       )}
-    </Section>
+    </Wrap>
   )
 }
 

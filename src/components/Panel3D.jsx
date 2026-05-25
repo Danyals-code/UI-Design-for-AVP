@@ -420,7 +420,14 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     const fontSize = panel.fontSize || ptToUnits(17)
     return [Math.max(ptToUnits(40), text.length * fontSize * 0.55), fontSize * 1.5]
   })()
-  const cornerRadius = panel.cornerRadius ?? 0
+  // Input fields (text / secure / search) render a pill (capsule) by
+  // default — the radius tracks the field height so it stays a true pill
+  // at any size. The Edge toggle sets `fieldShape: 'rounded'` to fall back
+  // to the stored corner radius.
+  const isInputField = panelType === 'textfield' || panelType === 'securefield' || panelType === 'search'
+  const cornerRadius = (isInputField && (panel.fieldShape || 'pill') === 'pill')
+    ? Math.min(size[0], size[1]) / 2
+    : (panel.cornerRadius ?? 0)
   // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
   // — rendered as a slightly larger copy of the shape in `strokeColor`
   // placed BEHIND the fill. Half the width sits outside the shape's
@@ -739,7 +746,7 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // toggle, ± circle buttons for stepper), and the row itself is just
   // a transparent label slot. Without this the row would render with
   // the control's fill stretched across the whole panel width.
-  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'path', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient', 'toggle', 'stepper']
+  const noFillTypes = ['text', 'divider', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'path', 'link', 'spacer', 'label', 'colorpicker', 'linearGradient', 'radialGradient', 'angularGradient', 'toggle', 'stepper', 'slider']
   const hasFill = !noFillTypes.includes(panelType)
   // `toggle` + `stepper` belong here so the panel's leading-edge label
   // renders next to the trailing control — the SwiftUI shape of

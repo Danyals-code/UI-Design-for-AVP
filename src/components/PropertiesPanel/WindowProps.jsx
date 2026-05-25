@@ -11,8 +11,8 @@ import {
   POINTS_PER_METER
 } from '../../appleSystem'
 import {
-  Row, Section, NumField, IntField, PtField, Slider,
-  ColorRow, Select, SemanticColorPicker
+  Row, Section, NumField, IntField, PtField,
+  Select, SemanticColorPicker
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 import { ToolbarWizard } from './wizards'
@@ -88,6 +88,16 @@ export function WindowProps({ item }) {
             >Off</button>
           </div>
         </Row>
+        {/* Material picks the liquid-glass tier; its tint, opacity, and
+            blur come from the tier's scene-wide defaults (Scene →
+            Materials & Colors), so they aren't duplicated per-window. */}
+        <Row label="Material">
+          <Select
+            value={item.material || 'regular'}
+            options={MATERIAL_ORDER.map((k) => ({ value: k, label: `${MATERIALS[k].label} · ${Math.round(MATERIALS[k].opacity * 100)}%` }))}
+            onChange={(v) => updateItem(item.id, { material: v })}
+          />
+        </Row>
 
         {/* Frame */}
         <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Size</div>
@@ -139,55 +149,6 @@ export function WindowProps({ item }) {
             )
           })}
         </div>
-      </Section>
-
-      {/* Appearance — material + tint colour. Kept as its own section
-          because window plates frequently get a non-default glass
-          treatment that's worth surfacing without scrolling past the
-          frame/spatial details. */}
-      <Section title="Appearance" defaultOpen={false}>
-        <Row label="Glass">
-          <Select
-            value={item.material || 'regular'}
-            options={MATERIAL_ORDER.map((k) => ({ value: k, label: `${MATERIALS[k].label} · ${Math.round(MATERIALS[k].opacity * 100)}%` }))}
-            onChange={(v) => updateItem(item.id, { material: v })}
-          />
-        </Row>
-        <Row label="Tint">
-          <SemanticColorPicker
-            token={item.colorToken}
-            onChange={(t) => updateItem(item.id, { colorToken: t })}
-          />
-        </Row>
-        <Row label="Fallback">
-          <ColorRow value={item.color} onChange={(v) => updateItem(item.id, { color: v, colorToken: null })} />
-        </Row>
-        {/* Frosted-glass blur — toggles a visionOS-style blur over the
-            window. The canvas softens the plate toward white and adds a
-            faint frost rim; export maps to `.background(.regularMaterial)`
-            with the configured blur radius. */}
-        <Row label="Blur">
-          <div className="segmented flex-1">
-            <button
-              className={item.blur ? 'active' : ''}
-              onClick={() => updateItem(item.id, { blur: true })}
-              title="Frosted glass — softens the backdrop"
-            >On</button>
-            <button
-              className={!item.blur ? 'active' : ''}
-              onClick={() => updateItem(item.id, { blur: false })}
-            >Off</button>
-          </div>
-        </Row>
-        {item.blur && (
-          <Row label="Amount">
-            <Slider
-              value={item.blurAmount ?? 12}
-              min={0} max={40} step={1} suffix="pt"
-              onChange={(v) => updateItem(item.id, { blurAmount: v })}
-            />
-          </Row>
-        )}
       </Section>
 
       {/* Volume-specific metadata — only consulted when this window is

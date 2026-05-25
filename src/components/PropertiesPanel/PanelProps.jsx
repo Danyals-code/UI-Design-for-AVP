@@ -2,11 +2,11 @@
 //
 // Mirrors the 3D entity inspector's "compact and structured" feel:
 // one Object section up top with name + the per-type fields rolled
-// in, then Modifiers, then optional Styles, then Hover (interactive
-// panels only), and finally a Behaviors placeholder so designers can
-// see where window-level interactions will land. The old Advanced
-// header (Animation / Accessibility / Info) is gone — those were
-// rarely opened and made the panel feel cluttered.
+// in, then Modifiers, then optional Styles, then a single standardised
+// "Behaviors" dropdown that holds the hover-effect family and (for
+// buttons) the On-Tap action. The old Advanced header (Animation /
+// Accessibility / Info) is gone — those were rarely opened and made the
+// panel feel cluttered.
 
 import { useStore } from '../../store'
 import { Row, Section, Select } from './primitives'
@@ -29,24 +29,45 @@ const HOVER_EFFECT_OPTIONS = [
   { value: 'none',      label: 'None' }
 ]
 
-// Window-level behaviours (tap / hover / appear / disappear → show /
-// hide / navigate / openURL / message) are still on the roadmap — the
-// runtime interpreter for entities lives in `src/behaviors/` but the
-// SwiftUI window side isn't wired yet. Show a single honest "coming
-// soon" line rather than mock dropdowns that look interactive but
-// don't store anything. Button tap actions (the live path) live in
-// `TapActionSection` below.
-function WindowBehaviorsPlaceholder() {
+// visionOS .hoverEffect family — rendered inside the unified Behaviors
+// section for interactive controls. `inherit` defers to the owning
+// window's spatial.hoverEffect.
+function HoverRows({ item, updateItem }) {
   return (
-    <Section title="Behaviors" defaultOpen={false}>
-      <div className="text-[9px] text-textMute leading-snug">
-        Window behaviours (tap / hover / appear / disappear → show /
-        hide / navigate / open URL / message) are
-        <span className="text-textBase"> coming soon</span>.
-        For now, wire interactions through a Button's
-        <span className="text-textBase"> On Tap</span> action.
-      </div>
-    </Section>
+    <>
+      <Row label="Effect">
+        <Select
+          value={item.hoverEffect || 'inherit'}
+          options={HOVER_EFFECT_OPTIONS}
+          onChange={(v) => updateItem(item.id, { hoverEffect: v })}
+        />
+      </Row>
+      <Row label="Disabled">
+        <div className="segmented flex-1">
+          <button className={item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: true })}>On</button>
+          <button className={!item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: false })}>Off</button>
+        </div>
+      </Row>
+      <Row label="Default">
+        <Select
+          value={item.defaultHoverEffect || 'automatic'}
+          options={[
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'highlight', label: 'Highlight' },
+            { value: 'lift',      label: 'Lift' }
+          ]}
+          onChange={(v) => updateItem(item.id, { defaultHoverEffect: v })}
+        />
+      </Row>
+      <Row label="Group">
+        <input
+          value={item.hoverEffectGroup || ''}
+          onChange={(e) => updateItem(item.id, { hoverEffectGroup: e.target.value || null })}
+          className="field flex-1"
+          placeholder="(none) e.g. automatic"
+        />
+      </Row>
+    </>
   )
 }
 
@@ -69,7 +90,7 @@ const TAP_ACTION_OPTIONS = [
   { value: 'dismiss',        label: 'Dismiss sheet' }
 ]
 
-function TapActionSection({ item }) {
+function TapActionRows({ item }) {
   const updateItem = useStore((s) => s.updateItem)
   const items      = useStore((s) => s.items)
   const action = item.tapAction || { type: 'none' }
@@ -84,7 +105,6 @@ function TapActionSection({ item }) {
   const sheetPanels   = items.filter((it) => it.type === 'panel' && ['sheet', 'popover', 'alert'].includes(it.panelType))
 
   return (
-    <Section title="On Tap" defaultOpen={true}>
       <div className="space-y-1.5">
         <div className="text-[9px] text-textMute leading-snug">
           Runs in preview when the wearer taps this button. Compiles into a
@@ -175,6 +195,36 @@ function TapActionSection({ item }) {
           </Row>
         )}
       </div>
+  )
+}
+
+// Unified Behaviors dropdown — standardised across SwiftUI views. Holds
+// the hover-effect family (interactive controls) and the Button on-tap
+// action under one "Behaviors" header, so interaction lives in the same
+// place on every view. Non-interactive views show a short "coming soon"
+// note so the section reads consistently everywhere.
+function BehaviorsSection({ item, interactive, updateItem }) {
+  const isButton = item.panelType === 'button'
+  return (
+    <Section title="Behaviors" defaultOpen={false}>
+      {interactive && (
+        <>
+          <div className="text-[9px] text-textMute uppercase tracking-wider mb-1">Hover</div>
+          <HoverRows item={item} updateItem={updateItem} />
+        </>
+      )}
+      {isButton && (
+        <>
+          <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">On Tap</div>
+          <TapActionRows item={item} />
+        </>
+      )}
+      {!interactive && (
+        <div className="text-[9px] text-textMute leading-snug">
+          Tap / hover / appear → show / hide / navigate / open URL behaviours
+          are <span className="text-textBase">coming soon</span> for this view.
+        </div>
+      )}
     </Section>
   )
 }
@@ -193,12 +243,12 @@ export function PanelProps({ item, scene }) {
   const titleCase = item.panelType.charAt(0).toUpperCase() + item.panelType.slice(1)
 
   // Styles section is only meaningful for controls whose dedicated
-  // inspector doesn't already expose Size + style pickers. Buttons
-  // and toggles already include Size + Style in their own section, so
-  // duplicating them under "Styles" produced confusing twin pickers.
-  // Pickers / labels / textfields are the remaining types that still
-  // need it.
-  const stylesOwnsSize = item.panelType === 'button' || item.panelType === 'toggle'
+  // inspector doesn't already expose Size + style pickers. Buttons,
+  // toggles, sliders, and the input fields (text / secure / search)
+  // include Size (and style) in their own merged section, so duplicating
+  // them under "Styles" produced confusing twin pickers. Pickers remain
+  // the main type that still needs the standalone Styles section.
+  const stylesOwnsSize = ['button', 'toggle', 'slider', 'textfield', 'securefield', 'search'].includes(item.panelType)
   const showStyles = interactive && !stylesOwnsSize
 
   return (
@@ -235,57 +285,11 @@ export function PanelProps({ item, scene }) {
 
       {showStyles && <StylesSection item={item} updateItem={updateItem} />}
 
-      {/* visionOS hover modifier family — only meaningful on interactive
-          controls. Renamed from "Interaction" to "Hover" so it doesn't
-          collide with the new "Behaviors" placeholder below. */}
-      {interactive && (
-        <Section title="Hover" defaultOpen={false}>
-          <Row label="Effect">
-            <Select
-              value={item.hoverEffect || 'inherit'}
-              options={HOVER_EFFECT_OPTIONS}
-              onChange={(v) => updateItem(item.id, { hoverEffect: v })}
-            />
-          </Row>
-          <Row label="Disabled">
-            <div className="segmented flex-1">
-              <button className={item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: true })}>On</button>
-              <button className={!item.hoverEffectDisabled ? 'active' : ''} onClick={() => updateItem(item.id, { hoverEffectDisabled: false })}>Off</button>
-            </div>
-          </Row>
-          <Row label="Default">
-            <Select
-              value={item.defaultHoverEffect || 'automatic'}
-              options={[
-                { value: 'automatic', label: 'Automatic' },
-                { value: 'highlight', label: 'Highlight' },
-                { value: 'lift',      label: 'Lift' }
-              ]}
-              onChange={(v) => updateItem(item.id, { defaultHoverEffect: v })}
-            />
-          </Row>
-          <Row label="Group">
-            <input
-              value={item.hoverEffectGroup || ''}
-              onChange={(e) => updateItem(item.id, { hoverEffectGroup: e.target.value || null })}
-              className="field flex-1"
-              placeholder="(none) e.g. automatic"
-            />
-          </Row>
-        </Section>
-      )}
-
       {meta.useSymbol && <SymbolSection item={item} updateItem={updateItem} />}
 
-      {/* Buttons own a real On-Tap section that maps to the SwiftUI
-          `Button(action:)` closure on export and runs live in preview.
-          Other panels still get the Behaviors placeholder so the
-          inspector reads consistent across types — it'll grow real
-          functionality as more interaction kinds get wired. */}
-      {item.panelType === 'button'
-        ? <TapActionSection item={item} />
-        : <WindowBehaviorsPlaceholder />
-      }
+      {/* One standardised "Behaviors" dropdown across every view — holds
+          the hover-effect family and (for buttons) the live On-Tap action. */}
+      <BehaviorsSection item={item} interactive={interactive} updateItem={updateItem} />
     </div>
   )
 }
