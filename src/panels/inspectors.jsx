@@ -34,7 +34,7 @@ import {
   KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
   DATE_COMPONENTS, IMAGE_SCALES,
   NAVBAR_STYLES, NAVBAR_STYLE_SPECS, NAVBAR_INTERACTIONS,
-  ptToUnits
+  ptToUnits, segmentedFrame, SEGMENT_MATERIALS
 } from '../appleSystem'
 
 // ---- shared mini-inspectors -------------------------------------------
@@ -631,6 +631,66 @@ function InputFieldInspector({ item, updateItem, switchPanelType, scene }) {
   )
 }
 
+// Sample labels used when the user bumps the segment count up.
+const SEGMENT_SAMPLE = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth']
+
+// Segmented control — everything in ONE merged section (PANEL_META marks
+// it `mergedIdentity`, so PanelProps drops the generic "Object" header).
+// Name + Frame + segment Count/Items/Selected + the Material tier live
+// together. A segmented picker has no user fill colour — its only
+// appearance control is the track Material — so there's no Fill/Hex here.
+function SegmentedInspector({ item, updateItem }) {
+  const renameItem = useStore((s) => s.renameItem)
+  const segs = item.segments || []
+  // Any change to the segment list re-fits the frame (88pt per segment)
+  // and clamps the selection so it can't dangle past the last segment.
+  const setSegments = (next) => updateItem(item.id, {
+    segments: next,
+    size: segmentedFrame(next.length),
+    selectedSegment: Math.max(0, Math.min(next.length - 1, item.selectedSegment ?? 0))
+  })
+  const setCount = (n) => {
+    const target = Math.max(2, Math.min(8, n))
+    const next = target > segs.length
+      ? [...segs, ...Array.from({ length: target - segs.length }, (_, i) => SEGMENT_SAMPLE[(segs.length + i) % SEGMENT_SAMPLE.length])]
+      : segs.slice(0, target)
+    setSegments(next)
+  }
+  return (
+    <Section title="Segmented" defaultOpen={true}>
+      <Row label="Name">
+        <input value={item.name} onChange={(e) => renameItem(item.id, e.target.value)} className="field flex-1" />
+      </Row>
+      <Row label="Width">
+        <PtField value={item.size?.[0] ?? ptToUnits(188)} onChange={(v) => updateItem(item.id, { size: [Math.max(0.05, v), item.size?.[1] ?? ptToUnits(44)] })} />
+      </Row>
+      <Row label="Height">
+        <PtField value={item.size?.[1] ?? ptToUnits(44)} onChange={(v) => updateItem(item.id, { size: [item.size?.[0] ?? ptToUnits(188), Math.max(0.05, v)] })} />
+      </Row>
+      <Row label="Count">
+        <IntField value={segs.length} min={2} max={8} onChange={setCount} />
+      </Row>
+      <Row label="Items">
+        <input
+          value={segs.join(', ')}
+          onChange={(e) => setSegments(e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
+          className="field flex-1"
+        />
+      </Row>
+      <Row label="Selected">
+        <IntField value={item.selectedSegment ?? 0} min={0} max={Math.max(0, segs.length - 1)} onChange={(v) => updateItem(item.id, { selectedSegment: v })} />
+      </Row>
+      <Row label="Material">
+        <Select
+          value={item.material || 'regular'}
+          options={SEGMENT_MATERIALS.map((m) => ({ value: m.value, label: m.label }))}
+          onChange={(v) => updateItem(item.id, { material: v })}
+        />
+      </Row>
+    </Section>
+  )
+}
+
 export const INSPECTORS = {
   text: (ctx) => <TextInspector {...ctx} />,
 
@@ -789,25 +849,7 @@ export const INSPECTORS = {
     </Section>
   ),
 
-  segmented: ({ item, updateItem }) => (
-    <Section title="Segments">
-      <Row label="Items">
-        <input
-          value={(item.segments || []).join(', ')}
-          onChange={(e) => updateItem(item.id, { segments: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-          className="field flex-1"
-        />
-      </Row>
-      <Row label="Selected">
-        <IntField
-          value={item.selectedSegment ?? 0}
-          min={0}
-          max={Math.max(0, (item.segments || []).length - 1)}
-          onChange={(v) => updateItem(item.id, { selectedSegment: v })}
-        />
-      </Row>
-    </Section>
-  ),
+  segmented: (ctx) => <SegmentedInspector {...ctx} />,
 
   slideshow: (ctx) => (
     <>
@@ -1662,6 +1704,10 @@ export const PANEL_META = {
   textfield:   { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
   securefield: { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
   search:      { frameMode: 'explicit', hasFill: false, mergedIdentity: true },
+  // Segmented owns Name + Frame + Count/Items/Selected + Material in one
+  // consolidated section. No Fill — the track Material is its only
+  // appearance control.
+  segmented:   { frameMode: 'none', hasFill: false, mergedIdentity: true },
   // Navbar is locked to 92pt height / parent-width — the user only edits
   // style, title, and the button arrays in the per-type inspector.
   navbar: { frameMode: 'none', hasFill: false },

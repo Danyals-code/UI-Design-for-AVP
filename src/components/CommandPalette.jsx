@@ -92,6 +92,7 @@ export default function CommandPalette() {
     { id: 'slider',    label: 'Slider',    group: 'Controls',   Icon: SliderIcon,    run: () => addPanel('slider') },
     { id: 'stepper',   label: 'Stepper',   group: 'Controls',   Icon: StepperIcon,   run: () => addPanel('stepper') },
     { id: 'picker',    label: 'Picker',    group: 'Controls',   Icon: PickerIcon,    run: () => openWizard('picker') },
+    { id: 'segmented', label: 'Segmented', group: 'Controls',   Icon: SegmentedIcon, run: () => openWizard('segmented') },
     { id: 'progress',  label: 'Progress',  group: 'Controls',   Icon: ProgressIcon,  run: () => addPanel('progress') },
     { id: 'gauge',     label: 'Gauge',     group: 'Controls',   Icon: GaugeIcon,     run: () => addPanel('gauge') },
     // Layout

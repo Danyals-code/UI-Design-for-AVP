@@ -17,7 +17,7 @@
 // exporter pick it up automatically.
 
 import {
-  TEXT_STYLES, ptToUnits,
+  TEXT_STYLES, ptToUnits, segmentedFrame, SEGMENT_MATERIALS,
   NAVBAR_HEIGHT_PT
 } from '../appleSystem'
 
@@ -308,26 +308,26 @@ export const PANELS = {
 
   segmented: {
     defaults: {
-      size: [ptToUnits(260), ptToUnits(32)],
-      color: '#e3e3e8',
-      colorToken: 'systemFill',
-      cornerRadius: ptToUnits(8),
+      // Frame fits the segment count: 88pt per segment, 4pt gaps + edge
+      // inset, fixed 44pt pill. Three segments → 280×44. Always rendered
+      // as a pill. The track has no fill colour — its appearance is the
+      // `material` tier (a recessed glass well); the selection is a
+      // raised pill.
+      size: segmentedFrame(3),
       segments: ['Day', 'Week', 'Month'],
       selectedSegment: 1,
-      textStyle: 'footnote',
-      fontSize: textStyleToFontSize('footnote'),
-      fontWeight: 'semibold',
-      textColor: '#000000',
-      textColorToken: 'primary'
+      material: 'regular'
     },
     emit(panel, ctx) {
-      // Segmented control = Picker with .pickerStyle(.segmented).
+      // Segmented control = Picker with .pickerStyle(.segmented), backed by
+      // the chosen SwiftUI Material tier clipped to a capsule.
       const { push, escapeString } = ctx
       const opts = panel.segments || []
       const sel = opts[panel.selectedSegment ?? 0] || ''
+      const mat = SEGMENT_MATERIALS.find((m) => m.value === (panel.material || 'regular')) || SEGMENT_MATERIALS[2]
       push(`Picker("", selection: .constant("${escapeString(sel)}")) {`)
       opts.forEach((o) => push(`    Text("${escapeString(o)}").tag("${escapeString(o)}")`))
-      push(`}.pickerStyle(.segmented)`)
+      push(`}.pickerStyle(.segmented).background(${mat.swift}, in: Capsule())`)
     }
   },
 
