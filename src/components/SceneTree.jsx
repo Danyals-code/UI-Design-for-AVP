@@ -489,6 +489,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           cornerRadii={stack.cornerRadii}
           color={bgColor}
           material={stack.material || 'regular'}
+          materialConfig={resolveMaterial(stack.material || 'regular', scene.materialProps)}
           blur={!!stack.blur}
           blurAmount={stack.blurAmount ?? 12}
           schemeDark={scene.designScheme === 'dark'}

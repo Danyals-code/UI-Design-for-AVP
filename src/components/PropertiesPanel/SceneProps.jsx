@@ -4,7 +4,8 @@
 // where the user picks them at project start. Re-opening the splash via the
 // topbar title lets them swap modes without cluttering this panel.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useStore } from '../../store'
 import { Row, Section, ColorRow, Select, NumField, Slider, IntField } from './primitives'
 import {
   HDRI_PRESETS, HDRI_ORDER, IMMERSION_STYLES,
@@ -12,6 +13,27 @@ import {
   MATERIALS, MATERIAL_ORDER
 } from '../../appleSystem'
 import SwiftExportDialog from '../SwiftExportDialog'
+
+// System-colour wheel tokens (the "Colors" group). Kept as a Set so the
+// selection-sync helper can tell a plain colour token from a material one.
+const SYSTEM_COLOR_TOKENS = new Set(
+  SCENE_COLOR_GROUPS.find((g) => g.key === 'colors')?.tokens || []
+)
+
+// Map a selected canvas item to the Materials & Colors focus key its
+// detail editor should jump to. Windows / stacks / segmented controls
+// carry a material tier on `item.material`; search fields and similar
+// store a view-tier token on `item.colorToken`. Returns null when the
+// item has no editable material/colour we can surface.
+function focusKeyForItem(item) {
+  if (!item) return null
+  if (item.material && MATERIALS[item.material]) return `mat:${item.material}`
+  const tok = item.colorToken
+  if (tok && SCENE_COLOR_LABELS[tok]) {
+    return SYSTEM_COLOR_TOKENS.has(tok) ? `color:${tok}` : `mat:${tok}`
+  }
+  return null
+}
 
 // drei <Environment> built-in presets. None of these need an asset
 // download — drei ships pre-baked cubemaps for each. "None" disables
@@ -370,9 +392,20 @@ function TokenChip({ color, label, active, onClick }) {
 }
 
 function SceneColorsSection({ scene, updateScene }) {
-  // Default focus = first system colour. (Text/Controls/etc. are now
-  // materials, so the old 'color:primary' key would no longer resolve.)
-  const [selected, setSelected] = useState(() => `color:${SCENE_COLOR_GROUPS[0].tokens[0]}`)
+  // Default focus = the Glass material tier. It's the first entry in the
+  // dropdown (system colours were pulled out of it), so a fresh panel
+  // opens on something the picker can actually display.
+  const [selected, setSelected] = useState('mat:glass')
+  // Follow the canvas selection: when the user picks a window / stack /
+  // control in the viewport, jump the detail editor to that item's
+  // material so it lands in the dropdown instead of staying pinned to
+  // whatever was last focused.
+  const selectedId = useStore((s) => s.selectedId)
+  const selectedItem = useStore((s) => s.items.find((it) => it.id === s.selectedId))
+  const focusKey = focusKeyForItem(selectedItem)
+  useEffect(() => {
+    if (focusKey) setSelected(focusKey)
+  }, [selectedId, focusKey])
   const resetAll = () =>
     updateScene({ colors: { ...DEFAULT_SCENE_COLORS }, materialProps: {} })
   return (
@@ -492,16 +525,20 @@ function DetailEditor({ selected, setSelected, scene, updateScene }) {
           onChange={(e) => setSelected(e.target.value)}
           className="field flex-1 cursor-pointer"
         >
-          {SCENE_COLOR_GROUPS.map((g) => {
-            const isSystemColors = g.key === 'colors'
-            return (
-              <optgroup key={g.key} label={isSystemColors ? 'System Colors' : g.label}>
-                {g.tokens.map((t) => (
-                  <option key={t} value={`${isSystemColors ? 'color' : 'mat'}:${t}`}>{SCENE_COLOR_LABELS[t] || t}</option>
-                ))}
-              </optgroup>
-            )
-          })}
+          {/* System colours are picked from the swatch grid above — listing
+              all of them here just bloated the dropdown. We only surface a
+              single entry for the one currently in focus so the controlled
+              select still mirrors a grid pick. */}
+          {kind === 'color' && (
+            <option value={selected}>{SCENE_COLOR_LABELS[key] || key}</option>
+          )}
+          {SCENE_COLOR_GROUPS.filter((g) => g.key !== 'colors').map((g) => (
+            <optgroup key={g.key} label={g.label}>
+              {g.tokens.map((t) => (
+                <option key={t} value={`mat:${t}`}>{SCENE_COLOR_LABELS[t] || t}</option>
+              ))}
+            </optgroup>
+          ))}
           <optgroup label="Materials">
             {MATERIAL_ORDER.map((k) => (
               <option key={k} value={`mat:${k}`}>{MATERIALS[k]?.label || k}</option>
@@ -587,77 +624,145 @@ function MaterialDetail({ materialKey, scene, updateScene }) {
       ? { offsetX: 0, offsetY: 0, blur: 6, color: '#000000', opacity: 0.25 }
       : { offsetX: 0, offsetY: 8, blur: 24, color: '#000000', opacity: 0.20 })
   }
+  // Stacked layers — extra translucent colour passes painted over the
+  // base fill (the renderer reads `materialSpec.layers`). Blur and the
+  // shadows below stay shared across the whole material. Writing an empty
+  // array back as `null` keeps the override clean (and lets a tier with
+  // built-in layers, e.g. Views Regular, fall back to flat when cleared).
+  const layers = Array.isArray(mat.layers) ? mat.layers : []
+  const setLayers = (next) => setProp('layers', next.length ? next : null)
+  const addLayer = () => setLayers([...layers, { color: mat.color || '#808080', opacity: 0.5 }])
+  const updateLayer = (i, patch) => setLayers(layers.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
+  const removeLayer = (i) => setLayers(layers.filter((_, idx) => idx !== i))
   const fillType = mat.fillType || 'solid'
+  const LW = 88
   return (
-      <div className="border border-border rounded px-2 py-1.5 space-y-1 bg-surface3/40">
-        <Row label="Fill" labelWidth={100}>
-          <div className="segmented flex-1">
-            <button className={fillType === 'solid' ? 'active' : ''} onClick={() => setProp('fillType', 'solid')}>Solid</button>
-            <button className={fillType === 'gradient' ? 'active' : ''} onClick={() => setProp('fillType', 'gradient')}>Gradient</button>
-          </div>
-        </Row>
-        {fillType === 'solid' ? (
-          <Row label="Color" labelWidth={100}>
-            <ColorRow value={mat.color || '#808080'} onChange={(v) => setProp('color', v)} />
+      <div className="border border-border rounded-md bg-surface3/40 divide-y divide-border/60 overflow-hidden">
+        {/* Base fill — the bottom-most plate colour. */}
+        <div className="px-2.5 py-2 space-y-1.5">
+          <GroupLabel>Base Fill</GroupLabel>
+          <Row label="Type" labelWidth={LW}>
+            <div className="segmented flex-1">
+              <button className={fillType === 'solid' ? 'active' : ''} onClick={() => setProp('fillType', 'solid')}>Solid</button>
+              <button className={fillType === 'gradient' ? 'active' : ''} onClick={() => setProp('fillType', 'gradient')}>Gradient</button>
+            </div>
           </Row>
-        ) : (
-          <>
-            <Row label="From" labelWidth={100}>
-              <ColorRow value={mat.gradientFrom || mat.color || '#808080'} onChange={(v) => setProp('gradientFrom', v)} />
+          {fillType === 'solid' ? (
+            <Row label="Color" labelWidth={LW}>
+              <ColorRow value={mat.color || '#808080'} onChange={(v) => setProp('color', v)} />
             </Row>
-            <Row label="To" labelWidth={100}>
-              <ColorRow value={mat.gradientTo || '#cccccc'} onChange={(v) => setProp('gradientTo', v)} />
-            </Row>
-            <Row label="Angle" labelWidth={100}>
-              <Slider
-                value={mat.gradientAngle ?? 180}
-                min={0} max={360} step={1} suffix="°"
-                onChange={(v) => setProp('gradientAngle', v)}
-              />
-            </Row>
-          </>
-        )}
-        <Row label="Opacity" labelWidth={100}>
-          <Slider
-            value={mat.opacity ?? 1}
-            min={0} max={1} step={0.01}
-            onChange={(v) => setProp('opacity', v)}
-          />
-        </Row>
-        <Row label="Bg Blur" labelWidth={100}>
-          <div className="segmented flex-1">
-            <button className={mat.blur ? 'active' : ''} onClick={() => setProp('blur', true)}>On</button>
-            <button className={!mat.blur ? 'active' : ''} onClick={() => setProp('blur', false)}>Off</button>
-          </div>
-        </Row>
-        {mat.blur && (
-          <Row label="Blur Amt" labelWidth={100}>
+          ) : (
+            <>
+              <Row label="From" labelWidth={LW}>
+                <ColorRow value={mat.gradientFrom || mat.color || '#808080'} onChange={(v) => setProp('gradientFrom', v)} />
+              </Row>
+              <Row label="To" labelWidth={LW}>
+                <ColorRow value={mat.gradientTo || '#cccccc'} onChange={(v) => setProp('gradientTo', v)} />
+              </Row>
+              <Row label="Angle" labelWidth={LW}>
+                <Slider
+                  value={mat.gradientAngle ?? 180}
+                  min={0} max={360} step={1} suffix="°"
+                  onChange={(v) => setProp('gradientAngle', v)}
+                />
+              </Row>
+            </>
+          )}
+          <Row label="Opacity" labelWidth={LW}>
             <Slider
-              value={mat.blurAmount ?? 12}
-              min={0} max={40} step={1} suffix="pt"
-              onChange={(v) => setProp('blurAmount', v)}
+              value={mat.opacity ?? 1}
+              min={0} max={1} step={0.01}
+              onChange={(v) => setProp('opacity', v)}
             />
           </Row>
-        )}
-        <Row label="Inner Shadow" labelWidth={100}>
-          <div className="segmented flex-1">
-            <button className={mat.innerShadow ? 'active' : ''} onClick={() => { if (!mat.innerShadow) toggleShadow('innerShadow') }}>On</button>
-            <button className={!mat.innerShadow ? 'active' : ''} onClick={() => { if (mat.innerShadow) toggleShadow('innerShadow') }}>Off</button>
-          </div>
-        </Row>
-        {mat.innerShadow && (
-          <ShadowSubFields shadow={mat.innerShadow} onPatch={(p) => setShadow('innerShadow', p)} />
-        )}
-        <Row label="Drop Shadow" labelWidth={100}>
-          <div className="segmented flex-1">
-            <button className={mat.dropShadow ? 'active' : ''} onClick={() => { if (!mat.dropShadow) toggleShadow('dropShadow') }}>On</button>
-            <button className={!mat.dropShadow ? 'active' : ''} onClick={() => { if (mat.dropShadow) toggleShadow('dropShadow') }}>Off</button>
-          </div>
-        </Row>
-        {mat.dropShadow && (
-          <ShadowSubFields shadow={mat.dropShadow} onPatch={(p) => setShadow('dropShadow', p)} />
-        )}
+        </div>
+
+        {/* Stacked layers — extra translucent colour passes painted over
+            the base fill. Each is its own colour + opacity. */}
+        <div className="px-2.5 py-2 space-y-1.5">
+          <GroupLabel>
+            Layers
+            {layers.length > 0 && <span className="ml-1 text-textMute/70 normal-case tracking-normal">({layers.length})</span>}
+          </GroupLabel>
+          {layers.map((layer, i) => (
+            <div key={i} className="rounded border border-border/70 bg-surface2/50 px-2 py-1.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-semibold text-textDim uppercase tracking-wider">Layer {i + 1}</span>
+                <button
+                  className="w-4 h-4 flex items-center justify-center rounded text-textMute hover:text-text hover:bg-surface3 text-[13px] leading-none"
+                  onClick={() => removeLayer(i)}
+                  title="Remove this layer"
+                >×</button>
+              </div>
+              <Row label="Color" labelWidth={72}>
+                <ColorRow value={layer.color || '#808080'} onChange={(v) => updateLayer(i, { color: v })} />
+              </Row>
+              <Row label="Opacity" labelWidth={72}>
+                <Slider
+                  value={layer.opacity ?? 0.5}
+                  min={0} max={1} step={0.01}
+                  onChange={(v) => updateLayer(i, { opacity: v })}
+                />
+              </Row>
+            </div>
+          ))}
+          <button
+            className="btn w-full justify-center border-dashed text-textDim hover:text-text"
+            onClick={addLayer}
+            title="Stack another translucent colour over the base fill"
+          >
+            <span className="text-[13px] leading-none -mt-px">+</span> Add Layer
+          </button>
+        </div>
+
+        {/* Effects — applied to the whole material stack. */}
+        <div className="px-2.5 py-2 space-y-1.5">
+          <GroupLabel>Effects</GroupLabel>
+          <Row label="Bg Blur" labelWidth={LW}>
+            <div className="segmented flex-1">
+              <button className={mat.blur ? 'active' : ''} onClick={() => setProp('blur', true)}>On</button>
+              <button className={!mat.blur ? 'active' : ''} onClick={() => setProp('blur', false)}>Off</button>
+            </div>
+          </Row>
+          {mat.blur && (
+            <Row label="Blur Amt" labelWidth={LW}>
+              <Slider
+                value={mat.blurAmount ?? 12}
+                min={0} max={40} step={1} suffix="pt"
+                onChange={(v) => setProp('blurAmount', v)}
+              />
+            </Row>
+          )}
+          <Row label="Inner Shadow" labelWidth={LW}>
+            <div className="segmented flex-1">
+              <button className={mat.innerShadow ? 'active' : ''} onClick={() => { if (!mat.innerShadow) toggleShadow('innerShadow') }}>On</button>
+              <button className={!mat.innerShadow ? 'active' : ''} onClick={() => { if (mat.innerShadow) toggleShadow('innerShadow') }}>Off</button>
+            </div>
+          </Row>
+          {mat.innerShadow && (
+            <ShadowSubFields shadow={mat.innerShadow} onPatch={(p) => setShadow('innerShadow', p)} />
+          )}
+          <Row label="Drop Shadow" labelWidth={LW}>
+            <div className="segmented flex-1">
+              <button className={mat.dropShadow ? 'active' : ''} onClick={() => { if (!mat.dropShadow) toggleShadow('dropShadow') }}>On</button>
+              <button className={!mat.dropShadow ? 'active' : ''} onClick={() => { if (mat.dropShadow) toggleShadow('dropShadow') }}>Off</button>
+            </div>
+          </Row>
+          {mat.dropShadow && (
+            <ShadowSubFields shadow={mat.dropShadow} onPatch={(p) => setShadow('dropShadow', p)} />
+          )}
+        </div>
       </div>
+  )
+}
+
+// Small uppercase sub-section heading used to separate the material
+// editor's Base Fill / Layers / Effects groups.
+function GroupLabel({ children }) {
+  return (
+    <div className="text-[9px] font-semibold text-textMute uppercase tracking-wider">
+      {children}
+    </div>
   )
 }
 

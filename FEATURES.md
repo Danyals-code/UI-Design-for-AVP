@@ -1,19 +1,19 @@
 # Features
 
 Living catalog of everything this app can do today. Treat this as the
-authoritative reference — when a feature is added, removed, or changed,
+authoritative reference - when a feature is added, removed, or changed,
 update this file in the same commit so it never drifts from reality.
 
 Three docs at the repo root work together:
 
-- [README.md](README.md) — install / run / build (getting started).
-- **[FEATURES.md](FEATURES.md)** *(this file)* — user-visible surface.
-- [VIEWS.md](VIEWS.md) — maintainer reference: every panel/stack/window
+- [README.md](README.md) - install / run / build (getting started).
+- **[FEATURES.md](FEATURES.md)** *(this file)* - user-visible surface.
+- [VIEWS.md](VIEWS.md) - maintainer reference: every panel/stack/window
   factory, with defaults and SwiftUI emit patterns. The "what does this
   view *do* and what are its defaults" map. Update whenever you add or
   change a view type, default, or design-system constant.
 
-> **Last updated:** 2026-05-20 *(Liquid Glass materials w/ transmission blur, gradient stroke, scrollable + clipped windows, Materials & Colors editor, Lucide-rendered SF Symbols, expanded sample library)*
+> **Last updated:** 2026-05-30 *(Materials & Colors overhaul: clickable material browser, picker dropdown that follows the canvas selection, stacked colour layers in the material editor; SwiftUI-style segmented control with a Material tier picker)*
 
 ---
 
@@ -49,8 +49,8 @@ SwiftUI code.
 - **Runtime model:** flat `items[]` in the store, each item carries a
   `parentId`. Layout is computed from the tree every render
   ([src/layout.js](src/layout.js)).
-- **Design tokens:** all visionOS-flavoured constants — text styles,
-  glass tokens, SF Symbol map, window/volume presets — live in
+- **Design tokens:** all visionOS-flavoured constants - text styles,
+  glass tokens, SF Symbol map, window/volume presets - live in
   [src/appleSystem.js](src/appleSystem.js).
 
 ---
@@ -60,13 +60,13 @@ SwiftUI code.
 Three columns plus a topbar and bottom-anchored controls.
 
 ### Topbar
-- App title `visionOS Designer` — click to reopen the Splash.
+- App title `visionOS Designer` - click to reopen the Splash.
 - Tab strip showing every tab in the active scene; click to switch.
 - Tab indicator + "+" new-tab button.
 
 ### Left column
 - **Layers panel** (top half)
-  - Searchable tree (magnifier icon) — type to filter by item name; Esc
+  - Searchable tree (magnifier icon) - type to filter by item name; Esc
     clears.
   - Buttons: new tab, new window, new stack, plus the Add (`⇧A`)
     dropdown for every other type.
@@ -81,7 +81,7 @@ Three columns plus a topbar and bottom-anchored controls.
   - Built-in `Templates` virtual folder with Window / Volume subtrees.
   - Drag an asset onto the canvas to spawn a model entity.
 
-### Right column — Properties Inspector
+### Right column - Properties Inspector
 Two-tab strip: **Object** (the selected item) / **Scene** (global).
 Details in [Properties Inspector](#properties-inspector).
 
@@ -110,9 +110,9 @@ app). In preview, a Reset Camera pill + Exit pill replace it.
 
 | Mode    | Plate                          | Camera default                  | Notes                                                                 |
 | ------- | ------------------------------ | ------------------------------- | --------------------------------------------------------------------- |
-| Window  | Flat plate, near-white surface | Wearer's VR view (preview3D on) | Flat View button drops to head-on plate. Demo studio renders by default. |
-| Volume  | Volumetric container, transparent baseplate | VR view at `(0, 1.55, 3)` looking at `(0, 1.2, 0)` | Always 3D. Models / attachments / RealityKit primitives live here.    |
-| Immersive | Full-room metadata only      | n/a                             | Exports as `ImmersiveSpace` — set via Scene tab → Immersive Space.    |
+| Window  | Translucent glass plate        | Wearer's VR view (preview3D on) | Flat View button drops to head-on plate. Demo studio renders by default. |
+| Volume  | Volumetric container, transparent baseplate | VR view at `(0, 1.2, 1.5)` looking at `(0, 1.2, 0)` | Always 3D. Models / attachments / RealityKit primitives live here.    |
+| Immersive | Full-room metadata only      | n/a                             | Exports as `ImmersiveSpace` - set via Scene tab → Immersive Space.    |
 
 - Switching modes from the viewport reseeds the scene; the destructive-
   action dialog confirms first if there are unsaved edits.
@@ -124,7 +124,7 @@ app). In preview, a Reset Camera pill + Exit pill replace it.
   / `VOLUME_PRESETS`.
 
 ### Default sizes
-- Window: `1200 × 800 pt` (Regular preset — the default frame for a new
+- Window: `1200 × 800 pt` (Regular preset - the default frame for a new
   window and the fallback when no window is selected).
 - Volume: `0.6 × 0.4 × 0.6 m` (medium preset, translates via
   1360pt = 1m).
@@ -155,13 +155,12 @@ under the topbar; side panels float as absolute-positioned columns.
   user-controllable via Scene → Lighting and always re-targets the
   stage centre (the stool).
 - Optional HDRI environment from Scene → Viewport (drei built-in
-  presets or an uploaded image — uploaded images wrap as a 360°
+  presets or an uploaded image - uploaded images wrap as a 360°
   backdrop).
 
 ### Selection + hover
-- Selection ring is a hairline tint outline (0.25% of plate's longer
-  side, 28-30% opacity) — used to read as a fat blue halo before the
-  fix.
+- Selection ring is a hairline tint outline (0.25% of the plate's
+  longer side, 28-30% opacity), drawn in the scene accent colour.
 - Hover effects on interactive panels glide via per-frame lerp
   (~120 ms ease-out). Three modes: `automatic`, `highlight`, `lift`
   with subtle scale (1-1.5%) + lift (6-12 mm).
@@ -176,7 +175,7 @@ under the topbar; side panels float as absolute-positioned columns.
 | Guides  | Axes Gizmo, Scene Info                           |
 
 ### Transform tools
-- Modal transform (G / R / S — Blender style): pick a tool from the
+- Modal transform (G / R / S - Blender style): pick a tool from the
   left-side transform toolbar or hit the keystroke; the cursor drives
   the entity's transform live until click confirms or Esc cancels.
 - Arrow-key nudge on selected window / panel (Shift = 10× step).
@@ -215,7 +214,7 @@ Tab (page)
   Window (.openWindow)** target a window by this id.
 - When the active tab resolves to 2+ unique Group IDs, a vertical
   **navigation capsule** floats on the leading edge with one pill per
-  unique id (multiple windows that share an id collapse to one pill —
+  unique id (multiple windows that share an id collapse to one pill -
   matching a SwiftUI WindowGroup). The capsule auto-updates as windows
   are added, removed, or renamed.
   - 44×44pt icon chip per pill. 12pt padding on all sides + 12pt
@@ -224,7 +223,7 @@ Tab (page)
   - In Preview mode, hovering the capsule expands it from 68pt wide
     to 150pt and reveals a label beside each icon. The left edge
     stays anchored; the right edge moves outward.
-  - Click a pill to switch groups — the open-window set resets to
+  - Click a pill to switch groups - the open-window set resets to
     that group's primary window (any previously-spawned same-id
     side-by-side instances disappear).
   - The `.openWindow(id:)` tap action *appends* a same-group window
@@ -243,23 +242,23 @@ Stack types (`STACK_TYPES` in [src/appleSystem.js](src/appleSystem.js)):
 Each stack carries: alignment, spacing (or auto / nil), padding (number
 or per-edge), width/height mode (`fit` / `fixed` / `fill`), optional
 background + corner radius + per-corner radii (`cornerRadii: [tl, tr,
-br, bl]` — matches SwiftUI's `UnevenRoundedRectangle`), ornament anchor,
+br, bl]` - matches SwiftUI's `UnevenRoundedRectangle`), ornament anchor,
 scrollable flag, modifiers.
 
 ### Panels
-Every SwiftUI primitive lives here (~55 types — full list and per-type
+Every SwiftUI primitive lives here (~55 types - full list and per-type
 defaults in [VIEWS.md](VIEWS.md), source in
 [src/panels/registry.js](src/panels/registry.js)):
 - **Text / typography:** text, link, label, ticker
   - **Text** uses the SwiftUI measurement pipeline in
-    [src/text.js](src/text.js) — tighten (5%) → scale (down to
+    [src/text.js](src/text.js) - tighten (5%) → scale (down to
     `minimumScaleFactor`) → wrap (UAX-14-ish word breaks, with a
     character-level fallback for words wider than the bound) →
     truncate (head/middle/tail). Layout and renderer share the same
     measurement so reserved and rendered heights stay aligned.
 - **Inputs:** textfield, securefield, search. Grouped under **Inputs**
   in the Shift+A palette. The inspector shares one "Input Type"
-  switcher so the same panel can pivot between the three in place —
+  switcher so the same panel can pivot between the three in place -
   the same way the Geometry picker swaps shapes. In Preview mode a
   click on any field focuses it and renders a real DOM `<input>` via
   drei's `<Html>` overlay (`type="password"` for SecureField). The
@@ -267,19 +266,22 @@ defaults in [VIEWS.md](VIEWS.md), source in
   `securefieldValue` / `searchValue`; the 3D rendering shows the live
   value (primary color), the visionOS-spec placeholder (`#545454`)
   when empty, or `•` (`•`) glyphs for SecureField. Live values
-  don't reach the exporter — generated Swift keeps `text: .constant("")`.
+  don't reach the exporter - generated Swift keeps `text: .constant("")`.
 - **Controls:** button, toggle, segmented, picker, datepicker,
   colorpicker, slider, stepper, gauge, progress, texteditor
   - **Button** is sized by a `Size` picker (Small `65×32` / Regular
-    `86×44` / Large `101×52` pt) and a `Style` picker (Capsule — 100pt
-    radius, or Rounded Rect — 16pt radius). Width/height are not
+    `86×44` / Large `101×52` pt) and a `Style` picker (Capsule - 100pt
+    radius, or Rounded Rect - 16pt radius). Width/height are not
     manually editable. Text size tracks the size selection (15 / 17 /
     19 pt) and side padding is a fixed 12pt. If a label is longer than
     the preset width, the button grows wider (height stays locked) so
     the text stays on a single line with the 12pt padding intact.
-  - **Segmented control** is a Picker with `.pickerStyle(.segmented)` —
-    Items field (comma-separated) + Selected index.
-- **Chrome:** navbar — a NavigationBar strip pinned across the top of
+  - **Segmented control** renders as a SwiftUI-style recessed glass well
+    with a raised pill selection. Its inspector exposes segment Count,
+    Items (comma-separated), Selected index, and a **Material** tier
+    picker (Ultra Thin to Ultra Thick) that tints the track. Exports as
+    `Picker(...).pickerStyle(.segmented).background(.<material>, in: Capsule())`.
+- **Chrome:** navbar - a NavigationBar strip pinned across the top of
   a window with one of six fixed styles (`trailingButtons`,
   `leadingTrailingButtons`, …) from `NAVBAR_STYLE_SPECS`. Always
   fills the parent's inner width; height is locked at 92pt. The
@@ -316,18 +318,18 @@ defaults in [VIEWS.md](VIEWS.md), source in
 Splash dialog and Assets → Templates expose pre-authored scenes.
 
 ### Window templates
-Six refined, production-ready window templates surface on the splash —
+Six refined, production-ready window templates surface on the splash -
 each maps directly onto Apple's visionOS HIG patterns and uses semantic
 colour tokens so Scene → Colors re-themes the whole layout in one shot.
 
 | Key         | Description                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------ |
-| `blank`     | One window, one fill stack — clean starter (seeded, not in splash list).                   |
-| `welcome`   | Onboarding splash — hero icon, centred title block, primary CTA, three feature tiles.      |
-| `browse`    | Category grid with a search field — Music Browse / App Store landing; filter chip, featured card, 3×2 grid with count captions. |
+| `blank`     | One window, one fill stack - clean starter (seeded, not in splash list).                   |
+| `welcome`   | Onboarding splash - hero icon, centred title block, primary CTA, three feature tiles.      |
+| `browse`    | Category grid with a search field - Music Browse / App Store landing; filter chip, featured card, 3×2 grid with count captions. |
 | `player`    | Now Playing card: NOW PLAYING eyebrow, artwork, track meta, scrubber, transport row, shuffle+repeat, volume row, Lyrics / AirPlay / Queue secondary row. |
 | `profile`   | People-card with avatar, identity, stat chips and primary actions; bio paragraph, skill capsules, "Recent Work" thumb strip. |
-| `article`   | Long-form reader — deck, byline with avatar + Save/Share, three paragraphs, pull-quote glass card, "KEEP READING" related strip. |
+| `article`   | Long-form reader - deck, byline with avatar + Save/Share, three paragraphs, pull-quote glass card, "KEEP READING" related strip. |
 | `settings`  | Large page title with plan caption, four labeled sections (General / Preferences / Privacy & Security / About), Sign Out destructive button + footer note. |
 
 > **Legacy keys** (`musicPlayer`, `smartHome`, `settingsOld`, `mailApp`,
@@ -337,7 +339,7 @@ colour tokens so Scene → Colors re-themes the whole layout in one shot.
 ### Volume templates
 | Key                | Description                                                            |
 | ------------------ | ---------------------------------------------------------------------- |
-| `emptyVolume`      | Stage with a single world anchor — clean starter (seeded only).        |
+| `emptyVolume`      | Stage with a single world anchor - clean starter (seeded only).        |
 | `productShowcase`  | Metal sphere on a plinth with pulsing emissive ring; tap to scale.     |
 | `solarSystem`      | Sun + eight planets in a row with an orbit band; tap planets to scale. |
 | `moodLamps`        | Three pendant bulbs on a console; tap to brighten, slow idle bob.      |
@@ -354,7 +356,7 @@ extra setup.
 *(Surfaces through the legacy `mailApp` / `filesApp` templates.)* The
 sidebar inherits the window's outer corner radius on its left edge and
 butts flush against the detail pane on the right
-(`cornerRadii: [winR, 0, 0, winR]`). Surface is `#d8d8dc` — a soft
+(`cornerRadii: [winR, 0, 0, winR]`). Surface is `#d8d8dc` - a soft
 secondary tone that harmonises with the near-white window plate
 (`designWindow` ≈ `#ecedef`).
 
@@ -364,20 +366,20 @@ secondary tone that harmonises with the near-white window plate
 
 Two top-level tabs: **Object** (selected item) and **Scene** (global).
 
-### Object — Window
+### Object - Window
 - **Window:** name, Group ID, Tab Icon, Primary (this/auto), Scrollable.
   When **Scrollable** is on, the canvas wires a wheel handler that
   scrolls content inside the plate; world-space clip planes keep
   off-bounds content hidden regardless of the toggle (no leaks past
   the rounded edge, ever).
 - **Frame:** size W/H, corner radius, padding; world position X/Y/Z
-- **Appearance:** Liquid Glass material (default **Glass** —
-  `#808080` @ 30% + backdrop blur on), tint token, fallback colour,
+- **Appearance:** Liquid Glass material (default **Glass**:
+  `#b8b8b8` @ 25% + backdrop blur on), tint token, fallback colour,
   Bg Blur on/off + amount slider. Per-property overrides on the window
   win over the material defaults; null fields let the material drive.
 - **Plate chrome:** every window plate ships with a **3pt linear-
   gradient stroke** around the perimeter (45° sweep, white at
-  40 / 0 / 0 / 10 percent across 0 / 41 / 57 / 100 % stops) — a soft
+  40 / 0 / 0 / 10 percent across 0 / 41 / 57 / 100 % stops) - a soft
   visionOS-style edge highlight, no inspector control needed.
 - **Volume** (only when `windowStyle === 'volumetric'`): depth, world-
   scaling behaviour, baseplate visibility, alignment, viewpoints
@@ -388,8 +390,8 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 - **Environment:** font, foreground style, layout direction, locale
 - **Modifiers:** modifier stack
 
-### Object — Stack
-- **Stack:** name + kind (V / H / Z) — or **Navigation Split View**
+### Object - Stack
+- **Stack:** name + kind (V / H / Z) - or **Navigation Split View**
   with style (Joined / Separated), column visibility, searchable.
 - **Layout:** alignment picker, spacing (numeric or `auto`), padding
   (number or 4-edge), grid / scrollView / viewThatFits options per
@@ -403,20 +405,20 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 - **Environment:** font, foreground, direction, locale.
 - **Modifiers:** modifier stack.
 
-### Object — Panel
+### Object - Panel
 - **Object** (collapsed): name + frame mode. Three flavours via
   `PANEL_META`:
   - **Figma-style** (text, link): Fit / Fixed / Fill picker that drops
-    a `.fixedSize` or `.frame(...)` entry into the modifier stack —
+    a `.fixedSize` or `.frame(...)` entry into the modifier stack -
     there is no inline width field; edit the value in the Modifiers
     section. The picker also keeps the legacy `widthMode` in sync for
     the layout engine.
   - **Explicit W/H** (most controls): standard Width / Height rows.
   - **None** (button, navbar, all shapes & gradients): the per-type
-    inspector owns sizing — Button uses the Size picker, Navbar is
+    inspector owns sizing - Button uses the Size picker, Navbar is
     locked to parent-width × 92pt, ShapeInspector renders Width +
     Height itself.
-- **Per-type inspector:** every panel type has its own section — Text,
+- **Per-type inspector:** every panel type has its own section - Text,
   Button Size + Style + Role + Tint (W/H are not editable; the Size
   picker is the only way to change the frame), Inputs (shared Input
   Type switcher across textfield / securefield / search), Toggle Value
@@ -436,21 +438,21 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   already includes Size + Style.
 - **Hover** (interactive controls): effect, disabled, default, group
   binding.
-- **SF Symbol** (types that support it — buttons, labels, links,
+- **SF Symbol** (types that support it - buttons, labels, links,
   navigationlinks, contentUnavailable, toggles, pickers, menus):
   symbol name, rendering mode (monochrome / hierarchical / palette /
   multicolor), variant (.fill / .circle / .square / .slash), "Remove
-  Symbol" button. Variant + mode actually drive the rendered glyph —
+  Symbol" button. Variant + mode actually drive the rendered glyph -
   picking `.fill` swaps `house` → `house.fill` via `resolveSymbolName`,
   and `hierarchical` mode drops opacity to 70% while `multicolor`
   boosts stroke weight. (Label panel rolls SF Symbol controls into its
-  single consolidated "Label" section — the standalone SF Symbol
+  single consolidated "Label" section - the standalone SF Symbol
   dropdown is suppressed for that type.)
 - **Icons everywhere are Lucide-rendered.** Every SF Symbol name
   resolves through `SF_TO_LUCIDE` ([icons.jsx](src/components/icons.jsx))
-  to a real Lucide React glyph — in the DOM (`SymbolIcon`) for the
+  to a real Lucide React glyph - in the DOM (`SymbolIcon`) for the
   Layers tree, IconPickerPopover, SymbolPicker grid, and inspector
-  previews, and on the canvas (`SymbolIcon3D` —
+  previews, and on the canvas (`SymbolIcon3D` -
   [SymbolIcon3D.jsx](src/components/SymbolIcon3D.jsx)) for Label /
   Button / List-row icons, tab + window-group pills, and entity
   attachments. SwiftUI font weight maps to Lucide stroke width;
@@ -459,42 +461,55 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 - **Behaviors** (placeholder for window-level interactions; the live
   runtime is wired for entities).
 
-### Object — Entity
+### Object - Entity
 - Geometry / model picker, materials editor with full PBR (baseColor,
   roughness, metallic, emissive, clearcoat, sheen, blending, face
   culling, texture transforms), transform (position / rotation /
   scale), behaviors, hierarchy.
 
-### Object — Tab
+### Object - Tab
 - Name, SF Symbol icon, ordering controls.
 
 ### Scene
-- **Viewport:** background scheme (Light / Dark / Image — Image
+- **Viewport:** background scheme (Light / Dark / Image - Image
   wraps as a 360° HDRI), HDRI preset.
 - **Lighting:** ambient intensity, key intensity, key position X/Y/Z
   (always targets stage centre), Environment preset.
 - **Design:** accent Tint (`.tint()`). (The old global Scheme toggle
-  was removed — visionOS has no system-wide light/dark.)
+  was removed - visionOS has no system-wide light/dark.)
 - **Materials & Colors** *(renamed from "Colors")*:
-  - **Solid Colors** — 15-swatch palette grid (system Red / Orange /
-    Yellow / Green / Mint / Teal / Cyan / Blue / Indigo / Purple / Pink
-    / Brown / Gray / Black / White). Hover any chip to see `Name · #HEX`;
-    click to open the native colour picker.
-  - **Text / Controls / Views / Windows / Separators** — per-token row
-    pickers (swatch + hex field) for the named visionOS slots.
-  - **Materials** — single dropdown picks the active Liquid Glass tier
+  - **Browser** - a clickable grid groups every editable token:
+    **System Colors** (15-swatch wheel: Red / Orange / Yellow / Green /
+    Mint / Teal / Cyan / Blue / Indigo / Purple / Pink / Brown / Gray /
+    Black / White), then **Text / Controls / Views / Windows /
+    Separators** token chips, then the **Materials** Liquid Glass tiers
     (`glass` / `viewsRegular` / `ultraThin` / `thin` / `regular` /
-    `thick` / `ultraThick` / `opaque` / `bar`). The details panel below
-    exposes:
-      - **Fill** — Solid (single colour) or Gradient (From / To / Angle)
-      - **Color** (solid mode) or gradient stops + angle
-      - **Opacity** — drives `transmission = 1 − opacity` when blur is on
-      - **Bg Blur** on/off + **Amount** slider (drives `roughness` on
-        the meshPhysicalMaterial transmission pass)
-      - **Inner Shadow** on/off + X / Y / Blur / Color / Opacity
-      - **Drop Shadow** on/off + X / Y / Blur / Color / Opacity
-    Edits land in `scene.materialProps[key]` and the renderer merges
-    them with the stock `MATERIALS[key]` defaults at draw time.
+    `thick` / `ultraThick` / `opaque` / `bar`). Click any swatch or chip
+    to focus it in the detail editor below.
+  - **Picker dropdown** - mirrors the browser selection and doubles as a
+    list picker. It lists the Text / Controls / Views / Windows /
+    Separators tokens plus the material tiers; the System Colors wheel is
+    intentionally left out so the list stays short (pick those from the
+    grid). Selecting a window, stack, or segmented control in the
+    viewport auto-focuses that item's material here, rather than staying
+    pinned to the last selection.
+  - **System-colour detail** - a large swatch that opens the native
+    picker, plus a hex field.
+  - **Material detail** - grouped into three sections:
+      - **Base Fill** - Type (Solid or Gradient), Color (solid) or
+        From / To / Angle (gradient), Opacity (drives
+        `transmission = 1 - opacity` when blur is on).
+      - **Layers** - stack extra translucent colour passes over the base
+        fill, each its own colour + opacity, via a full-width Add Layer
+        button with per-layer remove.
+      - **Effects** (shared across the whole stack) - Bg Blur on/off +
+        Amount slider (drives `roughness` on the meshPhysicalMaterial
+        transmission pass), Inner Shadow and Drop Shadow (each with
+        X / Y / Blur / Color / Opacity).
+    Edits land in `scene.materialProps[key]` (colour, opacity, gradient,
+    layers, blur, shadows) and the renderer merges them with the stock
+    `MATERIALS[key]` defaults at draw time. A per-item Reset and a
+    Reset All restore the visionOS defaults.
 - **Immersive Space:** mode (Off / Immersive), immersion style,
   progressive range + initial, upper-limb visibility, preferred
   surroundings effect (with optional colorMultiply colour),
@@ -514,7 +529,7 @@ Every numeric field is a scrub-or-type input:
 
 - **Built-in templates** appear as a virtual `Templates` folder. Click
   a template tile to apply it (replaces the scene; undoable).
-- **Built-in samples** live under `Samples` → `Images` — 9 sample
+- **Built-in samples** live under `Samples` → `Images` - 9 sample
   photos (`Sample 01 … Sample 09.jpg`) shipped under
   [public/samples/images/](public/samples/images/). Drop one onto a
   panel's Image field, or drag onto the canvas to spawn a textured
@@ -554,7 +569,7 @@ Behaviors are exported as RealityKit code in [src/realityKit/registry.js](src/re
 
 ## Modifier stack
 
-Every item carries an ordered `modifiers` array — exporter walks them
+Every item carries an ordered `modifiers` array - exporter walks them
 left-to-right and emits the matching SwiftUI modifier chain. Full
 catalogue lives in [src/modifiers/registry.js](src/modifiers/registry.js).
 Common modifiers: padding, frame, background, foregroundStyle, font,
@@ -571,7 +586,7 @@ render the scene + studio; editing chrome (layers / properties /
 transform toolbar / selection halos) is hidden.
 
 - Camera switches to first-person look-around (mouse-look + walk).
-  Available in both window and volume modes — windows in visionOS are
+  Available in both window and volume modes - windows in visionOS are
   3D objects, so the wearer's head can still turn.
 - Window dragging + item selection are suppressed so the canvas reads
   as the deployed app.
