@@ -23,7 +23,7 @@ import {
   EllipseIcon, UnevenRectIcon, PathIcon,
   LinearGradientIcon, RadialGradientIcon, AngularGradientIcon,
   SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon,
-  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon
+  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon, LightIcon
 } from './icons'
 
 // Blender / Raycast / VSCode-style command palette. Shift+A opens it.
@@ -66,6 +66,7 @@ export default function CommandPalette() {
   const addGroupEntity  = useStore((s) => s.addGroupEntity)
   const addCameraEntity = useStore((s) => s.addCameraEntity)
   const addAttachmentEntity = useStore((s) => s.addAttachmentEntity)
+  const addLightEntity  = useStore((s) => s.addLightEntity)
 
   // Volume mode is a RealityKit-only environment — only entities and
   // their RealityView bridge make sense to add. Window mode keeps the
@@ -153,6 +154,14 @@ export default function CommandPalette() {
     { id: 'attLabel',  label: 'Label Attachment',  group: 'RealityKit', Icon: LabelIcon,  run: () => addAttachmentEntity('label') },
     { id: 'attButton', label: 'Button Attachment', group: 'RealityKit', Icon: ButtonIcon, run: () => addAttachmentEntity('button') },
     { id: 'attImage',  label: 'Image Attachment',  group: 'RealityKit', Icon: ImageIcon,  run: () => addAttachmentEntity('image') },
+    // Lights — RealityKit PointLight / SpotLight / DirectionalLight / IBL.
+    // Each spawns a Light entity carrying the matching lightType so the
+    // inspector shows the right per-type fields (angle for spot, no
+    // range for directional, etc.).
+    { id: 'lightPoint',       label: 'Point Light',        group: 'RealityKit', Icon: LightIcon, run: () => addLightEntity('point') },
+    { id: 'lightSpot',        label: 'Spot Light',         group: 'RealityKit', Icon: LightIcon, run: () => addLightEntity('spot') },
+    { id: 'lightDirectional', label: 'Directional Light',  group: 'RealityKit', Icon: LightIcon, run: () => addLightEntity('directional') },
+    { id: 'lightIBL',         label: 'Image-Based Light',  group: 'RealityKit', Icon: LightIcon, run: () => addLightEntity('ibl') },
     // Scene — when in volume mode the same row reads "Volume" and
     // creates a volumetric window so the palette matches the active
     // scene type instead of always saying "Window".
@@ -167,7 +176,7 @@ export default function CommandPalette() {
     { id: 'tabbar',    label: 'Tab Bar',   group: 'Ornaments',     Icon: TabBarIcon,    run: () => openWizard('tabBar') },
     { id: 'toolbar',   label: 'Toolbar',   group: 'Ornaments',     Icon: ToolbarIcon,   run: () => openWizard('toolbar') }
   ], [addPanel, addStack, addWindow, addVolume, addSplitView, addTabBar, addToolbar, addPresentation,
-      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity, openWizard, isVolume])
+      addAnchorEntity, addModelEntity, addGroupEntity, addCameraEntity, addAttachmentEntity, addLightEntity, openWizard, isVolume])
 
   // Volume-mode allowlist — anything else is hidden because it relies on
   // SwiftUI primitives that don't exist on a volumetric stage. The

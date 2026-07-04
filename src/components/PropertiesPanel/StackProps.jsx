@@ -10,7 +10,7 @@ import {
   TEXT_STYLES, TEXT_STYLE_ORDER
 } from '../../appleSystem'
 import {
-  Row, Section, IntField, PtField, Slider, Select, SemanticColorPicker, StackAlignmentPicker
+  Row, Section, IntField, PtField, Slider, Select, SemanticColorPicker, StackAlignmentPicker, MaterialField
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 
@@ -524,9 +524,9 @@ export function StackProps({ item }) {
           />
         </Row>
         <Row label="Material">
-          <Select
-            value={item.material || 'regular'}
-            options={MATERIAL_ORDER.map((k) => ({ value: k, label: `${MATERIALS[k].label} · ${Math.round(MATERIALS[k].opacity * 100)}%` }))}
+          <MaterialField
+            value={item.material}
+            fallback="regular"
             onChange={(v) => updateItem(item.id, { material: v })}
           />
         </Row>

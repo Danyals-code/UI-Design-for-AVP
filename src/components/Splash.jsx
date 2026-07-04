@@ -252,84 +252,153 @@ function TemplateThumb({ kind }) {
           <circle cx="80" cy="60" r="2" fill={accent} stroke="none" />
         </svg>
       )
-    case 'productShowcase':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          {/* plinth + sphere */}
-          <ellipse cx="80" cy="56" rx="22" ry="3" fill="#000" stroke="none" opacity="0.5" />
-          <ellipse cx="80" cy="55" rx="20" ry="3" fill="#1a1a1c" stroke="none" />
-          <circle cx="80" cy="40" r="11" fill="#3a78ff" stroke="none" />
-          {/* Title above */}
-          <rect x="62" y="14" width="36" height="9" rx="2" fill="#0c0c0e" stroke="none" />
-          <text x="80" y="21" fontSize="6" fill="#fff" textAnchor="middle">Globe Pro</text>
-          <rect x="68" y="25" width="24" height="4" rx="1" fill="#1c1c1e" stroke="none" />
-          {/* Buy CTA right + spec left */}
-          <rect x="106" y="38" width="26" height="8" rx="2" fill={accent} stroke="none" />
-          <rect x="28" y="35" width="28" height="14" rx="2" fill="#1c1c1e" stroke="none" />
-        </svg>
-      )
-    case 'solarSystem':
+    case 'cosmos':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#0a0a14" />
-          {/* sun */}
-          <circle cx="32" cy="40" r="9" fill="#ffb84a" stroke="none" />
-          {/* labels */}
-          <rect x="22" y="22" width="20" height="6" rx="1" fill="#1c1c1e" stroke="none" />
-          {/* planets in row */}
-          <circle cx="60" cy="40" r="3" fill="#a0a0a0" stroke="none" />
-          <circle cx="80" cy="40" r="4" fill="#e0c47a" stroke="none" />
-          <circle cx="102" cy="40" r="4" fill="#3a78ff" stroke="none" />
-          <circle cx="124" cy="40" r="3.5" fill="#cf5530" stroke="none" />
-          {/* tiny labels above */}
-          {[60, 80, 102, 124].map((cx, i) => (
-            <rect key={i} x={cx - 8} y="26" width="16" height="5" rx="1"
-                  fill="#0c0c0e" stroke="none" />
+          {/* orbit rings — concentric ellipses centred on the sun */}
+          {[14, 22, 32, 44].map((r, i) => (
+            <ellipse
+              key={i}
+              cx="80" cy="42" rx={r} ry={r * 0.35}
+              fill="none" stroke={i === 2 ? '#2a4a8a' : '#3a3a55'}
+              strokeWidth="0.7"
+            />
           ))}
+          {/* sun */}
+          <circle cx="80" cy="42" r="9" fill="#ffb84a" opacity="0.25" stroke="none" />
+          <circle cx="80" cy="42" r="5" fill="#ffb84a" stroke="none" />
+          {/* planets sitting on their rings */}
+          <circle cx="93" cy="45" r="1.6" fill="#a8a29a" stroke="none" />
+          <circle cx="61" cy="45" r="2.4" fill="#e0c47a" stroke="none" />
+          <circle cx="108" cy="46" r="2.6" fill="#3a78ff" stroke="none" />
+          <circle cx="42" cy="47" r="2.1" fill="#cf5530" stroke="none" />
+          {/* title chip */}
+          <rect x="66" y="14" width="28" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="19" fontSize="4.5" fill="#fff" textAnchor="middle" fontWeight="600">COSMOS</text>
         </svg>
       )
-    case 'diorama':
+    case 'anatomy':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c0c10" />
+          {/* halo */}
+          <ellipse cx="80" cy="58" rx="30" ry="4" fill="#e63a5a" opacity="0.2" stroke="none" />
+          {/* plinth */}
+          <ellipse cx="80" cy="60" rx="20" ry="3" fill="#2a2a2c" stroke="none" />
+          {/* heart — two atria + two ventricles + aorta arch */}
+          <circle cx="74" cy="40" r="7" fill="#5c86c9" stroke="none" />
+          <circle cx="86" cy="40" r="7" fill="#c9425c" stroke="none" />
+          <circle cx="76" cy="49" r="8" fill="#3d68a8" stroke="none" />
+          <circle cx="86" cy="49" r="9" fill="#a02d47" stroke="none" />
+          <path d="M86 32 Q92 22 96 26" fill="none" stroke="#e63a5a" strokeWidth="2.5" strokeLinecap="round" />
+          {/* title chip */}
+          <rect x="60" y="12" width="40" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="17" fontSize="4.5" fill="#fff" textAnchor="middle" fontWeight="600">HUMAN HEART</text>
+        </svg>
+      )
+    case 'engine':
+      return (
+        <svg {...common}>
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0e0e10" />
+          {/* diag ring */}
+          <ellipse cx="80" cy="58" rx="34" ry="4" fill="#3a78ff" opacity="0.25" stroke="none" />
+          {/* stand */}
+          <ellipse cx="80" cy="60" rx="32" ry="3" fill="#3a3a3c" stroke="none" />
+          {/* engine block */}
+          <rect x="48" y="42" width="64" height="14" rx="2" fill="#18181a" stroke="#2a2a2c" strokeWidth="0.5" />
+          {/* pistons */}
+          {[54, 66, 80, 94, 106].slice(0, 4).map((cx, i) => (
+            <g key={i}>
+              <rect x={cx - 4} y={30 + (i % 2 === 0 ? 0 : 2)} width="8" height="12" rx="1" fill="#8a8a90" stroke="none" />
+              <polygon
+                points={`${cx - 2},${28 + (i % 2 === 0 ? 0 : 2)} ${cx + 2},${28 + (i % 2 === 0 ? 0 : 2)} ${cx},${24 + (i % 2 === 0 ? 0 : 2)}`}
+                fill="#e6b34a" stroke="none"
+              />
+            </g>
+          ))}
+          {/* exhaust glow */}
+          <rect x="42" y="52" width="76" height="2" rx="1" fill="#ff5a1c" stroke="none" />
+          {/* title chip */}
+          <rect x="68" y="12" width="24" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="17" fontSize="4.5" fill="#ffcc00" textAnchor="middle" fontWeight="600">INLINE-4</text>
+        </svg>
+      )
+    case 'museum':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          <rect x="40" y="20" width="80" height="32" fill="#7a8aa0" stroke="none" opacity="0.7" />
-          <rect x="50" y="36" width="14" height="16" fill="#e07a5f" stroke="none" />
-          <rect x="74" y="28" width="14" height="24" fill="#81b29a" stroke="none" />
-          <rect x="98" y="20" width="14" height="32" fill="#f2cc8f" stroke="none" />
-          <rect x="36" y="52" width="88" height="3" fill="#3a3a3c" stroke="none" />
+          {/* spotlight halo */}
+          <ellipse cx="80" cy="60" rx="26" ry="4" fill="#e6a34a" opacity="0.35" stroke="none" />
+          {/* marble plinth */}
+          <rect x="66" y="34" width="28" height="26" rx="1" fill="#e8e5db" stroke="none" />
+          {/* vase silhouette — foot, belly, neck, lip */}
+          <rect x="74" y="52" width="12" height="3" fill="#a04030" stroke="none" />
+          <ellipse cx="80" cy="42" rx="10" ry="9" fill="#a04030" stroke="none" />
+          <rect x="76" y="30" width="8" height="10" fill="#a04030" stroke="none" />
+          <rect x="73" y="26" width="14" height="4" fill="#a04030" stroke="none" />
+          {/* black bands on belly */}
+          <rect x="70" y="42" width="20" height="1.5" fill="#1a0a06" stroke="none" />
+          <rect x="70" y="46" width="20" height="1.5" fill="#1a0a06" stroke="none" />
+          {/* floating info card */}
+          <rect x="112" y="30" width="26" height="14" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <rect x="115" y="34" width="20" height="2" rx="0.5" fill="#ffcc80" stroke="none" />
+          <rect x="115" y="38" width="16" height="2" rx="0.5" fill="#e6d4b0" stroke="none" />
+          {/* title chip */}
+          <rect x="60" y="12" width="40" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="17" fontSize="4.5" fill="#fff" textAnchor="middle" fontWeight="600">GREEK AMPHORA</text>
         </svg>
       )
-    case 'gallery':
+    case 'cityBlock':
       return (
         <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          <rect x="20" y="14" width="120" height="44" fill="#e9e6dd" stroke="none" />
-          {/* three frames + matching colour pictures */}
-          <rect x="28" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
-          <rect x="30" y="22" width="24" height="18" fill="#f4a261" stroke="none" />
-          <rect x="66" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
-          <rect x="68" y="22" width="24" height="18" fill="#2a9d8f" stroke="none" />
-          <rect x="104" y="20" width="28" height="22" fill="#1a1a1c" stroke="none" />
-          <rect x="106" y="22" width="24" height="18" fill="#5a4fcf" stroke="none" />
-          {/* captions */}
-          <rect x="32" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
-          <rect x="70" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
-          <rect x="108" y="48" width="20" height="4" rx="1" fill="#0c0c0e" stroke="none" />
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0e0e10" />
+          {/* asphalt block */}
+          <rect x="26" y="26" width="108" height="42" fill="#2a2a2c" stroke="none" />
+          {/* road cross */}
+          <rect x="72" y="26" width="16" height="42" fill="#3a3a3c" stroke="none" />
+          <rect x="26" y="42" width="108" height="10" fill="#3a3a3c" stroke="none" />
+          {/* four towers */}
+          <rect x="34" y="20" width="20" height="20" fill="#3a78ff" stroke="none" />
+          <rect x="106" y="24" width="20" height="16" fill="#e0c47a" stroke="none" />
+          <rect x="34" y="52" width="20" height="12" fill="#c04040" stroke="none" />
+          <rect x="106" y="46" width="20" height="18" fill="#7ec8c8" stroke="none" />
+          {/* traffic signal — three tiny dots */}
+          <circle cx="83" cy="30" r="1.6" fill="#ff3b30" stroke="none" />
+          <circle cx="83" cy="34" r="1.6" fill="#ffcc00" opacity="0.4" stroke="none" />
+          <circle cx="83" cy="38" r="1.6" fill="#34c759" opacity="0.4" stroke="none" />
+          {/* title chip */}
+          <rect x="58" y="12" width="44" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="17" fontSize="4.5" fill="#fff" textAnchor="middle" fontWeight="600">DOWNTOWN BLOCK</text>
         </svg>
       )
-    case 'cardStack':
+    case 'meadow':
       return (
         <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          {/* three flat cards in a row */}
-          <rect x="22" y="18" width="32" height="44" rx="3" fill="#0a84ff" stroke="none" />
-          <rect x="64" y="18" width="32" height="44" rx="3" fill="#5e5ce6" stroke="none" />
-          <rect x="106" y="18" width="32" height="44" rx="3" fill="#ff9f0a" stroke="none" />
-          {/* card labels */}
-          <rect x="26" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
-          <rect x="68" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
-          <rect x="110" y="22" width="24" height="4" rx="1" fill="#ffffff" opacity="0.85" stroke="none" />
+          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0a1a2a" />
+          {/* meadow disc */}
+          <ellipse cx="80" cy="62" rx="52" ry="8" fill="#4a7a3a" stroke="none" />
+          {/* hills */}
+          <ellipse cx="60" cy="50" rx="14" ry="10" fill="#3a6a2a" stroke="none" />
+          <ellipse cx="100" cy="52" rx="12" ry="8" fill="#4a7a3a" stroke="none" />
+          {/* sun in the sky arc */}
+          <circle cx="112" cy="26" r="6" fill="#ffe08a" opacity="0.35" stroke="none" />
+          <circle cx="112" cy="26" r="3.5" fill="#ffcc00" stroke="none" />
+          {/* farmhouse */}
+          <rect x="70" y="48" width="10" height="9" fill="#e6d4b0" stroke="none" />
+          <polygon points="68,48 82,48 75,40" fill="#a03a2a" stroke="none" />
+          {/* pine trees */}
+          <polygon points="46,52 54,52 50,40" fill="#2a5a1a" stroke="none" />
+          <polygon points="90,54 96,54 93,46" fill="#2a5a1a" stroke="none" />
+          {/* cloud + rain */}
+          <ellipse cx="42" cy="26" rx="10" ry="5" fill="#e6e6ea" stroke="none" />
+          <ellipse cx="48" cy="24" rx="7" ry="4" fill="#e6e6ea" stroke="none" />
+          {[38, 42, 46, 50].map((x, i) => (
+            <line key={i} x1={x} y1="32" x2={x - 1} y2="36" stroke="#6a8ac0" strokeWidth="0.8" />
+          ))}
+          {/* title chip */}
+          <rect x="66" y="12" width="28" height="6" rx="1.5" fill="#0c0c0e" stroke="none" />
+          <text x="80" y="17" fontSize="4.5" fill="#ffe08a" textAnchor="middle" fontWeight="600">MEADOW</text>
         </svg>
       )
     case 'filesApp':
@@ -353,58 +422,6 @@ function TemplateThumb({ kind }) {
           <path d="M100 45 V48 L102 50" stroke={grey} strokeWidth="1.2" />
           <rect x="86" y="58" width="28" height="4" rx="1" fill={stroke} stroke="none" />
           <rect x="80" y="64" width="40" height="3" rx="0.5" fill={grey} stroke="none" />
-        </svg>
-      )
-    case 'moodLamps':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0c0c0e" />
-          {/* dark console slab */}
-          <rect x="32" y="58" width="96" height="6" rx="1" fill="#1a1a1c" stroke="none" />
-          {/* three lamps with stems and glowing bulbs */}
-          {[
-            { x: 50,  color: '#ff9a3c' },
-            { x: 80,  color: '#3a78ff' },
-            { x: 110, color: '#7be39c' }
-          ].map((l, i) => (
-            <g key={i}>
-              <line x1={l.x} y1="46" x2={l.x} y2="58" stroke="#3a3a3c" strokeWidth="0.8" />
-              <circle cx={l.x} cy="40" r="8" fill={l.color} opacity="0.18" stroke="none" />
-              <circle cx={l.x} cy="40" r="5" fill={l.color} stroke="none" />
-            </g>
-          ))}
-        </svg>
-      )
-    case 'spinningShowcase':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#1c1c1e" />
-          {/* turntable orbit indicator */}
-          <ellipse cx="80" cy="46" rx="34" ry="10" fill="none" stroke={grey} strokeWidth="0.8" strokeDasharray="2 3" />
-          {/* three cubes on the turntable */}
-          <rect x="48" y="42" width="12" height="12" fill="#e94e62" stroke="none" transform="rotate(-12 54 48)" />
-          <rect x="74" y="48" width="12" height="12" fill="#3aab7a" stroke="none" />
-          <rect x="100" y="42" width="12" height="12" fill="#3a78ff" stroke="none" transform="rotate(12 106 48)" />
-          {/* arrows hinting rotation */}
-          <path d="M120 28 q 8 -4 14 4" stroke={accent} strokeWidth="1" fill="none" markerEnd="" />
-          <path d="M40 64 q -8 4 -14 -4" stroke={accent} strokeWidth="1" fill="none" />
-        </svg>
-      )
-    case 'reactiveLights':
-      return (
-        <svg {...common}>
-          <rect x="6" y="6" width="148" height="68" rx="6" fill="#0a0a14" />
-          {/* master orb up top */}
-          <circle cx="80" cy="22" r="6" fill="#ffffff" stroke="none" />
-          <circle cx="80" cy="22" r="9" fill="#ffffff" opacity="0.18" stroke="none" />
-          {/* five pucks rolling a wave (heights vary to imply motion) */}
-          <ellipse cx="28" cy="56" rx="8" ry="3" fill="#e94e62" stroke="none" />
-          <ellipse cx="54" cy="50" rx="8" ry="3" fill="#f5b14a" stroke="none" />
-          <ellipse cx="80" cy="46" rx="8" ry="3" fill="#7be39c" stroke="none" />
-          <ellipse cx="106" cy="50" rx="8" ry="3" fill="#3a78ff" stroke="none" />
-          <ellipse cx="132" cy="56" rx="8" ry="3" fill="#a05dff" stroke="none" />
-          {/* dotted line connecting master orb to pucks */}
-          <path d="M80 32 V 42" stroke="#ffffff" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.4" />
         </svg>
       )
     default:

@@ -19,6 +19,8 @@ import {
   CAMERA_DEFAULTS,
   ATTACHMENT_DEFAULTS,
   ATTACHMENT_KINDS,
+  LIGHT_DEFAULTS,
+  LIGHT_TYPES,
   buildDefaultComponents,
   meshDefaults,
   materialDefaults,
@@ -405,12 +407,38 @@ export const makeAttachmentEntity = (attachmentKind = 'text', overrides = {}) =>
   })
 }
 
+// Light entity — RealityKit lets any Entity carry a
+// PointLight/Spot/Directional/IBL Component; we surface it as its
+// own kind so it shows in Layers with a proper icon + inspector. The
+// `lightType` sub-kind decides which component the exporter emits and
+// which extra fields (inner/outer angle for spot, no range for
+// directional, etc.) apply.
+export const makeLightEntity = (lightType = 'point', overrides = {}) => {
+  const typeDefaults = LIGHT_TYPES[lightType]?.defaults || {}
+  const typeLabel = LIGHT_TYPES[lightType]?.label || 'Light'
+  return makeEntityBase('light', {
+    name: `${typeLabel} Light`,
+    // Common defaults, then this specific type's defaults, then user
+    // overrides. LIGHT_DEFAULTS carries the field shape so consumers
+    // (renderer, inspector, exporter) can rely on every field
+    // existing.
+    ...LIGHT_DEFAULTS,
+    lightType,
+    ...typeDefaults,
+    // Chest-height above the entity's parent — a fresh light drops in
+    // where the wearer's eye can already see the affected geometry.
+    position: [0, 1.2, 0],
+    ...overrides
+  })
+}
+
 // Generic dispatcher used by add-actions and the clipboard.
 export const makeEntity = (entityKind, overrides = {}) => {
   if (entityKind === 'anchor') return makeAnchorEntity(overrides)
   if (entityKind === 'model')  return makeModelEntity(overrides.meshType || 'box', overrides)
   if (entityKind === 'camera') return makeCameraEntity(overrides)
   if (entityKind === 'attachment') return makeAttachmentEntity(overrides.attachmentKind || 'text', overrides)
+  if (entityKind === 'light') return makeLightEntity(overrides.lightType || 'point', overrides)
   return makeGroupEntity(overrides)
 }
 

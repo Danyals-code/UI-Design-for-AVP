@@ -17,7 +17,7 @@
 // exporter pick it up automatically.
 
 import {
-  TEXT_STYLES, ptToUnits, segmentedFrame, SEGMENT_MATERIALS,
+  TEXT_STYLES, ptToUnits, segmentedFrame, materialSwiftValue,
   NAVBAR_HEIGHT_PT
 } from '../appleSystem'
 
@@ -309,14 +309,16 @@ export const PANELS = {
   segmented: {
     defaults: {
       // Frame fits the segment count: 88pt per segment, 4pt gaps + edge
-      // inset, fixed 44pt pill. Three segments → 280×44. Always rendered
-      // as a pill. The track has no fill colour — its appearance is the
-      // `material` tier (a recessed glass well); the selection is a
-      // raised pill.
+      // inset, fixed 44pt pill. Three segments → 280×44. Always rendered as
+      // a pill. Both surfaces read from the scene's Views material tier: the
+      // long background track is the Recessed Material View (`colorToken`),
+      // the raised selection pill is the Thicker tier (`selectedColorToken`).
       size: segmentedFrame(3),
       segments: ['Day', 'Week', 'Month'],
       selectedSegment: 1,
-      material: 'regular'
+      colorToken: 'viewRecessed',
+      color: '#2c2c2e',
+      selectedColorToken: 'viewThicker'
     },
     emit(panel, ctx) {
       // Segmented control = Picker with .pickerStyle(.segmented), backed by
@@ -324,10 +326,13 @@ export const PANELS = {
       const { push, escapeString } = ctx
       const opts = panel.segments || []
       const sel = opts[panel.selectedSegment ?? 0] || ''
-      const mat = SEGMENT_MATERIALS.find((m) => m.value === (panel.material || 'regular')) || SEGMENT_MATERIALS[2]
+      // The track sits on the chosen scene material; map it to the closest
+      // SwiftUI ShapeStyle (Material) for export. Works for any of the 24
+      // library materials, not just the four Views tiers.
+      const matSwift = materialSwiftValue(panel.colorToken)
       push(`Picker("", selection: .constant("${escapeString(sel)}")) {`)
       opts.forEach((o) => push(`    Text("${escapeString(o)}").tag("${escapeString(o)}")`))
-      push(`}.pickerStyle(.segmented).background(${mat.swift}, in: Capsule())`)
+      push(`}.pickerStyle(.segmented).background(${matSwift}, in: Capsule())`)
     }
   },
 

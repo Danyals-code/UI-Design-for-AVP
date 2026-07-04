@@ -32,7 +32,12 @@ export const ENTITY_KINDS = {
     description: 'Renders a mesh with one or more materials.'
   },
   group: {
-    label: 'Entity',
+    // "Empty" reads clearer than "Entity" — every kind in this map is
+    // technically an Entity in RealityKit terms, so labelling one of
+    // them "Entity" made the segmented control confusing. Blender's
+    // Empty is the direct analog: a transform-only node with no
+    // renderable geometry, useful as a parent for grouping.
+    label: 'Empty',
     swift: 'Entity',
     canHaveChildren: true,
     description: 'Empty transform node — useful as a parent for grouping.'
@@ -50,15 +55,94 @@ export const ENTITY_KINDS = {
     // entity children (would clash with the panel's layout role).
     canHaveChildren: false,
     description: 'Pins a SwiftUI view (Text / Button / Label / Image) to a 3D position. RealityView resolves it via attachments.entity(for:) at runtime.'
+  },
+  light: {
+    label: 'Light',
+    // RealityKit light components attach to any Entity; we render a
+    // gizmo + name in Layers so the designer can pick, move, and tune
+    // one just like a Blender light. `lightType` picks which RealityKit
+    // component the exporter emits: PointLight, SpotLight, DirectionalLight,
+    // or ImageBasedLight (for HDRIs).
+    swift: 'PointLightComponent',
+    canHaveChildren: false,
+    description: 'Emits real light. Point / Spot / Directional / IBL — chosen via lightType. Add to any anchor or group to illuminate the surrounding entities.'
   }
 }
 
-export const ENTITY_KIND_ORDER = ['anchor', 'model', 'group', 'camera', 'attachment']
+export const ENTITY_KIND_ORDER = ['anchor', 'model', 'group', 'camera', 'attachment', 'light']
+
+// ---- LIGHT TYPES ------------------------------------------------------
+//
+// Every `light` entity carries a `lightType`. Each type maps 1:1 to a
+// RealityKit component the exporter later emits. Defaults are tuned for
+// a diorama-scale volume (~0.6m envelope) so a fresh light reads
+// immediately without the wearer having to open the inspector.
+export const LIGHT_TYPES = {
+  point: {
+    label: 'Point',
+    swift: 'PointLightComponent',
+    description: 'Omnidirectional light emitted from a point. Falls off with distance. Like a bare bulb or a star.',
+    defaults: {
+      lightColor:     '#ffffff',
+      lightIntensity: 3.0,   // simulator lumens ÷ 1000 rough analog
+      lightRange:     3.0,   // metres — falloff distance
+      lightCastsShadow: false
+    }
+  },
+  spot: {
+    label: 'Spot',
+    swift: 'SpotLightComponent',
+    description: 'Cone-shaped light with an inner/outer angle. Points down the entity\'s local -Z axis by default. Like a stage spotlight.',
+    defaults: {
+      lightColor:     '#ffffff',
+      lightIntensity: 4.0,
+      lightRange:     3.0,
+      lightInnerAngle: 30,   // degrees
+      lightOuterAngle: 45,
+      lightCastsShadow: false
+    }
+  },
+  directional: {
+    label: 'Directional',
+    swift: 'DirectionalLightComponent',
+    description: 'Parallel rays from infinity. No falloff, no range. Like the sun in a scene.',
+    defaults: {
+      lightColor:     '#ffffff',
+      lightIntensity: 2.0,
+      lightCastsShadow: true
+    }
+  },
+  ibl: {
+    label: 'IBL (Image-based)',
+    swift: 'ImageBasedLightComponent',
+    description: 'Environment map used as an omnidirectional light. Assign an HDRI at the scene level; this entity marks the receiver.',
+    defaults: {
+      lightColor:     '#ffffff',
+      lightIntensity: 1.0
+    }
+  }
+}
+
+export const LIGHT_TYPE_ORDER = ['point', 'spot', 'directional', 'ibl']
+
+// Default fields for a fresh Light entity — a Point light with sensible
+// diorama defaults.
+export const LIGHT_DEFAULTS = {
+  lightType: 'point',
+  ...LIGHT_TYPES.point.defaults
+}
 
 // Attachment kinds — the subset of SwiftUI views that read well when
 // floated in 3D space inside a RealityView. We deliberately keep the
 // list short: long-form content like Lists or Forms is poor in
 // volumetric space, where users tap-target individual elements.
+// Attachment defaults now follow Apple's typography ramp via
+// `attachmentTextStyle` — the renderer resolves fontSize / padding /
+// cornerRadius from `ATTACHMENT_TEXT_STYLES` in appleSystem.js. Explicit
+// `attachmentFontSize` / `attachmentPadding` / `attachmentCornerRadius`
+// overrides still win when the designer wants a custom shape, but the
+// default fresh attachment sizes like a SwiftUI `.font(.body)` chip:
+// consistent proportions across scales, no arbitrary metre-picking.
 export const ATTACHMENT_KINDS = {
   text: {
     label: 'Text',
@@ -67,9 +151,8 @@ export const ATTACHMENT_KINDS = {
       attachmentText: 'Hello',
       attachmentColor: '#ffffff',
       attachmentBackground: '#1c1c1e',
-      attachmentFontSize: 0.05,
-      attachmentPadding: 0.02,
-      attachmentCornerRadius: 0.02
+      attachmentTextStyle: 'body',
+      attachmentShape: 'roundedRect'
     }
   },
   label: {
@@ -80,9 +163,8 @@ export const ATTACHMENT_KINDS = {
       attachmentSymbol: 'info.circle',
       attachmentColor: '#ffffff',
       attachmentBackground: '#1c1c1e',
-      attachmentFontSize: 0.05,
-      attachmentPadding: 0.02,
-      attachmentCornerRadius: 0.02
+      attachmentTextStyle: 'body',
+      attachmentShape: 'roundedRect'
     }
   },
   button: {
@@ -91,10 +173,12 @@ export const ATTACHMENT_KINDS = {
     defaults: {
       attachmentText: 'Tap',
       attachmentColor: '#ffffff',
-      attachmentBackground: '#0a84ff',
-      attachmentFontSize: 0.05,
-      attachmentPadding: 0.025,
-      attachmentCornerRadius: 0.04
+      // Translucent white at ~62% reads as visionOS's glass button
+      // (`.buttonStyle(.glass)`); designers can swap to a tint colour
+      // for a Prominent look.
+      attachmentBackground: '#ffffff62',
+      attachmentTextStyle: 'body',
+      attachmentShape: 'capsule'
     }
   },
   image: {
@@ -105,7 +189,8 @@ export const ATTACHMENT_KINDS = {
       attachmentColor: '#ffffff',
       attachmentBackground: '#3a3a3c',
       attachmentSize: 0.20,
-      attachmentCornerRadius: 0.02
+      attachmentCornerRadius: 0.016,
+      attachmentShape: 'roundedRect'
     }
   }
 }

@@ -63,6 +63,70 @@ export const TEXT_STYLE_ORDER = [
   'body', 'callout', 'subheadline', 'footnote', 'caption', 'caption2'
 ]
 
+// ---- Attachment text ramp (volumetric-window typography) --------------
+//
+// Apple-standard type ramp scaled for RealityView Attachments inside a
+// volumetric window. The wearer's default pose (VOLUME_VR_POS in
+// Canvas3D.jsx) sits ~1.5m from the volume centre, so attachments use
+// larger equivalent-pt sizes than the 40cm 2D window ramp (TEXT_STYLES)
+// to stay legible at wearer distance. Padding and corner radius scale
+// with the font so a `body` chip and a `largeTitle` chip both read as
+// "Apple standard" — no arbitrary picking of raw metre values.
+//
+// Horizontal padding is ~1.55× vertical, mirroring SwiftUI's
+// `.padding(.horizontal, 20).padding(.vertical, 12)` convention for
+// capsule chips. Vertical stays tighter so the chip hugs its cap-height
+// while horizontal breathes for glyph shoulder-space.
+//
+// All values in metres. Approximate on-device pt equivalents in the
+// trailing comment for reference (1m ≈ 1360pt at our canvas scale).
+export const ATTACHMENT_TEXT_STYLES = {
+  caption:         { label: 'Caption',           fontSize: 0.014, hPadding: 0.010, vPadding: 0.006, cornerRadius: 0.010, weight: 'regular'  },  // ~19pt
+  footnote:        { label: 'Footnote',          fontSize: 0.018, hPadding: 0.012, vPadding: 0.008, cornerRadius: 0.012, weight: 'regular'  },  // ~24pt
+  subheadline:     { label: 'Subheadline',       fontSize: 0.020, hPadding: 0.014, vPadding: 0.009, cornerRadius: 0.013, weight: 'regular'  },  // ~27pt
+  body:            { label: 'Body',              fontSize: 0.022, hPadding: 0.016, vPadding: 0.010, cornerRadius: 0.014, weight: 'medium'   },  // ~30pt — visionOS body weight
+  callout:         { label: 'Callout',           fontSize: 0.024, hPadding: 0.018, vPadding: 0.011, cornerRadius: 0.015, weight: 'medium'   },  // ~33pt
+  headline:        { label: 'Headline',          fontSize: 0.028, hPadding: 0.020, vPadding: 0.012, cornerRadius: 0.016, weight: 'semibold' },  // ~38pt
+  title3:          { label: 'Title 3',           fontSize: 0.032, hPadding: 0.024, vPadding: 0.014, cornerRadius: 0.018, weight: 'semibold' },  // ~44pt
+  title2:          { label: 'Title 2',           fontSize: 0.036, hPadding: 0.028, vPadding: 0.016, cornerRadius: 0.020, weight: 'bold'     },  // ~49pt
+  title:           { label: 'Title',             fontSize: 0.040, hPadding: 0.032, vPadding: 0.018, cornerRadius: 0.022, weight: 'bold'     },  // ~54pt
+  largeTitle:      { label: 'Large Title',       fontSize: 0.048, hPadding: 0.036, vPadding: 0.020, cornerRadius: 0.024, weight: 'bold'     },  // ~65pt
+  extraLargeTitle: { label: 'Extra Large Title', fontSize: 0.058, hPadding: 0.042, vPadding: 0.024, cornerRadius: 0.028, weight: 'bold'     }   // ~79pt
+}
+
+export const ATTACHMENT_TEXT_STYLE_ORDER = [
+  'caption', 'footnote', 'subheadline', 'body', 'callout',
+  'headline', 'title3', 'title2', 'title', 'largeTitle', 'extraLargeTitle'
+]
+
+// Attachment shape — matches SwiftUI's `.background(_, in:)` shape options.
+// `capsule` auto-computes cornerRadius = half of the frame's short axis so
+// the panel caps as a pill (matches SwiftUI's Capsule() shape). `roundedRect`
+// uses the resolved cornerRadius from the text-style ramp (or an override).
+export const ATTACHMENT_SHAPES = [
+  { value: 'roundedRect', label: 'Rounded Rectangle' },
+  { value: 'capsule',     label: 'Capsule (Pill)' }
+]
+
+// Resolve an attachment's effective sizing from its `attachmentTextStyle`
+// key + optional explicit overrides. `attachmentFontSize`,
+// `attachmentPadding` / `attachmentHPadding` / `attachmentVPadding`,
+// `attachmentCornerRadius` still win when set — the ramp is a default,
+// not a lock. `attachmentPadding` legacy field forces both axes; the
+// H/V split falls back to the ramp otherwise.
+export function resolveAttachmentStyle(entity) {
+  const key = entity?.attachmentTextStyle || 'body'
+  const style = ATTACHMENT_TEXT_STYLES[key] || ATTACHMENT_TEXT_STYLES.body
+  const legacyPad = entity?.attachmentPadding
+  return {
+    fontSize:     entity?.attachmentFontSize     ?? style.fontSize,
+    hPadding:     entity?.attachmentHPadding     ?? legacyPad ?? style.hPadding,
+    vPadding:     entity?.attachmentVPadding     ?? legacyPad ?? style.vPadding,
+    cornerRadius: entity?.attachmentCornerRadius ?? style.cornerRadius,
+    weight:       entity?.attachmentWeight       ?? style.weight
+  }
+}
+
 // Resolve the spec-default weight for a text style. Used by the SwiftUI
 // exporter to decide whether to emit `.fontWeight(...)` — if the panel's
 // weight matches the visionOS default for its style, the modifier is
@@ -414,6 +478,18 @@ export const SEGMENT_MATERIALS = [
   { value: 'ultraThick', label: 'Ultra Thick', swift: '.ultraThickMaterial', tint: 0.6 }
 ]
 
+// Closest SwiftUI Material for each "Views" scene material token (the
+// viewRecessed→viewThicker tier the user picks from Scene → Materials &
+// Colors). Used only when exporting controls that sit on a view material —
+// e.g. the segmented picker's track — to code. The tokens themselves live in
+// DEFAULT_SCENE_COLORS / scene.colors and drive the live preview tint.
+export const VIEW_MATERIAL_SWIFT = {
+  viewRecessed: '.regularMaterial',
+  viewThin:     '.thinMaterial',
+  viewRegular:  '.regularMaterial',
+  viewThicker:  '.thickMaterial'
+}
+
 // Resolve a material's final property set from MATERIALS defaults +
 // optional `scene.materialProps[key]` user overrides. The Materials &
 // Colors editor writes overrides; the LiquidGlass renderer + the
@@ -666,6 +742,96 @@ export const resolveSemantic = (token, sceneOrScheme) => {
     || DEFAULT_SCENE_COLORS[token]
     || SYSTEM_COLORS.light[token]
     || '#000000'
+}
+
+// ---- Unified material library ----------------------------------------
+//
+// The SINGLE source of truth behind every "Material" dropdown in the app.
+// It mirrors EXACTLY the list the Scene → Materials & Colors detail editor
+// builds: every non-system-colour scene token (Text / Controls / Views /
+// Windows / Separators — 15 entries) followed by the nine liquid-glass
+// tiers (MATERIAL_ORDER). 15 + 9 = the 24 materials the user tunes in
+// Scene Settings. Each descriptor is `{ value, label, group }` so a picker
+// can render the same grouped list the Scene editor shows.
+export const MATERIAL_LIBRARY = [
+  ...SCENE_COLOR_GROUPS
+    .filter((g) => g.key !== 'colors')
+    .flatMap((g) => g.tokens.map((t) => ({ value: t, label: SCENE_COLOR_LABELS[t] || t, group: g.label }))),
+  ...MATERIAL_ORDER.map((k) => ({ value: k, label: MATERIALS[k]?.label || k, group: 'Materials' }))
+]
+
+// Flat list of the 24 valid material keys — used to validate / clamp a
+// stored selection back into the library.
+export const MATERIAL_LIBRARY_VALUES = MATERIAL_LIBRARY.map((m) => m.value)
+
+// True when `key` names a liquid-glass tier (a full MATERIALS spec with
+// blur / layers / rim). Token-materials (primary, viewRecessed, separator,
+// …) return false — they resolve to a flat tinted plate.
+export const isGlassMaterialKey = (key) => Object.prototype.hasOwnProperty.call(MATERIALS, key)
+
+// Resolve ANY of the 24 library materials to a full render spec.
+//
+// • Glass tiers (glass, regular, …) resolve exactly like `resolveMaterial`
+//   — the MATERIALS default merged with the user's
+//   `scene.materialProps[key]` overrides — so existing windows / stacks
+//   render byte-identically.
+// • Token-materials (primary, viewRecessed, separator, …) have no MATERIALS
+//   entry, so we synthesise a flat solid plate: the colour comes from
+//   `resolveSemantic` (which already honours scene.colors + the Materials
+//   editor's colour override), and any other detailed setting the user
+//   tuned (fillType / gradient / opacity / blur / layers / shadows) is
+//   merged on top from `scene.materialProps[key]`.
+//
+// This is the helper that makes a detailed-settings edit in Scene →
+// Materials propagate to every view that references the material.
+export function resolveAnyMaterial(key, scene) {
+  const sceneMaterialProps = (scene && typeof scene === 'object') ? scene.materialProps : null
+  if (key && MATERIALS[key]) {
+    return resolveMaterial(key, sceneMaterialProps)
+  }
+  const override = (sceneMaterialProps || {})[key] || {}
+  const color = resolveSemantic(key, scene)
+  return {
+    fillType: 'solid',
+    color,
+    gradientFrom: color,
+    gradientTo: color,
+    gradientAngle: 180,
+    opacity: 1,
+    blur: false,
+    blurAmount: 0,
+    layers: null,
+    innerShadow: null,
+    dropShadow: null,
+    rimOpacity: 0,
+    specularOpacity: 0,
+    shadowOpacity: 0,
+    ...override,
+    // resolveSemantic already folds in `override.color`; restate it last so
+    // the spread above can't leave a stale colour behind.
+    color: override.color || color
+  }
+}
+
+// Closest SwiftUI ShapeStyle (Material) string for ANY library material —
+// used when exporting a control that paints a `.background(...)` from the
+// chosen material (segmented track, input plate, …). Glass tiers map to
+// their matching `Material`; the four Views tokens use VIEW_MATERIAL_SWIFT;
+// every other token falls back to `.regularMaterial` so the export always
+// emits a valid ShapeStyle.
+const TIER_SWIFT = {
+  glass: '.regularMaterial',
+  viewsRegular: '.regularMaterial',
+  ultraThin: '.ultraThinMaterial',
+  thin: '.thinMaterial',
+  regular: '.regularMaterial',
+  thick: '.thickMaterial',
+  ultraThick: '.ultraThickMaterial',
+  opaque: '.thickMaterial',
+  bar: '.bar'
+}
+export function materialSwiftValue(key) {
+  return TIER_SWIFT[key] || VIEW_MATERIAL_SWIFT[key] || '.regularMaterial'
 }
 
 // SwiftUI stack types + alignments.

@@ -6,15 +6,14 @@ import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
 import {
-  resolveSemantic, TEXT_STYLES, ptToUnits, SF_SYMBOLS,
+  resolveSemantic, resolveAnyMaterial, isGlassMaterialKey,
+  TEXT_STYLES, ptToUnits, SF_SYMBOLS,
   LIST_STYLES, computeListHeightPt, computeButtonFramePt, BUTTON_SIZES,
   NAVBAR_STYLE_SPECS,
   NAVBAR_SIDE_PADDING_PT, NAVBAR_ITEM_PT, NAVBAR_ITEM_GAP_PT,
   NAVBAR_AVATAR_PT, NAVBAR_SEARCH_W_PT,
   NAVBAR_BACK_CAPSULE_W_PT, NAVBAR_BACK_ICON_TEXT_GAP_PT,
-  SEGMENT_MATERIALS
 } from '../appleSystem'
-import { lerpColorHex } from '../behaviors/tween'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { measureSwiftUIText } from '../text'
@@ -470,8 +469,16 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // Resolve colors against the *design* scheme (not the viewport bg).
   const scheme = scene.designScheme || 'light'
 
-  const fillColor = panel.colorToken
-    ? resolveSemantic(panel.colorToken, scene)
+  // Resolve the panel's fill from the unified material library so a
+  // detailed-settings edit in Scene → Materials (colour, and for glass
+  // tiers the opacity / blur set) propagates here. Panels carrying a raw
+  // hex `color` (no token) keep their exact legacy look. `fillSpec` is the
+  // full material spec when a token/material drives the fill, else null.
+  const fillSpec = panel.colorToken
+    ? resolveAnyMaterial(panel.colorToken, scene)
+    : null
+  const fillColor = fillSpec
+    ? (fillSpec.color || '#ffffff')
     : (panel.color || '#ffffff')
 
   const textColor = (() => {
@@ -691,7 +698,15 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // is in place via `colorToken`) restores the expected behaviour.
   const buttonStyle = panel.buttonStyle || 'bordered'
   let resolvedFill = fillColor
-  let resolvedFillOpacity = 0.98
+  // Solid token-material fills keep the established near-opaque 0.98 look.
+  // A glass tier, or an explicit `opacity` override the user dialled into
+  // the material in Scene → Materials, drives the plate's real
+  // translucency through instead — that's how a detailed opacity edit
+  // reaches every flat panel using the material.
+  const fillOpacityOverridden = typeof scene.materialProps?.[panel.colorToken]?.opacity === 'number'
+  let resolvedFillOpacity = (fillSpec && (isGlassMaterialKey(panel.colorToken) || fillOpacityOverridden))
+    ? (typeof fillSpec.opacity === 'number' ? fillSpec.opacity : 0.98)
+    : 0.98
   let resolvedTextColor = textColor
   // Buttons living inside an ornament/toolbar render as flat icons on
   // the ornament's shared capsule — the HIG pattern (see toolbar
@@ -880,17 +895,18 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
   // The selection is a true pill — radius tracks its own height.
   const segRadius = segH / 2
   const segStartX = -segTrackInnerW / 2 + segW / 2
-  // Recessed well: a darker pill inset 1.5pt inside the light base rim.
-  // The material tier lerps the well a touch toward the rim so switching
-  // materials is visible (thicker = shallower-looking recess).
+  // Recessed well: a darker pill inset 1.5pt inside the light base rim — the
+  // light rim + dark well reads as sunken without real lighting.
   const SEG_WELL_INSET = ptToUnits(1.5)
   const segWellW = size[0] - SEG_WELL_INSET * 2
   const segWellH = size[1] - SEG_WELL_INSET * 2
-  const segRim = scheme === 'dark' ? '#5c5c60' : '#e6e6ea'
-  const segWellBase = scheme === 'dark' ? '#2f2f31' : '#c4c4c9'
-  const segTierT = (SEGMENT_MATERIALS.find((m) => m.value === (panel.material || 'regular'))?.tint ?? 0.28) * 0.6
-  const segWellColor = lerpColorHex(segWellBase, segRim, segTierT)
-  const segThumbColor = scheme === 'dark' ? '#7e7e82' : '#ffffff'
+  // Both surfaces read their colour straight from the scene's "Views" material
+  // tokens (Scene → Materials & Colors), so retuning a material there updates
+  // every segmented control. The long background tile defaults to the Recessed
+  // Material View; the selected front tile defaults to the Thicker tier so it
+  // reads as a raised pill against the recessed well.
+  const segWellColor = resolveAnyMaterial(panel.colorToken || 'viewRecessed', scene).color
+  const segThumbColor = resolveAnyMaterial(panel.selectedColorToken || 'viewThicker', scene).color
   const segmentOverlay = panelType === 'segmented' && (
     <group>
       {/* Recessed well — the sunken track the pill floats inside */}

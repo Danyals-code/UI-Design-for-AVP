@@ -227,6 +227,7 @@ export const AnchorIcon       = wrap(Anchor, 12)
 export const EntityGroupIcon  = wrap(Boxes, 12)
 export const ModelEntityIcon  = wrap(Box, 12)
 export const MaterialIcon     = wrap(Paintbrush, 12)
+export const LightIcon        = wrap(Lightbulb, 12)
 
 // ---- SF Symbols (visionOS) → Lucide component map ------------------
 //

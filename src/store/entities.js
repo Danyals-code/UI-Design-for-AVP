@@ -259,6 +259,8 @@ export const createEntitiesSlice = (set, get) => ({
   addCameraEntity: (opts) => get().addEntity('camera', opts),
   addAttachmentEntity: (attachmentKind, opts = {}) =>
     get().addEntity('attachment', { ...opts, overrides: { attachmentKind, ...opts.overrides } }),
+  addLightEntity:  (lightType = 'point', opts = {}) =>
+    get().addEntity('light', { ...opts, overrides: { lightType, ...opts.overrides } }),
 
   // ---- kind / mesh / anchor switches ---------------------------------
 

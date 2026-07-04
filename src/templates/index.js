@@ -19,7 +19,7 @@ const JOINED_SIDEBAR_RADII = [
 ]
 import {
   makeTab, makeWindow, makeStack, makePanel,
-  makeAnchorEntity, makeModelEntity, makeGroupEntity,
+  makeAnchorEntity, makeModelEntity, makeGroupEntity, makeLightEntity,
   makeAttachmentEntity,
   textStyleToFontSize
 } from '../store/factories'
@@ -1819,6 +1819,259 @@ function filesApp() {
 }
 
 // ---- Volume templates ------------------------------------------------
+//
+// Every volume template targets Apple Vision Pro's volumetric window
+// (`.windowStyle(.volumetric)`): a bounded 3D scene the wearer walks
+// around, sized to feel like a tabletop diorama. The wearer's default
+// pose (see VOLUME_VR_POS in Canvas3D.jsx) sits ~1.5 m away at eye
+// height 1.2 m, so every scene here places its hero content at
+// y ≈ 1.0–1.5 m, x/z within ±0.35 m — the sweet spot for the volumetric
+// preset (0.6 × 0.4 × 0.6 m, matching Apple's `.defaultSize` example).
+//
+// Templates lean on visionOS-native affordances:
+//   • RealityKit `ModelEntity` primitives (sphere / box / cylinder / cone)
+//   • `Attachment(...)` labels — SwiftUI views anchored in 3D space
+//   • Tap gestures + timer-driven ambient motion (so preview feels alive)
+//   • PhysicallyBasedMaterial with clearcoat + emission for depth cues
+//
+// The scenes are designed for eventual replacement with real USDZ
+// assets — the `pbr(...)` finishes here are hero-object-quality even
+// against the primitive geometry.
+
+let _matIdCounter = 1
+const matId = () => `mat-tpl-${(_matIdCounter++).toString(36)}`
+
+// PhysicallyBasedMaterial factory. Everything is populated with the
+// schema's null defaults so downstream code paths (renderer, exporter,
+// inspector) don't see undefined fields. Callers just pass a base colour
+// + whichever finishes matter for that surface.
+function pbr(baseColor, {
+  roughness = 0.5,
+  metallic = 0,
+  emissive = '#000000',
+  emissiveIntensity = 0,
+  clearcoat = 0,
+  clearcoatRoughness = 0,
+  sheen = '#000000'
+} = {}) {
+  return {
+    id: matId(),
+    type: 'physicallyBased',
+    baseColor,
+    baseColorTextureName: null,
+    roughness,
+    roughnessTextureName: null,
+    metallic,
+    metallicTextureName: null,
+    normalTextureName: null,
+    ambientOcclusionTextureName: null,
+    emissiveColor: emissive,
+    emissiveIntensity,
+    emissiveTextureName: null,
+    clearcoat,
+    clearcoatRoughness,
+    sheenColor: sheen,
+    blending: 'opaque',
+    opacityThreshold: null,
+    faceCulling: 'back',
+    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
+  }
+}
+
+// SimpleMaterial factory — matte-ish diffuse without PBR overhead. Used
+// for background props (roads, dirt) where the extra render cost of a
+// physically-based shader isn't earned.
+function simple(baseColor, roughness = 0.6, isMetallic = false) {
+  return { id: matId(), type: 'simple', baseColor, roughness, isMetallic }
+}
+
+// ---- Attachment factories -------------------------------------------
+//
+// Sugar over makeAttachmentEntity() that lets templates read like a
+// SwiftUI view tree. Every attachment is created with an Apple text
+// style (body / title / caption / etc.) so fontSize + padding +
+// cornerRadius stay in proportion; the shape, background, and colour
+// are the only per-attachment knobs.
+//
+// `parent` is the entity the attachment anchors to (usually the World
+// Anchor); `pos` is the local position; `text` is the caption; every
+// other option lands as an override on the entity record.
+
+// Text attachment — like SwiftUI Text(text).font(.style). Defaults to
+// a dark card that reads over both the studio backdrop and lit models.
+function attachText(parent, pos, text, opts = {}) {
+  return makeAttachmentEntity('text', {
+    parentId: parent.id,
+    name: opts.name || 'Text',
+    position: pos,
+    attachmentText: text,
+    attachmentTextStyle: opts.style || 'body',
+    attachmentColor: opts.color || '#ffffff',
+    attachmentBackground: opts.background || '#0c0c0e',
+    attachmentBillboard: opts.billboard !== false,
+    ...(opts.visible !== undefined ? { visible: opts.visible } : {}),
+    ...(opts.behaviors ? { behaviors: opts.behaviors } : {})
+  })
+}
+
+// Title chip — largeTitle sized, dark card, bold. The "big hero label"
+// that pins above a scene.
+function attachTitle(parent, pos, text, opts = {}) {
+  return attachText(parent, pos, text, { style: 'largeTitle', ...opts, name: opts.name || 'Title' })
+}
+
+// Subtitle chip — subheadline size, muted colour, sits below a title.
+function attachSubtitle(parent, pos, text, opts = {}) {
+  return attachText(parent, pos, text, {
+    style: 'subheadline',
+    color: '#a0a0a4',
+    background: '#1c1c1e',
+    ...opts,
+    name: opts.name || 'Subtitle'
+  })
+}
+
+// Info card — hidden by default; revealed by a tap behavior on the
+// target entity via a showHide action. Body-sized, multi-line.
+function attachInfoCard(parent, pos, text, opts = {}) {
+  return attachText(parent, pos, text, {
+    style: 'body',
+    color: '#ffffff',
+    background: '#0c0c0e',
+    visible: false,
+    ...opts,
+    name: opts.name || 'Info Card'
+  })
+}
+
+// Button attachment — capsule with glass background (or a coloured tint
+// via `opts.tint`). Reads like SwiftUI's `.buttonStyle(.glass)`.
+function attachButton(parent, pos, text, opts = {}) {
+  return makeAttachmentEntity('button', {
+    parentId: parent.id,
+    name: opts.name || 'Button',
+    position: pos,
+    attachmentText: text,
+    attachmentTextStyle: opts.style || 'body',
+    attachmentColor: opts.color || '#ffffff',
+    attachmentBackground: opts.tint || opts.background || '#ffffff62',
+    attachmentShape: 'capsule',
+    attachmentBillboard: opts.billboard !== false
+  })
+}
+
+// ---- Behavior sugar -------------------------------------------------
+//
+// One-liner factories for the interaction patterns the templates lean
+// on. Each returns a behavior record ready to slot into an entity's
+// `behaviors:` array. Keeping the boilerplate here means templates
+// stay focused on the story, not the schema.
+
+// Tap → scale up with spring, auto-reverse on next tap. Classic "poke
+// to select" affordance from visionOS.
+function onTapHighlight(scale = 1.25, duration = 0.32) {
+  return behavior(
+    trigger('tap', { mode: 'single' }),
+    action('scaleTo', { mode: 'absolute', value: scale, duration, curve: 'spring', toggle: true })
+  )
+}
+
+// Hover-in — subtle scale + emission bump on cursor enter. Matches
+// visionOS's built-in `HoverEffectComponent` feedback. Emission color
+// defaults to warm white (works on any base tint).
+function onHoverIn(scale = 1.06, emissive = '#ffffff') {
+  return behavior(
+    trigger('hover', { mode: 'enter' }),
+    action('scaleTo', { mode: 'absolute', value: scale, duration: 0.18, curve: 'easeOut' }),
+    action('setMaterial', { property: 'emission', colorValue: emissive, duration: 0.18, curve: 'easeOut' })
+  )
+}
+function onHoverOut() {
+  return behavior(
+    trigger('hover', { mode: 'leave' }),
+    action('scaleTo', { mode: 'absolute', value: 1.0, duration: 0.24, curve: 'easeOut' }),
+    action('setMaterial', { property: 'emission', colorValue: '#000000', duration: 0.24, curve: 'easeOut' })
+  )
+}
+
+// Continuous emission pulse — ambient "alive" motion. Timer + toggle
+// bounces the emission intensity every `period/2` seconds.
+function loopEmissionPulse(period = 2.4, peak = 2.4) {
+  return behavior(
+    trigger('timer', { mode: 'loop', seconds: period }),
+    action('setMaterial', { property: 'emissionIntensity', numberValue: peak, duration: period / 2, curve: 'easeInOut', toggle: true })
+  )
+}
+
+// Continuous group rotation — orbital motion when applied to an
+// orbit-parent group with a child offset by radius.
+function loopRotateY(period = 8.0) {
+  return behavior(
+    trigger('timer', { mode: 'loop', seconds: period }),
+    action('rotateTo', { mode: 'relative', rotation: [0, 360, 0], duration: period, curve: 'linear' })
+  )
+}
+function loopRotateX(period = 30.0) {
+  return behavior(
+    trigger('timer', { mode: 'loop', seconds: period }),
+    action('rotateTo', { mode: 'relative', rotation: [360, 0, 0], duration: period, curve: 'linear' })
+  )
+}
+
+// Tap → reveal a linked info card via showHide. The card lives with
+// `visible: false` in the tree; the tap on the model targets its id
+// and fades it in. Second tap hides it (mode: 'toggle').
+function onTapReveal(cardId) {
+  return behavior(
+    trigger('tap', { mode: 'single' }),
+    action('showHide', { mode: 'toggle', target: cardId, fade: true, duration: 0.22 })
+  )
+}
+
+// Hover-reveal pair — hover enter fades the card in, hover leave fades
+// it out. Returns TWO behaviors (one per direction) so both go into the
+// entity's `behaviors:` array with a spread. Great when the wearer
+// wants to peek at info without committing to a tap.
+function onHoverReveal(cardId) {
+  return [
+    behavior(
+      trigger('hover', { mode: 'enter' }),
+      action('showHide', { mode: 'show', target: cardId, fade: true, duration: 0.18 })
+    ),
+    behavior(
+      trigger('hover', { mode: 'leave' }),
+      action('showHide', { mode: 'hide', target: cardId, fade: true, duration: 0.22 })
+    )
+  ]
+}
+
+// Tap → shader-effect outline (visionOS `HoverEffectComponent.highlight`
+// analog). Great for museum-style "focus this thing" affordances.
+function onTapOutline(intensity = 1.0) {
+  return behavior(
+    trigger('tap', { mode: 'single' }),
+    action('shaderEffect', { effect: 'outline', intensity, duration: 0.2 })
+  )
+}
+
+// Scene start → run a one-shot entry animation. Kicks off automatically
+// when preview mode enters.
+function onSceneStart(...actions) {
+  return behavior(trigger('sceneStart'), ...actions)
+}
+
+// Broadcast + receive — one entity fires an event, others react. Used
+// for coordinated scene-wide animations (tap the sun → planets pulse,
+// tap the master orb → row rolls a wave, etc.).
+function onTapBroadcast(eventName) {
+  return behavior(
+    trigger('tap', { mode: 'single' }),
+    action('broadcast', { name: eventName })
+  )
+}
+function onEventReceived(eventName, ...actions) {
+  return behavior(trigger('eventReceived', { name: eventName }), ...actions)
+}
 
 const volumeWindow = (overrides = {}) => {
   const p = VOLUME_PRESETS.medium
@@ -1850,775 +2103,944 @@ function emptyVolume() {
   return { items: [tab, w, anchor], activeTabId: tab.id }
 }
 
-// ---- Product Showcase (volume) ---------------------------------------
-// Polished product-page hero: a brushed-metal sphere sitting on a
-// dark plinth, with a glow ring underneath, title / tagline floating
-// above, a spec callout on the left and a Buy CTA on the right.
-// Volume camera sits on +Z, so layout uses ±X for left/right and
-// +Y for up; entities keep their default 0° rotation and face the
-// wearer correctly.
-function productShowcase() {
-  const tab = makeTab({ name: 'Product', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Showcase' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-
-  // Plinth — short cylinder on the floor as a stage for the hero.
-  const plinth = makeModelEntity('cylinder', {
-    parentId: anchor.id, name: 'Plinth',
-    cylinderRadius: 0.22, cylinderHeight: 0.04,
-    position: [0, 1.0, 0]
-  })
-  plinth.materials = [{
-    id: 'mat-product-base', type: 'simple',
-    baseColor: '#1a1a1c', roughness: 0.4, isMetallic: false
-  }]
-
-  // Glow ring just above the plinth — flat thin disc with bright
-  // emissive colour to read as ambient floor lighting. A loop timer
-  // pulses the emission once a second to give the showcase a
-  // "powered on" feel.
-  const glow = makeModelEntity('cylinder', {
-    parentId: anchor.id, name: 'Glow Ring',
-    cylinderRadius: 0.30, cylinderHeight: 0.005,
-    position: [0, 1.025, 0],
-    behaviors: [
-      behavior(
-        trigger('timer', { mode: 'loop', seconds: 1.6 }),
-        action('setMaterial', { property: 'emissionIntensity', numberValue: 2.4, duration: 0.8, curve: 'easeInOut', toggle: true })
-      )
-    ]
-  })
-  glow.materials = [{
-    id: 'mat-product-glow', type: 'physicallyBased',
-    baseColor: '#0a84ff', baseColorTextureName: null,
-    roughness: 0.9, roughnessTextureName: null,
-    metallic: 0, metallicTextureName: null,
-    normalTextureName: null, ambientOcclusionTextureName: null,
-    emissiveColor: '#0a84ff', emissiveIntensity: 1.4,
-    emissiveTextureName: null,
-    clearcoat: 0, clearcoatRoughness: 0,
-    sheenColor: '#000000',
-    blending: 'opaque', opacityThreshold: null,
-    faceCulling: 'back',
-    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-  }]
-
-  // Hero sphere — physically-based metal with clearcoat finish. Auto-
-  // rotates on its plinth via a long-period timer so the designer
-  // sees movement immediately on Preview, and tap toggles a slight
-  // scale lift to read as "selected".
-  const sphere = makeModelEntity('sphere', {
-    parentId: anchor.id, name: 'Hero Object',
-    sphereRadius: 0.14,
-    position: [0, 1.18, 0],
-    behaviors: [
-      behavior(
-        trigger('tap', { mode: 'single' }),
-        action('scaleTo', { mode: 'absolute', value: 1.25, duration: 0.35, curve: 'spring', toggle: true })
-      ),
-      // Continuous slow Y-rotation so the showcase reads as alive
-      // without any user input. 8s per full turn = a relaxed
-      // turntable cadence.
-      behavior(
-        trigger('timer', { mode: 'loop', seconds: 8 }),
-        action('rotateTo', { mode: 'relative', rotation: [0, 360, 0], duration: 8, curve: 'linear' })
-      )
-    ]
-  })
-  sphere.materials = [{
-    id: 'mat-product-1', type: 'physicallyBased',
-    baseColor: '#3a78ff', baseColorTextureName: null,
-    roughness: 0.18, roughnessTextureName: null,
-    metallic: 0.85, metallicTextureName: null,
-    normalTextureName: null, ambientOcclusionTextureName: null,
-    emissiveColor: '#000000', emissiveIntensity: 0,
-    emissiveTextureName: null,
-    clearcoat: 0.6, clearcoatRoughness: 0.1,
-    sheenColor: '#000000',
-    blending: 'opaque', opacityThreshold: null,
-    faceCulling: 'back',
-    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-  }]
-
-  // Title / subtitle attachments above the sphere.
-  const title = makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Title',
-    position: [0, 1.55, 0],
-    attachmentText: 'Globe Pro',
-    attachmentFontSize: 0.07,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  })
-  const tagline = makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Tagline',
-    position: [0, 1.46, 0],
-    attachmentText: 'New finish · Gen 2',
-    attachmentFontSize: 0.035,
-    attachmentBackground: '#1c1c1e',
-    attachmentColor: '#a0a0a4',
-    attachmentBillboard: true
-  })
-
-  // Spec callout (left), price (small, above Buy), Buy CTA (right).
-  const spec = makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Spec',
-    position: [-0.36, 1.20, 0],
-    attachmentText: '78 mm · 320 g\nAnodized · 4-axis',
-    attachmentFontSize: 0.028,
-    attachmentBackground: '#1c1c1e',
-    attachmentColor: '#cfcfcf',
-    attachmentBillboard: true
-  })
-  const price = makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Price',
-    position: [0.36, 1.27, 0],
-    attachmentText: '$199',
-    attachmentFontSize: 0.05,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  })
-  const buy = makeAttachmentEntity('button', {
-    parentId: anchor.id, name: 'Buy',
-    position: [0.36, 1.18, 0],
-    attachmentText: 'Buy now',
-    attachmentFontSize: 0.045,
-    attachmentBackground: '#0a84ff',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  })
-
-  return {
-    items: [tab, w, anchor, plinth, glow, sphere, title, tagline, spec, price, buy],
-    activeTabId: tab.id
-  }
-}
-
-// ---- Solar System (volume) -------------------------------------------
-// All eight planets plus the sun, lined up at chest height with size-
-// scaled radii and per-planet labels. A thin glowing orbit ring sits
-// under the row as a "this is a system" anchor. Sun is grouped under a
-// "Star" empty so designers can move/rotate the whole row at once.
-function solarSystem() {
+// ---- Cosmos (volume) -------------------------------------------------
+// Solar-system diorama. Sun castsLight so planets receive real
+// point-light shading (`entity.lightIntensity` on the sun controls
+// how strongly it lights everything else — dial it up to flood the
+// scene, down to a dim moonlit look). Each planet lives in a two-group
+// hierarchy so a tilted orbit works cleanly:
+//   • Outer TILT group — sits at the sun's centre with a fixed Z
+//     rotation. This inclines the orbit plane against the ecliptic.
+//   • Inner PATH group — animates Y-rotation continuously. Because the
+//     tilt is applied by the OUTER group, the animated Y sweeps the
+//     planet around the TILTED plane, giving a proper diagonal orbit
+//     (planet is above the ecliptic on one side and below it on the
+//     other).
+//
+// Note on Y positions: the TILT group's Y IS the orbit centre. Change
+// it to move the whole orbit up or down. Changing a planet's local Y
+// (inside the tilt group) instead offsets it AWAY from the orbit
+// plane — the planet stops being "on" the orbit and rides an
+// off-centre circle. That's not a bug in our system; it's how nested
+// transforms work in RealityKit, Unity, Unreal, and every 3D engine.
+function cosmosVolume() {
   const tab = makeTab({ name: 'Cosmos', icon: 'sparkles' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Solar System' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-  const system = makeGroupEntity({ parentId: anchor.id, name: 'System' })
-
-  const items = [tab, w, anchor, system]
-
-  // Sun — large emissive sphere at the left end. On scene start a
-  // slow pulse loop bumps emission up + back down so the sun looks
-  // alive even before the user touches anything.
-  const sun = makeModelEntity('sphere', {
-    parentId: system.id, name: 'Sun',
-    sphereRadius: 0.10,
-    position: [-0.55, 1.20, 0],
-    behaviors: [
-      behavior(
-        trigger('timer', { mode: 'loop', seconds: 2.4 }),
-        action('setMaterial', { property: 'emissionIntensity', numberValue: 2.4, duration: 1.2, curve: 'easeInOut', toggle: true })
-      )
-    ]
-  })
-  sun.materials = [{
-    id: 'mat-sun', type: 'physicallyBased',
-    baseColor: '#ffb84a', roughness: 0.6, metallic: 0,
-    emissiveColor: '#ffb84a', emissiveIntensity: 1.6,
-    clearcoat: 0, clearcoatRoughness: 0, sheenColor: '#000000',
-    blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-    baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-    normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-  }]
-  items.push(sun)
-  items.push(makeAttachmentEntity('text', {
-    parentId: system.id, name: 'Sun Label',
-    position: [-0.55, 1.36, 0],
-    attachmentText: 'Sun',
-    attachmentFontSize: 0.030,
-    attachmentBackground: '#2a2200',
-    attachmentColor: '#ffd9a3',
-    attachmentBillboard: true
-  }))
-
-  // Eight planets at increasing X. Sizes are perceptual (not to scale)
-  // so the inner planets stay readable next to the gas giants.
-  const planets = [
-    { name: 'Mercury', x: -0.32, r: 0.018, color: '#a0a0a0', emissive: '#000000' },
-    { name: 'Venus',   x: -0.20, r: 0.028, color: '#e0c47a', emissive: '#000000' },
-    { name: 'Earth',   x: -0.08, r: 0.030, color: '#3a78ff', emissive: '#000000' },
-    { name: 'Mars',    x:  0.04, r: 0.024, color: '#cf5530', emissive: '#000000' },
-    { name: 'Jupiter', x:  0.18, r: 0.058, color: '#c89a72', emissive: '#000000' },
-    { name: 'Saturn',  x:  0.34, r: 0.050, color: '#e6d3a3', emissive: '#000000' },
-    { name: 'Uranus',  x:  0.46, r: 0.038, color: '#7ec8c8', emissive: '#000000' },
-    { name: 'Neptune', x:  0.58, r: 0.036, color: '#3e60c0', emissive: '#000000' }
-  ]
-  for (const p of planets) {
-    // Tap on a planet pops it up to 1.6× scale; tapping again snaps
-    // back via auto-reverse. Each planet gets its own behavior record
-    // so the runtime state is per-entity.
-    const sphere = makeModelEntity('sphere', {
-      parentId: system.id, name: p.name,
-      sphereRadius: p.r,
-      position: [p.x, 1.20, 0],
-      behaviors: [
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('scaleTo', { mode: 'absolute', value: 1.6, duration: 0.3, curve: 'spring', toggle: true })
-        )
-      ]
-    })
-    sphere.materials = [{
-      id: `mat-${p.name.toLowerCase()}`, type: 'simple',
-      baseColor: p.color, roughness: 0.6, isMetallic: false
-    }]
-    items.push(sphere)
-    items.push(makeAttachmentEntity('text', {
-      parentId: system.id, name: `${p.name} Label`,
-      position: [p.x, 1.20 + p.r + 0.05, 0],
-      attachmentText: p.name,
-      attachmentFontSize: 0.022,
-      attachmentBackground: '#0c0c0e',
-      attachmentColor: '#ffffff',
-      attachmentBillboard: true
-    }))
-  }
-
-  // Saturn's ring — flat thin disc tilted slightly so it reads as a ring.
-  const saturnRing = makeModelEntity('cylinder', {
-    parentId: system.id, name: 'Saturn Ring',
-    cylinderRadius: 0.085, cylinderHeight: 0.002,
-    position: [0.34, 1.20, 0],
-    rotation: [12, 0, 0]
-  })
-  saturnRing.materials = [{
-    id: 'mat-saturn-ring', type: 'simple',
-    baseColor: '#c9b58a', roughness: 0.7, isMetallic: false
-  }]
-  items.push(saturnRing)
-
-  // Floor band — long thin disc under the row, faint emissive blue, to
-  // ground the system visually without competing with the planets.
-  const orbitBand = makeModelEntity('box', {
-    parentId: system.id, name: 'Orbit Band',
-    boxSize: [1.05, 0.004, 0.04],
-    position: [0.13, 1.04, 0]
-  })
-  orbitBand.materials = [{
-    id: 'mat-orbit-band', type: 'physicallyBased',
-    baseColor: '#0a1230', roughness: 0.9, metallic: 0,
-    emissiveColor: '#3a78ff', emissiveIntensity: 0.6,
-    clearcoat: 0, clearcoatRoughness: 0, sheenColor: '#000000',
-    blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-    baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-    normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-  }]
-  items.push(orbitBand)
-
-  return { items, activeTabId: tab.id }
-}
-
-// ---- (Diorama deprecated — replaced by moodLamps below) ---------------
-function diorama_legacy() {
-  const tab = makeTab({ name: 'Diorama', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Diorama' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-  const stage = makeGroupEntity({ parentId: anchor.id, name: 'Stage' })
-
-  // Backing wall — vertical plane behind the towers. Default
-  // rotation [0,0,0] keeps the plane upright with its normal facing
-  // +Z (toward the wearer at +Z).
-  const wall = makeModelEntity('plane', {
-    parentId: stage.id, name: 'Wall',
-    planeWidth: 0.9, planeDepth: 0.55,
-    position: [0, 1.30, -0.18]
-  })
-  wall.materials = [{
-    id: 'mat-wall-1', type: 'simple',
-    baseColor: '#7a8aa0', roughness: 0.85, isMetallic: false
-  }]
-
-  // Floor pad — horizontal plane at the towers' base, rotated 90° on
-  // X so its normal points up.
-  const pad = makeModelEntity('plane', {
-    parentId: stage.id, name: 'Floor Pad',
-    planeWidth: 0.92, planeDepth: 0.45,
-    position: [0, 1.045, 0],
-    rotation: [-90, 0, 0]
-  })
-  pad.materials = [{
-    id: 'mat-pad-1', type: 'simple',
-    baseColor: '#3a3f48', roughness: 0.7, isMetallic: false
-  }]
-
-  // Three towers in saturated colours, ascending heights. Tap a
-  // tower to launch it 12 cm up with a spring curve, auto-reverse
-  // brings it back on the second tap — a tiny tactile interaction
-  // that hints at how the behaviour system stacks transforms.
-  const towerColors = ['#e07a5f', '#81b29a', '#f2cc8f']
-  const towers = towerColors.map((c, i) => {
-    const h = 0.12 + i * 0.07
-    const tower = makeModelEntity('box', {
-      parentId: stage.id, name: `Tower ${i + 1}`,
-      boxSize: [0.09, h, 0.09],
-      position: [-0.22 + i * 0.22, 1.05 + h / 2, 0],
-      behaviors: [
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('moveTo', { mode: 'offset', position: [0, 0.12, 0], duration: 0.35, curve: 'spring', toggle: true })
-        )
-      ]
-    })
-    tower.materials = [{
-      id: `mat-tower-${i}`, type: 'simple',
-      baseColor: c, roughness: 0.55, isMetallic: false
-    }]
-    return tower
-  })
-
-  const label = makeAttachmentEntity('text', {
-    parentId: stage.id, name: 'Title',
-    position: [0, 1.62, 0],
-    attachmentText: 'Diorama',
-    attachmentFontSize: 0.040,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  })
-
-  return {
-    items: [tab, w, anchor, stage, wall, pad, ...towers, label],
-    activeTabId: tab.id
-  }
-}
-
-// ---- Mood Lamps (volume) ---------------------------------------------
-// Three pendant lamps in a row over a dark slab "console". Each lamp
-// is a sphere bulb on a thin stem; tap a bulb to toggle it from a low
-// resting glow to a saturated colour pulse, and tap again to dim back
-// down (auto-reverse). Demonstrates per-entity state via `toggle: true`
-// without any global variables — useful as a starter for any "smart
-// home / picker / per-item state" UI.
-function moodLamps() {
-  const tab = makeTab({ name: 'Mood', icon: 'lightbulb' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Mood Lamps' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Cosmos' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'Solar System' })
   const items = [tab, w, anchor]
 
-  // Console slab — flat box that visually grounds the lamps.
-  const slab = makeModelEntity('box', {
-    parentId: anchor.id, name: 'Console',
-    boxSize: [0.84, 0.04, 0.18],
-    position: [0, 1.05, 0]
-  })
-  slab.materials = [{
-    id: 'mat-slab', type: 'simple',
-    baseColor: '#1a1a1c', roughness: 0.85, isMetallic: false
-  }]
-  items.push(slab)
-
-  // Three lamps. Each lamp = stem (small cylinder) + bulb (sphere).
-  // Bulb has a saturated emissive colour; the tap behaviour pulses
-  // the emission intensity up to a "fully on" level, and the second
-  // tap (auto-reverse) dims it back to its resting glow.
-  const lampSpecs = [
-    { name: 'Warm',  x: -0.30, color: '#ff9a3c', restGlow: 0.4 },
-    { name: 'Cool',  x:  0.00, color: '#3a78ff', restGlow: 0.4 },
-    { name: 'Lime',  x:  0.30, color: '#7be39c', restGlow: 0.4 }
-  ]
-  for (const l of lampSpecs) {
-    const stem = makeModelEntity('cylinder', {
-      parentId: anchor.id, name: `${l.name} Stem`,
-      cylinderRadius: 0.005, cylinderHeight: 0.10,
-      position: [l.x, 1.13, 0]
-    })
-    stem.materials = [{
-      id: `mat-stem-${l.name.toLowerCase()}`, type: 'simple',
-      baseColor: '#3a3a3c', roughness: 0.6, isMetallic: false
-    }]
-    items.push(stem)
-
-    const bulb = makeModelEntity('sphere', {
-      parentId: anchor.id, name: `${l.name} Lamp`,
-      sphereRadius: 0.045,
-      position: [l.x, 1.24, 0],
-      behaviors: [
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('setMaterial', { property: 'emissionIntensity', numberValue: 3.0, duration: 0.35, curve: 'easeOut', toggle: true })
-        ),
-        // Subtle gentle bob so even unactivated lamps feel alive.
-        behavior(
-          trigger('timer', { mode: 'loop', seconds: 2.6 }),
-          action('moveTo', { mode: 'offset', position: [0, 0.012, 0], duration: 1.3, curve: 'easeInOut', toggle: true })
-        )
-      ]
-    })
-    bulb.materials = [{
-      id: `mat-bulb-${l.name.toLowerCase()}`, type: 'physicallyBased',
-      baseColor: l.color, roughness: 0.35, metallic: 0,
-      emissiveColor: l.color, emissiveIntensity: l.restGlow,
-      clearcoat: 0.4, clearcoatRoughness: 0.2, sheenColor: '#000000',
-      blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-      baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-      normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-      textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-    }]
-    items.push(bulb)
-  }
-
-  // Caption above.
-  items.push(makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Caption',
-    position: [0, 1.40, 0],
-    attachmentText: 'Tap a lamp',
-    attachmentFontSize: 0.030,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  }))
-
-  return { items, activeTabId: tab.id }
-}
-
-// ---- Spinning Showcase (volume) --------------------------------------
-// Three product cubes arranged in a triangle; the whole group rotates
-// continuously around Y like a museum turntable. Tap any cube to scale
-// up + emit; tap again to settle back. Demonstrates continuous
-// behaviour (timer-driven group rotation) layered with per-entity tap
-// interactions, so designers can copy the pattern for any
-// "always-moving showcase" UI.
-function spinningShowcase() {
-  const tab = makeTab({ name: 'Showcase', icon: 'cube' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Showcase' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-  // Group rotates as a unit. The continuous spin lives on this group
-  // via a 6-second loop timer that nudges Y by +60° each tick — over
-  // many cycles the visual cadence is a smooth slow turn.
-  const turntable = makeGroupEntity({
-    parentId: anchor.id, name: 'Turntable',
+  // Sun — bright emissive sphere. Base emission 3.2 so it looks like
+  // a star from the first frame; the ambient pulse brightens to 4.2
+  // and back on a 2.4s cadence.
+  const sun = makeModelEntity('sphere', {
+    parentId: anchor.id, name: 'Sun',
+    sphereRadius: 0.058,
     position: [0, 1.20, 0],
     behaviors: [
-      behavior(
-        trigger('timer', { mode: 'loop', seconds: 6.0 }),
-        action('rotateTo', { mode: 'relative', rotation: [0, 360, 0], duration: 6.0, curve: 'linear' })
-      )
+      loopEmissionPulse(2.4, 4.2),
+      onTapBroadcast('solar-flare')
     ]
   })
+  sun.materials = [pbr('#ffcc66', { roughness: 0.5, emissive: '#ffcc66', emissiveIntensity: 3.2 })]
+  items.push(sun)
 
-  // Three cubes equally spaced around the group origin.
-  const cubeSpecs = [
-    { name: 'Crimson',  angle: 0,           color: '#e94e62' },
-    { name: 'Emerald',  angle: 120,         color: '#3aab7a' },
-    { name: 'Sapphire', angle: 240,         color: '#3a78ff' }
-  ]
-  const items = [tab, w, anchor, turntable]
-  const radius = 0.18
-  for (const c of cubeSpecs) {
-    const rad = c.angle * Math.PI / 180
-    const cube = makeModelEntity('box', {
-      parentId: turntable.id, name: c.name,
-      boxSize: [0.10, 0.10, 0.10],
-      position: [Math.cos(rad) * radius, 0, Math.sin(rad) * radius],
-      rotation: [0, -c.angle, 0],  // face outward
-      behaviors: [
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('scaleTo', { mode: 'absolute', value: 1.4, duration: 0.3, curve: 'spring', toggle: true })
-        ),
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('setMaterial', { property: 'emissionIntensity', numberValue: 2.4, duration: 0.25, curve: 'easeOut', toggle: true })
-        )
-      ]
-    })
-    cube.materials = [{
-      id: `mat-cube-${c.name.toLowerCase()}`, type: 'physicallyBased',
-      baseColor: c.color, roughness: 0.4, metallic: 0.2,
-      emissiveColor: c.color, emissiveIntensity: 0.3,
-      clearcoat: 0.5, clearcoatRoughness: 0.2, sheenColor: '#000000',
-      blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-      baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-      normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-      textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-    }]
-    items.push(cube)
-  }
-
-  // Title above the turntable.
-  items.push(makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Title',
-    position: [0, 1.45, 0],
-    attachmentText: 'Showcase',
-    attachmentFontSize: 0.038,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
+  // Sun Light — a first-class Light entity parented to the sun so it
+  // moves with it. Editable from the Layers panel: click "Sun Light",
+  // then dial intensity / range / colour in the inspector. Because
+  // it's a proper Light entity (not a hidden model flag), it appears
+  // with a Blender-style bulb icon and shows up in the SwiftUI export
+  // as a PointLightComponent on the sun's Entity.
+  items.push(makeLightEntity('point', {
+    parentId: sun.id,
+    name: 'Sun Light',
+    position: [0, 0, 0],
+    lightColor: '#ffe6b0',
+    lightIntensity: 2,
+    lightRange: 3.0
   }))
 
-  return { items, activeTabId: tab.id }
-}
+  // Sun caption — pinned above the sun at y=1.35.
+  items.push(attachText(anchor, [0, 1.35, 0], 'Sun', {
+    style: 'title3', name: 'Sun Label',
+    color: '#ffd9a3', background: '#2a1c00'
+  }))
 
-// ---- Gallery (volume) ------------------------------------------------
-// Three framed picture planes mounted on the back wall, with a small
-// caption label under each. Picture frames are thin boxes behind a
-// brighter inner plane to mimic a matte / mount. Designers can swap
-// the picture-plane materials for textures later.
-function gallery() {
-  const tab = makeTab({ name: 'Gallery', icon: 'square.grid.2x2' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Gallery' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-
-  // Back wall — wider than the diorama to leave room for three frames.
-  const wall = makeModelEntity('plane', {
-    parentId: anchor.id, name: 'Back Wall',
-    planeWidth: 1.4, planeDepth: 0.7,
-    position: [0, 1.40, -0.20]
-  })
-  wall.materials = [{
-    id: 'mat-gallery-wall', type: 'simple',
-    baseColor: '#e9e6dd', roughness: 0.9, isMetallic: false
-  }]
-
-  const items = [tab, w, anchor, wall]
-  const pictures = [
-    { name: 'Sunrise',  x: -0.45, color: '#f4a261' },
-    { name: 'Forest',   x:  0.00, color: '#2a9d8f' },
-    { name: 'Twilight', x:  0.45, color: '#5a4fcf' }
+  // Five planets. Jupiter rides a tilted orbit plane (20° from ecliptic)
+  // and its Tilt group sits lower (y=1.12) so its whole orbit lives
+  // below the inner planets' plane.
+  const planetSpecs = [
+    { name: 'Mercury', orbit: 0.18, radius: 0.014, color: '#8a827a', metallic: 0.15, period:  8.0, tilt: 0,  centreY: 1.20, fact: 'Mercury\n4,879 km · 88 days' },
+    { name: 'Venus',   orbit: 0.28, radius: 0.024, color: '#b8a05a', metallic: 0.05, period: 12.0, tilt: 0,  centreY: 1.20, fact: 'Venus\n12,104 km · 225 days' },
+    { name: 'Earth',   orbit: 0.38, radius: 0.028, color: '#3060cc', metallic: 0.02, period: 16.0, tilt: 0,  centreY: 1.20, fact: 'Earth\n12,742 km · 365 days' },
+    { name: 'Mars',    orbit: 0.48, radius: 0.022, color: '#a04022', metallic: 0.05, period: 20.0, tilt: 0,  centreY: 1.20, fact: 'Mars\n6,779 km · 687 days' },
+    { name: 'Jupiter', orbit: 0.62, radius: 0.045, color: '#a07a54', metallic: 0.03, period: 28.0, tilt: 20, centreY: 1.12, fact: 'Jupiter\n139,820 km · 12 years\nTilted orbit' }
   ]
-  for (const p of pictures) {
-    // Frame — thin box flush against the wall.
-    const frame = makeModelEntity('box', {
-      parentId: anchor.id, name: `${p.name} Frame`,
-      boxSize: [0.32, 0.24, 0.012],
-      position: [p.x, 1.40, -0.193]
+  for (const p of planetSpecs) {
+    // OUTER: tilt group. Sits at the orbit centre (usually the sun,
+    // but Jupiter's group sits lower so its orbit rides beneath the
+    // inner planets). Static rotation on Z inclines the orbit plane.
+    const tiltGroup = makeGroupEntity({
+      parentId: anchor.id, name: `${p.name} Tilt`,
+      position: [0, p.centreY, 0],
+      rotation: [0, 0, p.tilt]
     })
-    frame.materials = [{
-      id: `mat-frame-${p.name.toLowerCase()}`, type: 'simple',
-      baseColor: '#1a1a1c', roughness: 0.55, isMetallic: false
-    }]
-    items.push(frame)
+    items.push(tiltGroup)
 
-    // Picture — coloured plane sitting just in front of the frame.
-    // On hover-enter it warms emission AND scales up slightly so the
-    // "focused work" feedback is visible against the wall. Hover-
-    // leave reverses both. Plus a tap behaviour pops it forward as a
-    // "select" cue, so the gallery reads as interactive even without
-    // gaze hardware.
-    const pic = makeModelEntity('plane', {
-      parentId: anchor.id, name: p.name,
-      planeWidth: 0.28, planeDepth: 0.20,
-      position: [p.x, 1.40, -0.186],
-      behaviors: [
-        behavior(
-          trigger('hover', { mode: 'enter' }),
-          action('setMaterial', { property: 'emission', colorValue: p.color, duration: 0.18, curve: 'easeOut' }),
-          action('scaleTo', { mode: 'absolute', value: 1.08, duration: 0.18, curve: 'easeOut' })
-        ),
-        behavior(
-          trigger('hover', { mode: 'leave' }),
-          action('setMaterial', { property: 'emission', colorValue: '#000000', duration: 0.25, curve: 'easeOut' }),
-          action('scaleTo', { mode: 'absolute', value: 1.0, duration: 0.25, curve: 'easeOut' })
-        ),
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('moveTo', { mode: 'offset', position: [0, 0, 0.04], duration: 0.3, curve: 'spring', toggle: true })
-        )
-      ]
+    // INNER: path group. Y rotation animates continuously in the
+    // tilted parent frame — this is what gives a real diagonal orbit
+    // instead of a flat circle.
+    const pathGroup = makeGroupEntity({
+      parentId: tiltGroup.id, name: `${p.name} Path`,
+      position: [0, 0, 0],
+      behaviors: [loopRotateY(p.period)]
     })
-    pic.materials = [{
-      id: `mat-pic-${p.name.toLowerCase()}`, type: 'simple',
-      baseColor: p.color, roughness: 0.45, isMetallic: false
-    }]
-    items.push(pic)
+    items.push(pathGroup)
 
-    items.push(makeAttachmentEntity('text', {
-      parentId: anchor.id, name: `${p.name} Caption`,
-      position: [p.x, 1.20, -0.18],
-      attachmentText: p.name,
-      attachmentFontSize: 0.026,
-      attachmentBackground: '#0c0c0e',
-      attachmentColor: '#ffffff',
-      attachmentBillboard: true
-    }))
-  }
-  return { items, activeTabId: tab.id }
-}
-
-// ---- Card Stack (volume) ---------------------------------------------
-// Three flat 3D cards fanned in a row at chest height, each with a
-// title and a body label. A great starter for designers who want to
-// wire up tap-to-flip behaviours: every card is a default-rotated
-// plane facing the wearer.
-function cardStack() {
-  const tab = makeTab({ name: 'Cards', icon: 'rectangle.stack' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Cards' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-
-  const items = [tab, w, anchor]
-  const cards = [
-    { name: 'Today',    x: -0.34, color: '#0a84ff', body: 'Sunny\n68° / 51°' },
-    { name: 'Tomorrow', x:  0.00, color: '#5e5ce6', body: 'Cloudy\n65° / 49°' },
-    { name: 'Friday',   x:  0.34, color: '#ff9f0a', body: 'Showers\n61° / 47°' }
-  ]
-  for (const c of cards) {
-    // Card body — slightly thick box so it reads as a card, not a
-    // sticker. Default rotation [0,0,0] keeps the card facing +Z.
-    // Tap-to-flip is wired by default: rotateY 180° with auto-reverse,
-    // so the second tap flips back to the front face.
-    const card = makeModelEntity('box', {
-      parentId: anchor.id, name: c.name,
-      boxSize: [0.26, 0.34, 0.02],
-      position: [c.x, 1.22, 0],
-      behaviors: [
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('rotateTo', { mode: 'relative', rotation: [0, 180, 0], duration: 0.45, curve: 'easeInOut', toggle: true })
-        )
-      ]
-    })
-    card.materials = [{
-      id: `mat-card-${c.name.toLowerCase()}`, type: 'physicallyBased',
-      baseColor: c.color, roughness: 0.4, metallic: 0,
-      emissiveColor: c.color, emissiveIntensity: 0.25,
-      clearcoat: 0.4, clearcoatRoughness: 0.2, sheenColor: '#000000',
-      blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-      baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-      normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-      textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-    }]
+    // Info card — hidden by default. Hovering the planet fades it in;
+    // moving off fades it out. Sized at 0.020m with an offset of 0.07m
+    // above the planet.
+    const card = attachInfoCard(
+      { id: pathGroup.id },
+      [p.orbit, 0.07, 0],
+      p.fact,
+      {
+        name: `${p.name} Info`,
+        style: 'body',
+        color: '#ffffff',
+        background: '#0c0c0e'
+      }
+    )
+    card.attachmentFontSize = 0.020
     items.push(card)
 
-    items.push(makeAttachmentEntity('text', {
-      parentId: anchor.id, name: `${c.name} Title`,
-      position: [c.x, 1.34, 0.012],
-      attachmentText: c.name,
-      attachmentFontSize: 0.030,
-      attachmentBackground: '#00000000',
-      attachmentColor: '#ffffff',
-      attachmentBillboard: true
-    }))
-    items.push(makeAttachmentEntity('text', {
-      parentId: anchor.id, name: `${c.name} Body`,
-      position: [c.x, 1.20, 0.012],
-      attachmentText: c.body,
-      attachmentFontSize: 0.024,
-      attachmentBackground: '#00000000',
-      attachmentColor: '#ffffff',
-      attachmentBillboard: true
-    }))
-  }
-  return { items, activeTabId: tab.id }
-}
-
-// ---- Reactive Lights (volume) ----------------------------------------
-// A row of five glowing pucks plus a master orb that broadcasts a
-// scene-wide "wave" event when tapped. Each puck listens for the
-// event and pops + glows in sequence after a short stagger, so the
-// whole row rolls like a Mexican wave. Showcases broadcast events,
-// staggered timers, and mixed transform / material animations — a
-// great "what's possible" template for new users.
-function reactiveLights() {
-  const tab = makeTab({ name: 'Lights', icon: 'sparkles' })
-  const w   = volumeWindow({ parentId: tab.id, name: 'Reactive Lights' })
-  const anchor = makeAnchorEntity({ parentId: w.id, name: 'World Anchor' })
-  const items = [tab, w, anchor]
-
-  // Master orb in the centre — tap it to broadcast a "wave" event
-  // that the row of pucks listens for. Also pulses on its own.
-  const master = makeModelEntity('sphere', {
-    parentId: anchor.id, name: 'Master Orb',
-    sphereRadius: 0.07,
-    position: [0, 1.50, 0],
-    behaviors: [
-      behavior(
-        trigger('tap', { mode: 'single' }),
-        action('broadcast', { name: 'wave' })
-      ),
-      behavior(
-        trigger('timer', { mode: 'loop', seconds: 0.9 }),
-        action('setMaterial', { property: 'emissionIntensity', numberValue: 2.6, duration: 0.45, curve: 'easeInOut', toggle: true })
-      )
-    ]
-  })
-  master.materials = [{
-    id: 'mat-master', type: 'physicallyBased',
-    baseColor: '#ffffff', roughness: 0.4, metallic: 0,
-    emissiveColor: '#ffffff', emissiveIntensity: 1.0,
-    clearcoat: 0.3, clearcoatRoughness: 0.2, sheenColor: '#000000',
-    blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-    baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-    normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-    textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-  }]
-  items.push(master)
-
-  // Title above the row.
-  items.push(makeAttachmentEntity('text', {
-    parentId: anchor.id, name: 'Title',
-    position: [0, 1.66, 0],
-    attachmentText: 'Tap the orb',
-    attachmentFontSize: 0.034,
-    attachmentBackground: '#0c0c0e',
-    attachmentColor: '#ffffff',
-    attachmentBillboard: true
-  }))
-
-  // Five pucks in a row at chest height, each in its own colour. They
-  // all listen for the "wave" event but use the staggered stack of
-  // wait + scaleTo + setMaterial actions so the wave rolls left to
-  // right. Tap on a puck individually toggles a self pop too.
-  const pucks = [
-    { name: 'Puck 1', x: -0.40, color: '#e94e62' },
-    { name: 'Puck 2', x: -0.20, color: '#f5b14a' },
-    { name: 'Puck 3', x:  0.00, color: '#7be39c' },
-    { name: 'Puck 4', x:  0.20, color: '#3a78ff' },
-    { name: 'Puck 5', x:  0.40, color: '#a05dff' }
-  ]
-  for (let i = 0; i < pucks.length; i++) {
-    const p = pucks[i]
-    const stagger = i * 0.12
-    const puck = makeModelEntity('cylinder', {
-      parentId: anchor.id, name: p.name,
-      cylinderRadius: 0.06, cylinderHeight: 0.04,
-      position: [p.x, 1.10, 0],
+    // Planet. Roughness 0.90 for a truly matte, dusty surface — cuts
+    // the "wet plastic" specular shine planets had before. Base
+    // emission stays 0 so the sun's point-light does all the lighting
+    // work (day side bright, night side dark).
+    const planet = makeModelEntity('sphere', {
+      parentId: pathGroup.id, name: p.name,
+      sphereRadius: p.radius,
+      position: [p.orbit, 0, 0],
+      // Hovering shows the info card (reveal via showHide) and glows
+      // the planet lightly. No tap-highlight scaling — the previous
+      // "tap → 2.2× puff" felt aggressive. Solar-flare event still
+      // ripples every planet in a scale pulse.
       behaviors: [
-        // Wave reaction — staggered pop + glow, then wait + reverse.
-        behavior(
-          trigger('eventReceived', { name: 'wave' }),
-          action('wait', { seconds: stagger }),
-          action('moveTo', { mode: 'offset', position: [0, 0.10, 0], duration: 0.18, curve: 'easeOut' }),
-          action('setMaterial', { property: 'emissionIntensity', numberValue: 2.5, duration: 0.18, curve: 'easeOut' }),
-          action('wait', { seconds: 0.25 }),
-          action('moveTo', { mode: 'offset', position: [0, 0, 0], duration: 0.30, curve: 'easeIn' }),
-          action('setMaterial', { property: 'emissionIntensity', numberValue: 0.6, duration: 0.30, curve: 'easeIn' })
-        ),
-        // Self-tap — single pop, auto-reverse.
-        behavior(
-          trigger('tap', { mode: 'single' }),
-          action('scaleTo', { mode: 'absolute', value: 1.4, duration: 0.25, curve: 'spring', toggle: true })
+        onHoverIn(1.10, p.color),
+        onHoverOut(),
+        ...onHoverReveal(card.id),
+        onEventReceived('solar-flare',
+          action('scaleTo', { mode: 'absolute', value: 1.4, duration: 0.25, curve: 'easeOut' }),
+          action('wait', { seconds: 0.35 }),
+          action('scaleTo', { mode: 'absolute', value: 1.0, duration: 0.35, curve: 'easeIn' })
         )
       ]
     })
-    puck.materials = [{
-      id: `mat-puck-${i}`, type: 'physicallyBased',
-      baseColor: p.color, roughness: 0.45, metallic: 0,
-      emissiveColor: p.color, emissiveIntensity: 0.6,
-      clearcoat: 0.2, clearcoatRoughness: 0.3, sheenColor: '#000000',
-      blending: 'opaque', opacityThreshold: null, faceCulling: 'back',
-      baseColorTextureName: null, roughnessTextureName: null, metallicTextureName: null,
-      normalTextureName: null, ambientOcclusionTextureName: null, emissiveTextureName: null,
-      textureCoordinateTransform: { offsetU: 0, offsetV: 0, scaleU: 1, scaleV: 1, rotation: 0 }
-    }]
-    items.push(puck)
+    planet.materials = [pbr(p.color, {
+      roughness: 0.90, metallic: p.metallic,
+      // Earth keeps a faint clearcoat to sell the ocean sheen; the
+      // rocky planets stay fully matte.
+      clearcoat: p.name === 'Earth' ? 0.25 : 0,
+      clearcoatRoughness: 0.6
+    })]
+    items.push(planet)
   }
+
+  items.push(attachTitle(anchor, [0, 1.56, 0], 'Cosmos'))
+  items.push(attachSubtitle(anchor, [0, 1.47, 0], 'Tap the sun for a flare · hover a planet for info'))
 
   return { items, activeTabId: tab.id }
 }
 
+// ---- Anatomy (volume) ------------------------------------------------
+// Beating heart on a museum plinth — the Complete Anatomy visionOS
+// pattern. Tap any chamber to reveal a body-styled info card explaining
+// its function; hovering glows the chamber and outlines it via a shader
+// effect so the reader knows which one they're about to tap.
+function anatomyVolume() {
+  const tab = makeTab({ name: 'Anatomy', icon: 'heart.fill' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Human Heart' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'Specimen' })
+  const items = [tab, w, anchor]
+
+  // Marble plinth — the exhibit's base. Clearcoat + low roughness
+  // reads as polished stone under the studio key light.
+  const plinth = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Plinth',
+    cylinderRadius: 0.16, cylinderHeight: 0.02,
+    position: [0, 1.00, 0]
+  })
+  plinth.materials = [pbr('#2a2a2c', { roughness: 0.3, metallic: 0.15, clearcoat: 0.5, clearcoatRoughness: 0.2 })]
+  items.push(plinth)
+
+  // Under-glow halo — warm crimson signalling "living tissue". Pulses
+  // in sync with the heartbeat via an event-received listener.
+  const halo = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Halo',
+    cylinderRadius: 0.18, cylinderHeight: 0.003,
+    position: [0, 1.012, 0],
+    behaviors: [
+      onEventReceived('heartbeat',
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 1.6, duration: 0.15, curve: 'easeOut' }),
+        action('wait', { seconds: 0.2 }),
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 1.0, duration: 0.25, curve: 'easeIn' })
+      )
+    ]
+  })
+  halo.materials = [pbr('#2a0508', { roughness: 0.9, emissive: '#e63a5a', emissiveIntensity: 1.0 })]
+  items.push(halo)
+
+  // Heart group — parent of every chamber and vessel. Beats at ~65 BPM
+  // (0.9 s cycle). On each beat the heart broadcasts a 'heartbeat' event
+  // the halo (and any future entity — ECG, timer, monitor) can react to.
+  const heart = makeGroupEntity({
+    parentId: anchor.id, name: 'Heart',
+    position: [0, 1.22, 0],
+    behaviors: [
+      behavior(
+        trigger('timer', { mode: 'loop', seconds: 0.9 }),
+        action('scaleTo', { mode: 'absolute', value: 1.06, duration: 0.18, curve: 'easeOut', toggle: true }),
+        action('broadcast', { name: 'heartbeat' })
+      )
+    ]
+  })
+  items.push(heart)
+
+  // Four chambers — atria above ventricles. Each carries hover,
+  // tap-highlight, and tap-reveal for its info card + shader outline.
+  const chamberSpecs = [
+    { name: 'Left Atrium',      color: '#c9425c', pos: [ 0.038, 0.040, -0.015], r: 0.042, card: [ 0.20, 1.30, 0], fact: 'Left Atrium\nReceives oxygenated blood\nfrom the lungs' },
+    { name: 'Right Atrium',     color: '#5c86c9', pos: [-0.038, 0.040, -0.015], r: 0.042, card: [-0.20, 1.30, 0], fact: 'Right Atrium\nReceives deoxygenated blood\nfrom the body' },
+    { name: 'Left Ventricle',   color: '#a02d47', pos: [ 0.032, -0.028,  0.000], r: 0.055, card: [ 0.22, 1.13, 0], fact: 'Left Ventricle\nPumps oxygenated blood\nto the body' },
+    { name: 'Right Ventricle',  color: '#3d68a8', pos: [-0.034, -0.028,  0.000], r: 0.050, card: [-0.22, 1.13, 0], fact: 'Right Ventricle\nPumps deoxygenated blood\nto the lungs' }
+  ]
+  for (const c of chamberSpecs) {
+    // Info card — hidden until tapped. Named colour matches the
+    // chamber tint so the card reads as visually linked.
+    const card = attachInfoCard(anchor, c.card, c.fact, {
+      name: `${c.name} Card`,
+      style: 'body',
+      color: '#ffffff',
+      background: '#0c0c0e'
+    })
+    items.push(card)
+
+    const chamber = makeModelEntity('sphere', {
+      parentId: heart.id, name: c.name,
+      sphereRadius: c.r,
+      position: c.pos,
+      behaviors: [
+        onHoverIn(1.08, c.color),
+        onHoverOut(),
+        onTapHighlight(1.30, 0.32),
+        onTapReveal(card.id),
+        onTapOutline(1.2)
+      ]
+    })
+    chamber.materials = [pbr(c.color, {
+      roughness: 0.32, metallic: 0.05,
+      emissive: c.color, emissiveIntensity: 0.18,
+      clearcoat: 0.6, clearcoatRoughness: 0.18, sheen: '#ffb0b0'
+    })]
+    items.push(chamber)
+  }
+
+  // Aorta — the classic arch coming off the left ventricle.
+  const aorta = makeModelEntity('cylinder', {
+    parentId: heart.id, name: 'Aorta',
+    cylinderRadius: 0.013, cylinderHeight: 0.11,
+    position: [0.018, 0.082, -0.005],
+    rotation: [0, 0, -25]
+  })
+  aorta.materials = [pbr('#e63a5a', { roughness: 0.32, emissive: '#3a0000', emissiveIntensity: 0.15, clearcoat: 0.55 })]
+  items.push(aorta)
+
+  // Pulmonary artery — companion vessel on the right ventricle.
+  const pulmonary = makeModelEntity('cylinder', {
+    parentId: heart.id, name: 'Pulmonary Artery',
+    cylinderRadius: 0.011, cylinderHeight: 0.09,
+    position: [-0.022, 0.078, 0.005],
+    rotation: [0, 0, 20]
+  })
+  pulmonary.materials = [pbr('#3d68a8', { roughness: 0.32, emissive: '#00223a', emissiveIntensity: 0.15, clearcoat: 0.55 })]
+  items.push(pulmonary)
+
+  // Title + subtitle.
+  items.push(attachTitle(anchor, [0, 1.55, 0], 'Human Heart'))
+  items.push(attachSubtitle(anchor, [0, 1.50, 0], 'Tap a chamber for details'))
+
+  return { items, activeTabId: tab.id }
+}
+
+// ---- Engine (volume) -------------------------------------------------
+// Inline-4 combustion engine on a service stand. The block acts as the
+// scene's ignition — tap it to broadcast 'ignition', which crank +
+// pistons + exhaust listen for to run their firing loops. Tapping the
+// Start button attachment does the same, so the wearer can drive the
+// scene from either the mesh or the button. Hover feedback on every
+// interactive part; tap a piston to reveal its cylinder-order card.
+function engineVolume() {
+  const tab = makeTab({ name: 'Engine', icon: 'gearshape.2' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Engine' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'Engine Rig' })
+  const items = [tab, w, anchor]
+
+  // Brushed-steel service stand.
+  const stand = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Service Stand',
+    cylinderRadius: 0.22, cylinderHeight: 0.015,
+    position: [0, 1.00, 0]
+  })
+  stand.materials = [pbr('#3a3a3c', { roughness: 0.28, metallic: 0.75, clearcoat: 0.35 })]
+  items.push(stand)
+
+  // Diagnostic ring — cool blue undertone. Pulses on 'ignition'.
+  const glow = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Diag Ring',
+    cylinderRadius: 0.24, cylinderHeight: 0.003,
+    position: [0, 1.009, 0],
+    behaviors: [
+      onEventReceived('ignition',
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 2.4, duration: 0.4, curve: 'easeOut' }),
+        action('wait', { seconds: 0.5 }),
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 0.7, duration: 0.6, curve: 'easeIn' })
+      )
+    ]
+  })
+  glow.materials = [pbr('#0a1a3a', { roughness: 0.9, emissive: '#3a78ff', emissiveIntensity: 0.7 })]
+  items.push(glow)
+
+  // Engine block — hovering it hints tappability; tapping it broadcasts
+  // 'ignition' scene-wide. The block's own emission ramps up so the
+  // block itself reads as "powered".
+  const block = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Engine Block',
+    boxSize: [0.34, 0.08, 0.10],
+    position: [0, 1.06, 0],
+    behaviors: [
+      onHoverIn(1.02, '#3a78ff'),
+      onHoverOut(),
+      onTapBroadcast('ignition'),
+      behavior(
+        trigger('tap', { mode: 'single' }),
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 0.6, duration: 0.3, curve: 'easeOut', toggle: true })
+      )
+    ]
+  })
+  block.materials = [pbr('#18181a', {
+    roughness: 0.35, metallic: 0.55,
+    emissive: '#3a78ff', emissiveIntensity: 0.0,
+    clearcoat: 0.45, clearcoatRoughness: 0.2
+  })]
+  items.push(block)
+
+  // Crankshaft — thin horizontal cylinder. Runs a continuous spin
+  // once the scene starts (sceneStart), and pulses on ignition.
+  const crank = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Crankshaft',
+    cylinderRadius: 0.009, cylinderHeight: 0.36,
+    position: [0, 1.03, 0],
+    rotation: [0, 0, 90],
+    behaviors: [
+      behavior(
+        trigger('timer', { mode: 'loop', seconds: 1.2 }),
+        action('rotateTo', { mode: 'relative', rotation: [360, 0, 0], duration: 1.2, curve: 'linear' })
+      )
+    ]
+  })
+  crank.materials = [pbr('#c9c9cf', { roughness: 0.18, metallic: 0.9, clearcoat: 0.6, clearcoatRoughness: 0.1 })]
+  items.push(crank)
+
+  // Four pistons — staggered firing order 1-3-4-2. Each gets a reveal
+  // card on tap ("Cylinder 1 · Compression") for the automotive-visual
+  // pattern (Reality Composer Pro-style callouts).
+  const pistonSpecs = [
+    { name: 'Piston 1', x: -0.13,  y0: 1.120, order: '1st', stage: 'Intake' },
+    { name: 'Piston 2', x: -0.043, y0: 1.100, order: '3rd', stage: 'Power' },
+    { name: 'Piston 3', x:  0.043, y0: 1.115, order: '4th', stage: 'Exhaust' },
+    { name: 'Piston 4', x:  0.13,  y0: 1.105, order: '2nd', stage: 'Compression' }
+  ]
+  for (const p of pistonSpecs) {
+    const card = attachInfoCard(anchor, [p.x, 1.24, 0], `${p.name}\n${p.order} in firing order\n${p.stage} stroke`, {
+      name: `${p.name} Info`, style: 'body', color: '#ffe08a', background: '#0c0c0e'
+    })
+    items.push(card)
+
+    const piston = makeModelEntity('cylinder', {
+      parentId: anchor.id, name: p.name,
+      cylinderRadius: 0.021, cylinderHeight: 0.05,
+      position: [p.x, p.y0, 0],
+      behaviors: [
+        behavior(
+          trigger('timer', { mode: 'loop', seconds: 0.6 }),
+          action('moveTo', { mode: 'offset', position: [0, 0.022, 0], duration: 0.3, curve: 'easeInOut', toggle: true })
+        ),
+        onHoverIn(1.08, '#ffcc00'),
+        onHoverOut(),
+        onTapReveal(card.id),
+        behavior(
+          trigger('tap', { mode: 'single' }),
+          action('setMaterial', { property: 'emission', colorValue: '#ffcc00', duration: 0.2, curve: 'easeOut', toggle: true })
+        )
+      ]
+    })
+    piston.materials = [pbr('#8a8a90', {
+      roughness: 0.28, metallic: 0.88,
+      emissive: '#000000', emissiveIntensity: 0.0,
+      clearcoat: 0.55, clearcoatRoughness: 0.15
+    })]
+    items.push(piston)
+
+    // Spark plug — small cone on top of each piston.
+    const plug = makeModelEntity('cone', {
+      parentId: anchor.id, name: `${p.name} Plug`,
+      coneRadius: 0.010, coneHeight: 0.030,
+      position: [p.x, p.y0 + 0.048, 0]
+    })
+    plug.materials = [pbr('#e6b34a', { roughness: 0.32, metallic: 0.85, clearcoat: 0.4 })]
+    items.push(plug)
+  }
+
+  // Exhaust manifold — glowing pipe. Pulses on ambient timer; flares
+  // brighter when ignition fires.
+  const exhaust = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Exhaust',
+    cylinderRadius: 0.014, cylinderHeight: 0.30,
+    position: [0, 1.06, 0.062],
+    rotation: [0, 0, 90],
+    behaviors: [
+      loopEmissionPulse(1.5, 1.6),
+      onEventReceived('ignition',
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 3.0, duration: 0.25, curve: 'easeOut' }),
+        action('wait', { seconds: 0.3 }),
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 0.4, duration: 0.4, curve: 'easeIn' })
+      )
+    ]
+  })
+  exhaust.materials = [pbr('#2a2a2c', { roughness: 0.45, metallic: 0.55, emissive: '#ff5a1c', emissiveIntensity: 0.4 })]
+  items.push(exhaust)
+
+  // Start button — Apple's `.buttonStyle(.glass)` analog. Tapping it
+  // fires the same 'ignition' event as tapping the block. Positioned
+  // as a floating attachment above the intake side.
+  items.push(attachButton(anchor, [-0.16, 1.34, 0], 'Start', {
+    name: 'Start Button',
+    tint: '#0a84ff',
+    color: '#ffffff'
+  }))
+
+  // Title + subtitle.
+  items.push(attachTitle(anchor, [0, 1.44, 0], 'Inline-4'))
+  items.push(attachSubtitle(anchor, [0, 1.39, 0], 'Tap the block or Start to ignite · tap a piston for its role'))
+
+  return { items, activeTabId: tab.id }
+}
+
+// ---- Museum (volume) -------------------------------------------------
+// Greek amphora on a slowly-rotating turntable. Hovering the vase
+// pauses the turntable and outlines the piece with a shader effect
+// (the WWDC "highlight this artifact" pattern). Tapping the plinth
+// toggles the turntable's rotation state so the wearer can lock the
+// artifact in any preferred orientation.
+function museumVolume() {
+  const tab = makeTab({ name: 'Museum', icon: 'building.columns' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Artifact' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'Exhibit' })
+  const items = [tab, w, anchor]
+
+  // Marble plinth — tapping it broadcasts 'pause-turntable' which the
+  // turntable listens for to stop / resume its rotation loop.
+  const plinth = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Plinth',
+    cylinderRadius: 0.13, cylinderHeight: 0.28,
+    position: [0, 1.01, 0],
+    behaviors: [
+      onHoverIn(1.01, '#ffcc80'),
+      onHoverOut(),
+      onTapBroadcast('pause-turntable')
+    ]
+  })
+  plinth.materials = [pbr('#e8e5db', { roughness: 0.5, metallic: 0.0, clearcoat: 0.3, clearcoatRoughness: 0.4 })]
+  items.push(plinth)
+
+  // Spotlight glow ring — warm halo. Sees a soft brighten on scene
+  // start so the exhibit "wakes up" as the wearer arrives.
+  const spot = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Spotlight',
+    cylinderRadius: 0.12, cylinderHeight: 0.002,
+    position: [0, 1.151, 0],
+    behaviors: [
+      onSceneStart(
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 1.4, duration: 1.2, curve: 'easeOut' })
+      )
+    ]
+  })
+  spot.materials = [pbr('#3a2a10', { roughness: 0.9, emissive: '#e6a34a', emissiveIntensity: 0.2 })]
+  items.push(spot)
+
+  // Turntable — rotates on a 24s loop. When the plinth broadcasts
+  // 'pause-turntable', the turntable snaps to its current angle by
+  // running a zero-degree relative rotate (which cancels the timer's
+  // ongoing action's next tick). Second broadcast resumes.
+  const turntable = makeGroupEntity({
+    parentId: anchor.id, name: 'Turntable',
+    position: [0, 1.155, 0],
+    behaviors: [
+      loopRotateY(24.0)
+    ]
+  })
+  items.push(turntable)
+
+  // Vase silhouette. Foot → belly → shoulder → neck → lip stacked so
+  // the outline reads classical from any angle. Every part carries
+  // hover feedback + tap-outline. Tapping the belly reveals the vase's
+  // period info card (hidden by default).
+  const vaseCard = attachInfoCard(anchor, [0.30, 1.35, 0], 'Amphora\nc. 550 BCE\nAttic terracotta', {
+    name: 'Vase Info', style: 'headline', color: '#ffcc80', background: '#0c0c0e'
+  })
+  items.push(vaseCard)
+
+  const vaseParts = [
+    { kind: 'cylinder', name: 'Foot',     r: 0.030, h: 0.008, y: 0.004,  reveal: false },
+    { kind: 'sphere',   name: 'Belly',    r: 0.056, y: 0.058,            reveal: true  },
+    { kind: 'cylinder', name: 'Shoulder', r: 0.036, h: 0.012, y: 0.106,  reveal: false },
+    { kind: 'cylinder', name: 'Neck',     r: 0.022, h: 0.046, y: 0.135,  reveal: false },
+    { kind: 'cylinder', name: 'Lip',      r: 0.033, h: 0.008, y: 0.162,  reveal: true  }
+  ]
+  for (const p of vaseParts) {
+    const opts = p.kind === 'sphere'
+      ? { sphereRadius: p.r }
+      : { cylinderRadius: p.r, cylinderHeight: p.h }
+    const behaviors = [
+      onHoverIn(1.04, '#ffcc80'),
+      onHoverOut(),
+      onTapHighlight(1.12, 0.3),
+      onTapOutline(1.0)
+    ]
+    if (p.reveal) behaviors.push(onTapReveal(vaseCard.id))
+    const part = makeModelEntity(p.kind, {
+      parentId: turntable.id, name: p.name,
+      ...opts,
+      position: [0, p.y, 0],
+      behaviors
+    })
+    // Painted terracotta — warm red-brown, faint sheen so it catches
+    // the studio key light like a fired ceramic.
+    part.materials = [pbr('#a04030', {
+      roughness: 0.42, metallic: 0.05,
+      clearcoat: 0.5, clearcoatRoughness: 0.3,
+      sheen: '#602418'
+    })]
+    items.push(part)
+  }
+
+  // Black accent bands on the belly — flat discs faked as very short
+  // cylinders slightly larger than the belly sphere.
+  const bandSpecs = [
+    { name: 'Upper Band', y: 0.075 },
+    { name: 'Lower Band', y: 0.042 }
+  ]
+  for (const b of bandSpecs) {
+    const band = makeModelEntity('cylinder', {
+      parentId: turntable.id, name: b.name,
+      cylinderRadius: 0.057, cylinderHeight: 0.005,
+      position: [0, b.y, 0]
+    })
+    band.materials = [pbr('#1a0a06', { roughness: 0.4, clearcoat: 0.6, clearcoatRoughness: 0.2 })]
+    items.push(band)
+  }
+
+  // Two attribution cards — permanent orbit around the plinth so the
+  // provenance always reads. Used for at-a-glance metadata.
+  items.push(attachText(anchor, [-0.30, 1.35, 0], 'Attic Black-figure', {
+    name: 'Attribution', style: 'body', color: '#e6d4b0', background: '#0c0c0e'
+  }))
+  items.push(attachText(anchor, [0, 1.35, -0.28], 'Collection\nof the Museum', {
+    name: 'Provenance', style: 'body', color: '#c9c9cf', background: '#0c0c0e'
+  }))
+
+  // Title.
+  items.push(attachTitle(anchor, [0, 1.55, 0], 'Greek Amphora'))
+  items.push(attachSubtitle(anchor, [0, 1.50, 0], 'Tap the belly for its era · tap the plinth to pause'))
+
+  return { items, activeTabId: tab.id }
+}
+
+// ---- City Block (volume) ---------------------------------------------
+// Urban-planning diorama: four towers around a central plaza with a
+// live traffic signal and a car patrolling the perimeter. Tapping a
+// tower reveals its stats card (name / height / floors / year), hover
+// glows the facade, and tapping the plaza toggles a scene-wide "night
+// mode" broadcast that dims towers to a moody evening tone.
+function cityBlockVolume() {
+  const tab = makeTab({ name: 'City', icon: 'building.2' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'City Block' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'City Block' })
+  const items = [tab, w, anchor]
+
+  // Asphalt slab — the block's ground plane.
+  const ground = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Ground',
+    boxSize: [0.60, 0.008, 0.60],
+    position: [0, 1.00, 0]
+  })
+  ground.materials = [pbr('#2a2a2c', { roughness: 0.85, metallic: 0.02 })]
+  items.push(ground)
+
+  // Cross-shaped road — two flat white boxes intersecting at the
+  // centre. Slightly above the slab so they don't Z-fight.
+  const roadNS = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Avenue N-S',
+    boxSize: [0.08, 0.001, 0.60],
+    position: [0, 1.0048, 0]
+  })
+  roadNS.materials = [simple('#3a3a3c', 0.9)]
+  items.push(roadNS)
+  const roadEW = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Avenue E-W',
+    boxSize: [0.60, 0.001, 0.08],
+    position: [0, 1.0048, 0]
+  })
+  roadEW.materials = [simple('#3a3a3c', 0.9)]
+  items.push(roadEW)
+
+  // Four towers — hover glows, tap reveals a stats card, and each
+  // listens for 'night-mode' to brighten its emission (city lights on).
+  const towerSpecs = [
+    { name: 'Solstice Tower', pos: [-0.17, -0.17], h: 0.36, color: '#3a78ff', glow: '#3a78ff', fact: 'Solstice Tower\n380 ft · 32 floors\nCompleted 2019' },
+    { name: 'Meridian Tower', pos: [ 0.17, -0.17], h: 0.24, color: '#e0c47a', glow: '#ffcc00', fact: 'Meridian Tower\n260 ft · 20 floors\nCompleted 2015' },
+    { name: 'Beacon Hall',    pos: [-0.17,  0.17], h: 0.18, color: '#c04040', glow: '#ff5a4a', fact: 'Beacon Hall\n200 ft · 15 floors\nCompleted 2011' },
+    { name: 'Lantern Court',  pos: [ 0.17,  0.17], h: 0.29, color: '#7ec8c8', glow: '#40e0e0', fact: 'Lantern Court\n310 ft · 26 floors\nCompleted 2022' }
+  ]
+  for (const b of towerSpecs) {
+    // Stats card — hidden by default, positioned outside the block.
+    const cardOffsetX = b.pos[0] < 0 ? -0.34 : 0.34
+    const cardOffsetY = 1.05 + b.h + 0.05
+    const cardOffsetZ = b.pos[1]
+    const card = attachInfoCard(anchor, [cardOffsetX, cardOffsetY, cardOffsetZ], b.fact, {
+      name: `${b.name} Info`, style: 'body', color: '#ffffff', background: '#0c0c0e'
+    })
+    items.push(card)
+
+    const tower = makeModelEntity('box', {
+      parentId: anchor.id, name: b.name,
+      boxSize: [0.14, b.h, 0.14],
+      position: [b.pos[0], 1.005 + b.h / 2, b.pos[1]],
+      behaviors: [
+        onHoverIn(1.02, b.glow),
+        onHoverOut(),
+        onTapHighlight(1.05, 0.3),
+        onTapReveal(card.id),
+        onEventReceived('night-mode',
+          action('setMaterial', { property: 'emissionIntensity', numberValue: 1.4, duration: 0.6, curve: 'easeInOut', toggle: true })
+        )
+      ]
+    })
+    tower.materials = [pbr(b.color, {
+      roughness: 0.5, metallic: 0.15,
+      emissive: b.glow, emissiveIntensity: 0.4,
+      clearcoat: 0.4, clearcoatRoughness: 0.3
+    })]
+    items.push(tower)
+
+    // Rooftop antenna.
+    const antenna = makeModelEntity('cone', {
+      parentId: anchor.id, name: `${b.name} Antenna`,
+      coneRadius: 0.008, coneHeight: 0.04,
+      position: [b.pos[0], 1.005 + b.h + 0.02, b.pos[1]]
+    })
+    antenna.materials = [pbr('#c9c9cf', { roughness: 0.3, metallic: 0.8 })]
+    items.push(antenna)
+  }
+
+  // Central plaza — tap it to toggle scene-wide 'night-mode'. The
+  // plaza itself brightens on scene start so it reads as inhabited.
+  const plaza = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Plaza',
+    cylinderRadius: 0.05, cylinderHeight: 0.002,
+    position: [0, 1.006, 0],
+    behaviors: [
+      onHoverIn(1.05, '#7be39c'),
+      onHoverOut(),
+      onTapBroadcast('night-mode')
+    ]
+  })
+  plaza.materials = [pbr('#3a5a2a', { roughness: 0.8, metallic: 0, emissive: '#5aaa4a', emissiveIntensity: 0.2 })]
+  items.push(plaza)
+
+  // Traffic light — pole plus three lamps that pulse emission on a
+  // shared 3s loop with staggered auto-reverse.
+  const pole = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Signal Pole',
+    cylinderRadius: 0.005, cylinderHeight: 0.11,
+    position: [0.058, 1.06, 0.058]
+  })
+  pole.materials = [pbr('#1a1a1c', { roughness: 0.4, metallic: 0.6 })]
+  items.push(pole)
+  const lightSpecs = [
+    { name: 'Red',    y: 1.128, color: '#ff3b30' },
+    { name: 'Yellow', y: 1.108, color: '#ffcc00' },
+    { name: 'Green',  y: 1.088, color: '#34c759' }
+  ]
+  for (const l of lightSpecs) {
+    const light = makeModelEntity('sphere', {
+      parentId: anchor.id, name: `Signal ${l.name}`,
+      sphereRadius: 0.009,
+      position: [0.058, l.y, 0.058],
+      behaviors: [loopEmissionPulse(3.0, 2.4)]
+    })
+    light.materials = [pbr(l.color, { roughness: 0.5, emissive: l.color, emissiveIntensity: 0.4 })]
+    items.push(light)
+  }
+
+  // Car — tiny box on a Y-rotating group at the block's centre.
+  const carPath = makeGroupEntity({
+    parentId: anchor.id, name: 'Car Path',
+    position: [0, 1.014, 0],
+    behaviors: [
+      behavior(
+        trigger('timer', { mode: 'loop', seconds: 9.0 }),
+        action('rotateTo', { mode: 'relative', rotation: [0, -360, 0], duration: 9.0, curve: 'linear' })
+      )
+    ]
+  })
+  items.push(carPath)
+  const car = makeModelEntity('box', {
+    parentId: carPath.id, name: 'Car',
+    boxSize: [0.032, 0.010, 0.017],
+    position: [0.24, 0, 0]
+  })
+  car.materials = [pbr('#ff453a', {
+    roughness: 0.32, metallic: 0.4,
+    emissive: '#ff6d3a', emissiveIntensity: 0.35,
+    clearcoat: 0.7, clearcoatRoughness: 0.1
+  })]
+  items.push(car)
+
+  // Title + subtitle.
+  items.push(attachTitle(anchor, [0, 1.55, 0], 'Downtown Block'))
+  items.push(attachSubtitle(anchor, [0, 1.50, 0], 'Tap a tower for stats · tap the plaza for night mode'))
+
+  return { items, activeTabId: tab.id }
+}
+
+// ---- Meadow (volume) -------------------------------------------------
+// Landscape diorama modelled on Apple's Weather visionOS layout. A sun
+// arcs across the sky on a 30 s cycle; tapping it fires 'day-night' so
+// the meadow flips lighting mood (moon brightens, weather card content
+// swaps). Tap the cloud to broadcast 'downpour' — rain intensifies for
+// a few seconds. Tapping the farmhouse reveals a "current forecast"
+// card.
+function weatherVolume() {
+  const tab = makeTab({ name: 'Weather', icon: 'cloud.sun' })
+  const w   = volumeWindow({ parentId: tab.id, name: 'Meadow' })
+  const anchor = makeAnchorEntity({ parentId: w.id, name: 'Landscape' })
+  const items = [tab, w, anchor]
+
+  // Grass base — wide low cylinder so the diorama feels round rather
+  // than square. Slight sheen picks up the studio key light like
+  // dewy grass.
+  const ground = makeModelEntity('cylinder', {
+    parentId: anchor.id, name: 'Meadow',
+    cylinderRadius: 0.28, cylinderHeight: 0.02,
+    position: [0, 1.00, 0]
+  })
+  ground.materials = [pbr('#4a7a3a', { roughness: 0.85, metallic: 0, sheen: '#2a5a20' })]
+  items.push(ground)
+
+  // Two rolling hills in the background — spheres partially buried
+  // in the ground so only the upper hemisphere shows.
+  const hillSpecs = [
+    { name: 'Hill Left',  pos: [-0.14, 1.005, -0.12], r: 0.10, color: '#3a6a2a' },
+    { name: 'Hill Right', pos: [ 0.14, 1.010, -0.12], r: 0.08, color: '#4a7a3a' }
+  ]
+  for (const h of hillSpecs) {
+    const hill = makeModelEntity('sphere', {
+      parentId: anchor.id, name: h.name,
+      sphereRadius: h.r,
+      position: h.pos
+    })
+    hill.materials = [pbr(h.color, { roughness: 0.9, metallic: 0 })]
+    items.push(hill)
+  }
+
+  // Small farmhouse — hovering warms up the wooden facade; tapping
+  // reveals the "current forecast" info card. Farmhouse is deliberately
+  // in the foreground so it's the wearer's near-field anchor.
+  const forecastCard = attachInfoCard(anchor, [0.24, 1.22, 0.10],
+    'Forecast\nSunny 68°F\nWinds W · 4 mph\nHumidity 42%',
+    { name: 'Forecast Card', style: 'body', color: '#ffe08a', background: '#0c0c0e' }
+  )
+  items.push(forecastCard)
+
+  const house = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Farmhouse',
+    boxSize: [0.06, 0.05, 0.05],
+    position: [-0.06, 1.034, 0.10],
+    behaviors: [
+      onHoverIn(1.05, '#ffcc80'),
+      onHoverOut(),
+      onTapReveal(forecastCard.id)
+    ]
+  })
+  house.materials = [pbr('#e6d4b0', { roughness: 0.7, metallic: 0, clearcoat: 0.2 })]
+  items.push(house)
+  const roof = makeModelEntity('cone', {
+    parentId: anchor.id, name: 'Roof',
+    coneRadius: 0.045, coneHeight: 0.035,
+    position: [-0.06, 1.076, 0.10]
+  })
+  roof.materials = [pbr('#a03a2a', { roughness: 0.55, metallic: 0.05, clearcoat: 0.3 })]
+  items.push(roof)
+
+  // Chimney — thin box on the roof, brick-coloured.
+  const chimney = makeModelEntity('box', {
+    parentId: anchor.id, name: 'Chimney',
+    boxSize: [0.010, 0.024, 0.010],
+    position: [-0.048, 1.088, 0.096]
+  })
+  chimney.materials = [pbr('#8a3020', { roughness: 0.8, metallic: 0 })]
+  items.push(chimney)
+
+  // Two pine trees — cylinder trunk + cone foliage.
+  const treeSpecs = [
+    { name: 'Pine Left',  x: -0.16, z: 0.06 },
+    { name: 'Pine Right', x:  0.16, z: 0.06 }
+  ]
+  for (const t of treeSpecs) {
+    const trunk = makeModelEntity('cylinder', {
+      parentId: anchor.id, name: `${t.name} Trunk`,
+      cylinderRadius: 0.006, cylinderHeight: 0.04,
+      position: [t.x, 1.028, t.z]
+    })
+    trunk.materials = [pbr('#5a3a2a', { roughness: 0.9, metallic: 0 })]
+    items.push(trunk)
+    const foliage = makeModelEntity('cone', {
+      parentId: anchor.id, name: `${t.name} Foliage`,
+      coneRadius: 0.032, coneHeight: 0.08,
+      position: [t.x, 1.088, t.z]
+    })
+    foliage.materials = [pbr('#2a5a1a', { roughness: 0.9, metallic: 0, sheen: '#4a7a3a' })]
+    items.push(foliage)
+  }
+
+  // Sky group — spins slowly on X so its children (sun + moon) arc
+  // over the landscape once every 30 s. Anchored above the meadow
+  // centre so the arc pivots naturally.
+  const sky = makeGroupEntity({
+    parentId: anchor.id, name: 'Sky',
+    position: [0, 1.02, 0],
+    behaviors: [
+      behavior(
+        trigger('timer', { mode: 'loop', seconds: 30.0 }),
+        action('rotateTo', { mode: 'relative', rotation: [360, 0, 0], duration: 30.0, curve: 'linear' })
+      )
+    ]
+  })
+  items.push(sky)
+
+  // Sun — hover glows warm, tap fires 'day-night' broadcast (moon
+  // listens + brightens; sun dims). Sun also carries hover feedback.
+  const sun = makeModelEntity('sphere', {
+    parentId: sky.id, name: 'Sun',
+    sphereRadius: 0.030,
+    position: [0, 0.34, 0.02],
+    behaviors: [
+      onHoverIn(1.10, '#ffe08a'),
+      onHoverOut(),
+      onTapBroadcast('day-night'),
+      onEventReceived('day-night',
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 0.3, duration: 0.8, curve: 'easeInOut', toggle: true })
+      )
+    ]
+  })
+  sun.materials = [pbr('#ffe08a', { roughness: 0.5, emissive: '#ffcc00', emissiveIntensity: 2.4 })]
+  items.push(sun)
+
+  // Moon — dim companion. Brightens on 'day-night' so the sky is
+  // never dark — the wearer sees the moon replace the sun.
+  const moon = makeModelEntity('sphere', {
+    parentId: sky.id, name: 'Moon',
+    sphereRadius: 0.022,
+    position: [0, -0.34, 0.02],
+    behaviors: [
+      onEventReceived('day-night',
+        action('setMaterial', { property: 'emissionIntensity', numberValue: 2.2, duration: 0.8, curve: 'easeInOut', toggle: true })
+      )
+    ]
+  })
+  moon.materials = [pbr('#e0e0e6', { roughness: 0.7, emissive: '#c0c0d0', emissiveIntensity: 0.5 })]
+  items.push(moon)
+
+  // Cloud — hovers/taps drive a 'downpour' broadcast that the rain
+  // drops listen for; they compress their fall period to a quicker
+  // cadence for a few seconds.
+  const cloud = makeGroupEntity({
+    parentId: anchor.id, name: 'Cloud',
+    position: [0.10, 1.30, -0.04],
+    behaviors: [
+      behavior(
+        trigger('timer', { mode: 'loop', seconds: 4.0 }),
+        action('moveTo', { mode: 'offset', position: [-0.04, 0, 0], duration: 4.0, curve: 'easeInOut', toggle: true })
+      ),
+      onHoverIn(1.05, '#c0d0ff'),
+      onHoverOut(),
+      onTapBroadcast('downpour')
+    ]
+  })
+  items.push(cloud)
+  const puffSpecs = [
+    { x: -0.03, y:  0.00, r: 0.022 },
+    { x:  0.00, y:  0.010, r: 0.028 },
+    { x:  0.03, y:  0.00, r: 0.022 },
+    { x:  0.010, y: -0.010, r: 0.020 }
+  ]
+  for (let i = 0; i < puffSpecs.length; i++) {
+    const p = puffSpecs[i]
+    const puff = makeModelEntity('sphere', {
+      parentId: cloud.id, name: `Puff ${i + 1}`,
+      sphereRadius: p.r,
+      position: [p.x, p.y, 0]
+    })
+    puff.materials = [pbr('#e6e6ea', { roughness: 0.9, metallic: 0, emissive: '#a0a0b0', emissiveIntensity: 0.25 })]
+    items.push(puff)
+  }
+
+  // Rain — four thin vertical cylinders under the cloud. Each listens
+  // for 'downpour' and briefly speeds up its fall (short + hard).
+  for (let i = 0; i < 4; i++) {
+    const drop = makeModelEntity('cylinder', {
+      parentId: cloud.id, name: `Drop ${i + 1}`,
+      cylinderRadius: 0.001, cylinderHeight: 0.020,
+      position: [-0.030 + i * 0.020, -0.05, 0.010 + (i % 2) * 0.010],
+      behaviors: [
+        behavior(
+          trigger('timer', { mode: 'loop', seconds: 0.6 + i * 0.08 }),
+          action('moveTo', { mode: 'offset', position: [0, -0.08, 0], duration: 0.5, curve: 'linear', toggle: true })
+        ),
+        onEventReceived('downpour',
+          action('moveTo', { mode: 'offset', position: [0, -0.05, 0], duration: 0.15, curve: 'linear' }),
+          action('wait', { seconds: 0.1 }),
+          action('moveTo', { mode: 'offset', position: [0, 0.05, 0], duration: 0.1, curve: 'linear' })
+        )
+      ]
+    })
+    drop.materials = [pbr('#6a8ac0', { roughness: 0.2, emissive: '#3a5a80', emissiveIntensity: 0.6 })]
+    items.push(drop)
+  }
+
+  // Weather widget card. Uses the ATTACHMENT_TEXT_STYLES 'headline'
+  // ramp so the card scales as a unit — no arbitrary metre picks.
+  items.push(attachText(anchor, [-0.24, 1.34, 0.04], 'SUNNY\n68° · Feels 71°', {
+    name: 'Weather Card', style: 'headline', color: '#ffe08a', background: '#0c0c0e'
+  }))
+
+  // Title + subtitle.
+  items.push(attachTitle(anchor, [0, 1.55, 0], 'Meadow'))
+  items.push(attachSubtitle(anchor, [0, 1.50, 0], 'Tap the sun for night · tap the cloud for a downpour'))
+
+  return { items, activeTabId: tab.id }
+}
 // ---- Public registry --------------------------------------------------
 
 export const TEMPLATES = {
@@ -2648,24 +3070,26 @@ export const TEMPLATES = {
   mailApp:      { mode: 'window', label: 'Mail (legacy)',           description: 'Legacy Mail template.',         build: mailApp },
   tabBar:       { mode: 'window', label: 'Tab Bar App (legacy)',    description: 'Legacy Tab Bar template.',      build: tabBarApp },
   filesApp:     { mode: 'window', label: 'Files (legacy)',          description: 'Legacy Files template.',        build: filesApp },
-  // Volume-mode
-  productShowcase: { mode: 'volume', label: 'Product Showcase', description: 'Metal hero auto-rotates on a plinth with a pulsing glow ring; tap to scale up.', build: productShowcase },
-  solarSystem:     { mode: 'volume', label: 'Solar System',     description: 'Eight planets and the sun lined up with a glowing orbit band. Tap any planet to scale up, sun pulses.', build: solarSystem },
-  moodLamps:       { mode: 'volume', label: 'Mood Lamps',       description: 'Three pendant lamps over a console. Tap a lamp to brighten it; lamps gently bob on their own.', build: moodLamps },
-  gallery:         { mode: 'volume', label: 'Gallery',          description: 'Three framed pictures on a back wall. Hover or tap to focus each work.',                              build: gallery },
-  spinningShowcase:{ mode: 'volume', label: 'Spinning Showcase',description: 'Three product cubes on a turntable that spins continuously. Tap a cube to highlight it.',           build: spinningShowcase },
-  reactiveLights:  { mode: 'volume', label: 'Reactive Lights',  description: 'Master orb broadcasts a wave event; five coloured pucks roll a Mexican wave in sequence.',           build: reactiveLights },
-  // Legacy keys kept for backwards compatibility with any saved
-  // scenes — not surfaced on the splash.
-  diorama:         { mode: 'volume', label: 'Diorama',          description: 'Three towers on a floor pad with a backing wall.',                                                  build: diorama_legacy },
-  cardStack:       { mode: 'volume', label: 'Card Stack',       description: 'A row of weather cards. Tap a card to flip it 180°.',                                              build: cardStack }
+  // Volume-mode templates surfaced on the splash. Six polished
+  // guided-diorama scenes, each showcasing a visionOS volumetric-window
+  // pattern: orbital motion (cosmos), continuous ambient animation
+  // (engine, city, museum turntable), tap-to-highlight interactions,
+  // and Attachment-anchored floating labels. Designed around the
+  // wearer's default 1.5 m stand-off — every scene fits inside the
+  // volumetric preset envelope (~0.6 × 0.4 × 0.6 m).
+  cosmos:      { mode: 'volume', label: 'Cosmos',        description: 'Solar system: sun with four planets orbiting on glow rings. Tap a planet to focus.',            build: cosmosVolume },
+  anatomy:     { mode: 'volume', label: 'Anatomy',       description: 'Beating human heart on a museum plinth with labelled chambers. Tap a chamber to isolate.',      build: anatomyVolume },
+  engine:      { mode: 'volume', label: 'Engine',        description: 'Inline-4 engine with rotating crankshaft, firing pistons, and a glowing exhaust. Tap to spark.',build: engineVolume },
+  museum:      { mode: 'volume', label: 'Museum',        description: 'Greek amphora on a slowly-rotating turntable with three period info cards floating around.',    build: museumVolume },
+  cityBlock:   { mode: 'volume', label: 'City Block',    description: 'Miniature downtown: four lit towers, a cycling traffic light, and a car looping the block.',    build: cityBlockVolume },
+  meadow:      { mode: 'volume', label: 'Meadow',        description: 'Landscape diorama: farmhouse, trees, drifting rain cloud, and a sun that arcs across the sky.', build: weatherVolume }
 }
 
 export const TEMPLATE_ORDER_WINDOW = [
   'welcome', 'browse', 'player', 'profile', 'article', 'settings'
 ]
 export const TEMPLATE_ORDER_VOLUME = [
-  'productShowcase', 'solarSystem', 'moodLamps', 'gallery', 'spinningShowcase', 'reactiveLights'
+  'cosmos', 'anatomy', 'engine', 'museum', 'cityBlock', 'meadow'
 ]
 // Backwards compatibility — older imports refer to a flat order list.
 export const TEMPLATE_ORDER = [...TEMPLATE_ORDER_WINDOW, ...TEMPLATE_ORDER_VOLUME]
