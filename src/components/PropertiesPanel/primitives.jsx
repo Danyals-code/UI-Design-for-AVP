@@ -7,6 +7,8 @@ import {
   SCENE_COLOR_GROUPS,
   SCENE_COLOR_LABELS,
   STACK_TYPES,
+  MATERIAL_LIBRARY,
+  MATERIAL_LIBRARY_VALUES,
   unitsToPt, ptToUnits
 } from '../../appleSystem'
 import { useStore } from '../../store'
@@ -268,6 +270,43 @@ export function SemanticColorPicker({ token, onChange }) {
         <optgroup key={group.key} label={group.label}>
           {group.tokens.map((t) => (
             <option key={t} value={t}>{SCENE_COLOR_LABELS[t] || t}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
+// Unified material picker — the 24 scene materials (every Text / Controls /
+// Views / Windows / Separators token, then the nine glass tiers), grouped
+// exactly like Scene → Materials & Colors. Drop-in for any view that
+// exposes a surface / fill material, so the same library is offered
+// everywhere and a Scene-Settings edit retunes every consumer. `fallback`
+// is the value shown when the stored selection isn't (or is no longer) a
+// library material.
+export function MaterialField({ value, onChange, fallback }) {
+  const resolved = MATERIAL_LIBRARY_VALUES.includes(value)
+    ? value
+    : (fallback && MATERIAL_LIBRARY_VALUES.includes(fallback) ? fallback : MATERIAL_LIBRARY_VALUES[0])
+  // Rebuild the optgroups from the library descriptors, preserving the
+  // library's group order (Text → Controls → Views → Windows → Separators
+  // → Materials).
+  const groups = []
+  for (const m of MATERIAL_LIBRARY) {
+    let g = groups.find((x) => x.label === m.group)
+    if (!g) { g = { label: m.group, items: [] }; groups.push(g) }
+    g.items.push(m)
+  }
+  return (
+    <select
+      value={resolved}
+      onChange={(e) => onChange(e.target.value)}
+      className="field flex-1 cursor-pointer"
+    >
+      {groups.map((g) => (
+        <optgroup key={g.label} label={g.label}>
+          {g.items.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </optgroup>
       ))}

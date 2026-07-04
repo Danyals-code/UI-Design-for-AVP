@@ -27,7 +27,8 @@ import {
   MATERIAL_TYPES, MATERIAL_TYPE_ORDER,
   BLENDING_MODES, FACE_CULLING_MODES,
   COMPONENT_TYPES, COMPONENT_TYPE_ORDER,
-  ATTACHMENT_KINDS, ATTACHMENT_KIND_ORDER
+  ATTACHMENT_KINDS, ATTACHMENT_KIND_ORDER,
+  LIGHT_TYPES, LIGHT_TYPE_ORDER
 } from '../../realityKit/registry'
 
 // ---- numeric input that takes raw metres -----------------------------
@@ -717,6 +718,102 @@ function CameraFields({ item }) {
   )
 }
 
+// ---- Light fields ----------------------------------------------------
+//
+// Every light entity carries `lightType` + `lightColor` + `lightIntensity`.
+// Type-specific fields (range, angles, castsShadow) only render for the
+// types that use them, so the panel stays tight. Changing the type
+// stamps in that type's defaults for any missing fields — a fresh Spot
+// gets its inner/outer angles the moment the user picks it, no manual
+// setup required.
+function LightFields({ item }) {
+  const updateItem = useStore((s) => s.updateItem)
+  const type = item.lightType || 'point'
+  const setType = (t) => {
+    const d = LIGHT_TYPES[t]?.defaults || {}
+    // Merge type defaults for fields the item hasn't customised yet.
+    const patch = { lightType: t }
+    for (const k of Object.keys(d)) {
+      if (item[k] === undefined || item[k] === null) patch[k] = d[k]
+    }
+    updateItem(item.id, patch)
+  }
+  const hasRange   = type === 'point' || type === 'spot'
+  const hasAngles  = type === 'spot'
+  const hasShadow  = type === 'point' || type === 'spot' || type === 'directional'
+  return (
+    <>
+      <Row label="Type">
+        <Select
+          value={type}
+          options={LIGHT_TYPE_ORDER.map((k) => ({ value: k, label: LIGHT_TYPES[k].label }))}
+          onChange={setType}
+        />
+      </Row>
+      <Row label="Colour">
+        <ColorRow
+          value={item.lightColor || '#ffffff'}
+          onChange={(v) => updateItem(item.id, { lightColor: v })}
+        />
+      </Row>
+      <Row label="Intensity">
+        <Slider
+          value={item.lightIntensity ?? 3}
+          min={0} max={12} step={0.1}
+          onChange={(v) => updateItem(item.id, { lightIntensity: v })}
+        />
+      </Row>
+      {hasRange && (
+        <Row label="Range">
+          <Slider
+            value={item.lightRange ?? 3}
+            min={0.1} max={10} step={0.1}
+            suffix=" m"
+            onChange={(v) => updateItem(item.id, { lightRange: v })}
+          />
+        </Row>
+      )}
+      {hasAngles && (
+        <>
+          <Row label="Inner">
+            <Slider
+              value={item.lightInnerAngle ?? 30}
+              min={1} max={90} step={1}
+              suffix="°"
+              onChange={(v) => updateItem(item.id, { lightInnerAngle: v })}
+            />
+          </Row>
+          <Row label="Outer">
+            <Slider
+              value={item.lightOuterAngle ?? 45}
+              min={1} max={120} step={1}
+              suffix="°"
+              onChange={(v) => updateItem(item.id, { lightOuterAngle: v })}
+            />
+          </Row>
+        </>
+      )}
+      {hasShadow && (
+        <Row label="Shadow">
+          <div className="segmented flex-1">
+            <button
+              className={item.lightCastsShadow ? 'active' : ''}
+              onClick={() => updateItem(item.id, { lightCastsShadow: true })}
+            >On</button>
+            <button
+              className={!item.lightCastsShadow ? 'active' : ''}
+              onClick={() => updateItem(item.id, { lightCastsShadow: false })}
+            >Off</button>
+          </div>
+        </Row>
+      )}
+      <div className="text-[10px] text-textMute leading-snug mt-1">
+        {LIGHT_TYPES[type]?.description}
+      </div>
+    </>
+  )
+}
+
 // ---- Attachment fields ----------------------------------------------
 //
 // Attachments are SwiftUI views (Text / Label / Button / Image) anchored
@@ -962,6 +1059,7 @@ function ObjectSection({ item }) {
       {item.entityKind === 'model'      && <MeshFields item={item} />}
       {item.entityKind === 'camera'     && <CameraFields item={item} />}
       {item.entityKind === 'attachment' && <AttachmentFields item={item} />}
+      {item.entityKind === 'light'      && <LightFields item={item} />}
 
       {/* Transform sits at the bottom of the section — most-edited
           triplet stays in the same place across every entity kind. */}

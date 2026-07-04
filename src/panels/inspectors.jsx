@@ -11,14 +11,14 @@
 
 import {
   Row, Section, IntField, PtField, NumField, Slider, ColorRow, Select,
-  SemanticColorPicker
+  SemanticColorPicker, MaterialField
 } from '../components/PropertiesPanel/primitives'
 import {
   TextSection, FigmaFrameSection, LayoutSection, SymbolSection,
   LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
 } from '../components/PropertiesPanel/shared'
 import { useStore } from '../store'
-import { resolveSemantic, SF_SYMBOLS, SYMBOL_VARIANTS } from '../appleSystem'
+import { resolveSemantic, resolveAnyMaterial, SF_SYMBOLS, SYMBOL_VARIANTS } from '../appleSystem'
 import { SymbolIcon } from '../components/icons'
 import SymbolPicker from '../components/SymbolPicker'
 import { useState } from 'react'
@@ -34,7 +34,7 @@ import {
   KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
   DATE_COMPONENTS, IMAGE_SCALES,
   NAVBAR_STYLES, NAVBAR_STYLE_SPECS, NAVBAR_INTERACTIONS,
-  ptToUnits, segmentedFrame, SEGMENT_MATERIALS
+  ptToUnits, segmentedFrame
 } from '../appleSystem'
 
 // ---- shared mini-inspectors -------------------------------------------
@@ -514,15 +514,13 @@ function SliderInspector({ item, updateItem }) {
   )
 }
 
-// visionOS "Views" material tiers — the recessed→thicker glass scale a
-// field sits on. Stored as the field's `colorToken` so the existing fill
-// pipeline tints the plate. Used by the search field's Material picker.
-const VIEW_MATERIALS = [
-  { value: 'viewRecessed', label: 'Recessed' },
-  { value: 'viewThin',     label: 'Thin' },
-  { value: 'viewRegular',  label: 'Regular' },
-  { value: 'viewThicker',  label: 'Thicker' }
-]
+// Input-field / segmented Material pickers draw from the unified
+// MATERIAL_LIBRARY (all 24 scene materials) via the shared <MaterialField>
+// primitive, so every surface offers the same list the user tunes in
+// Scene → Materials & Colors. The selection is stored on the panel's
+// `colorToken` (and `selectedColorToken` for the segmented thumb) so the
+// existing fill pipeline tints the plate; defaults keep the visionOS
+// recessed-glass look.
 
 // Unified inspector for the three SwiftUI input fields (TextField,
 // SecureField, search). One consolidated section that owns Name, the
@@ -539,9 +537,6 @@ function InputFieldInspector({ item, updateItem, switchPanelType, scene }) {
   const isSearch = t === 'search'
   const title = isText ? 'Text Field' : isSecure ? 'Secure Field' : 'Search Field'
   const edge = item.fieldShape || 'pill'
-  // Search's Material picker maps onto the view-tier color tokens; fall
-  // back to Recessed when the field carries a non-view token (legacy).
-  const material = VIEW_MATERIALS.some((m) => m.value === item.colorToken) ? item.colorToken : 'viewRecessed'
   return (
     <Section title={title} defaultOpen={true}>
       <Row label="Name">
@@ -560,13 +555,14 @@ function InputFieldInspector({ item, updateItem, switchPanelType, scene }) {
           <button className={edge === 'rounded' ? 'active' : ''} onClick={() => updateItem(item.id, { fieldShape: 'rounded' })}>Rounded</button>
         </div>
       </Row>
-      {/* Material — the recessed→thicker glass tier the field sits on. All
-          three input variants share this; Recessed is the visionOS default. */}
+      {/* Material — the surface the field sits on, picked from the full
+          scene material library (all 24). All three input variants share
+          this; the Recessed Material View is the visionOS default. */}
       <Row label="Material">
-        <Select
-          value={material}
-          options={VIEW_MATERIALS}
-          onChange={(v) => updateItem(item.id, { colorToken: v, color: resolveSemantic(v, scene) })}
+        <MaterialField
+          value={item.colorToken}
+          fallback="viewRecessed"
+          onChange={(v) => updateItem(item.id, { colorToken: v, color: resolveAnyMaterial(v, scene).color })}
         />
       </Row>
       <Row label="Placeholder">
@@ -639,7 +635,7 @@ const SEGMENT_SAMPLE = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 
 // Name + Frame + segment Count/Items/Selected + the Material tier live
 // together. A segmented picker has no user fill colour — its only
 // appearance control is the track Material — so there's no Fill/Hex here.
-function SegmentedInspector({ item, updateItem }) {
+function SegmentedInspector({ item, updateItem, scene }) {
   const renameItem = useStore((s) => s.renameItem)
   const segs = item.segments || []
   // Any change to the segment list re-fits the frame (88pt per segment)
@@ -680,11 +676,22 @@ function SegmentedInspector({ item, updateItem }) {
       <Row label="Selected">
         <IntField value={item.selectedSegment ?? 0} min={0} max={Math.max(0, segs.length - 1)} onChange={(v) => updateItem(item.id, { selectedSegment: v })} />
       </Row>
-      <Row label="Material">
-        <Select
-          value={item.material || 'regular'}
-          options={SEGMENT_MATERIALS.map((m) => ({ value: m.value, label: m.label }))}
-          onChange={(v) => updateItem(item.id, { material: v })}
+      {/* Both materials are picked from the full scene material library
+          (all 24, Scene → Materials & Colors); the background long tile
+          defaults to the Recessed Material View, the selected front tile to
+          the raised Thicker tier. */}
+      <Row label="Background">
+        <MaterialField
+          value={item.colorToken}
+          fallback="viewRecessed"
+          onChange={(v) => updateItem(item.id, { colorToken: v, color: resolveAnyMaterial(v, scene).color })}
+        />
+      </Row>
+      <Row label="Selected Tile">
+        <MaterialField
+          value={item.selectedColorToken}
+          fallback="viewThicker"
+          onChange={(v) => updateItem(item.id, { selectedColorToken: v })}
         />
       </Row>
     </Section>

@@ -170,7 +170,13 @@ input[type="number"]::-webkit-outer-spin-button {
   overflow: hidden;
 }
 .segmented button {
-  flex: 1;
+  flex: 1 1 0;
+  /* min-width: 0 lets a flex child shrink below its intrinsic content
+     width \u2014 without it, long labels ("Attachment", "Directional")
+     refuse to shrink and the row overflows the parent. Paired with
+     text-overflow: ellipsis so the label gracefully truncates instead
+     of clipping mid-glyph. */
+  min-width: 0;
   background: transparent;
   color: #9a9a9a;
   border: none;
@@ -184,6 +190,9 @@ input[type="number"]::-webkit-outer-spin-button {
   align-items: center;
   justify-content: center;
   gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: background 120ms ease, color 120ms ease;
   /* Active button uses an inset highlight \u2014 box-shadow can't escape the
      parent's overflow:hidden, but a 1px solid border on the active state

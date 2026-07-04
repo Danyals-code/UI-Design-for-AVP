@@ -12,7 +12,7 @@ import {
 } from '../../appleSystem'
 import {
   Row, Section, NumField, IntField, PtField,
-  Select, SemanticColorPicker
+  Select, SemanticColorPicker, MaterialField
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 import { ToolbarWizard } from './wizards'
@@ -88,13 +88,14 @@ export function WindowProps({ item }) {
             >Off</button>
           </div>
         </Row>
-        {/* Material picks the liquid-glass tier; its tint, opacity, and
-            blur come from the tier's scene-wide defaults (Scene →
-            Materials & Colors), so they aren't duplicated per-window. */}
+        {/* Material picks the surface from the full scene material library
+            (all 24); its tint, opacity, and blur come from the material's
+            scene-wide defaults (Scene → Materials & Colors), so they aren't
+            duplicated per-window. Glass tier is the visionOS default. */}
         <Row label="Material">
-          <Select
-            value={item.material || 'regular'}
-            options={MATERIAL_ORDER.map((k) => ({ value: k, label: `${MATERIALS[k].label} · ${Math.round(MATERIALS[k].opacity * 100)}%` }))}
+          <MaterialField
+            value={item.material}
+            fallback="glass"
             onChange={(v) => updateItem(item.id, { material: v })}
           />
         </Row>

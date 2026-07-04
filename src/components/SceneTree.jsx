@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
-import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveMaterial } from '../appleSystem'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
@@ -489,7 +489,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           cornerRadii={stack.cornerRadii}
           color={bgColor}
           material={stack.material || 'regular'}
-          materialConfig={resolveMaterial(stack.material || 'regular', scene.materialProps)}
+          materialConfig={resolveAnyMaterial(stack.material || 'regular', scene)}
           blur={!!stack.blur}
           blurAmount={stack.blurAmount ?? 12}
           schemeDark={scene.designScheme === 'dark'}
@@ -722,7 +722,7 @@ function Window3D({ window: win, items, previewPosition }) {
   // Resolve the material's default color / opacity / blur set —
   // window-level overrides on the item take precedence, so a designer
   // can still tweak per-window without touching the shared material.
-  const matCfg = resolveMaterial(win.material || 'glass', scene.materialProps)
+  const matCfg = resolveAnyMaterial(win.material || 'glass', scene)
   const fillColor = win.colorToken
     ? resolveSemantic(win.colorToken, scene)
     : (win.color || matCfg.color || '#f2f2f7')
@@ -884,7 +884,15 @@ function Window3D({ window: win, items, previewPosition }) {
   // Walking the subtree each frame is cheap (≤ a few hundred meshes per
   // window) and means we never miss late-mounted descendants like text
   // glyphs or symbol textures that resolve asynchronously.
+  //
+  // Volumetric windows opt out entirely: they act as RealityView
+  // containers and their children (RealityKit entities placed at
+  // wearer-scale positions like Y=1.2m) live far outside the plate's
+  // rectangular Y bounds. Clipping them would discard every pixel and
+  // the volume would read as empty. visionOS bounds volumetric content
+  // by the volume's own 3D envelope, not by the SwiftUI plate rect.
   useFrame(() => {
+    if (isVolumetric) return
     const outer = positionRef.current
     const inner = contentClipRef.current
     if (!outer || !inner) return

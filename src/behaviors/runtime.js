@@ -178,12 +178,19 @@ function tweenRotate(ctx, params) {
   const fromRot = [grp.rotation.x, grp.rotation.y, grp.rotation.z]
   const baseRot = ctx.state.baseRotation
   const deg = params.rotation || [0, 0, 0]
-  const radTarget = deg.map((d) => d * Math.PI / 180)
+  const radDelta = deg.map((d) => d * Math.PI / 180)
+  // `relative` mode accumulates from the CURRENT rotation, not from
+  // the initial baseRotation. This is what makes looping rotations
+  // work: each timer tick adds another delta to wherever the entity
+  // has already rotated to. Without this, the second tick would tween
+  // to `base + delta` — the same angle we just reached — and nothing
+  // would move. `absolute` still targets the exact angle; `toggle:true`
+  // returns to base (undoes the accumulated rotation).
   const target = params.toggle && popToggle(ctx, 'rotateTo')
     ? baseRot
     : params.mode === 'absolute'
-      ? radTarget
-      : [baseRot[0] + radTarget[0], baseRot[1] + radTarget[1], baseRot[2] + radTarget[2]]
+      ? radDelta
+      : [fromRot[0] + radDelta[0], fromRot[1] + radDelta[1], fromRot[2] + radDelta[2]]
   startTween(ctx, 'rotate', params.duration, params.curve, (t) => {
     const v = lerpVec3(fromRot, target, t)
     grp.rotation.set(v[0], v[1], v[2])
@@ -581,11 +588,16 @@ function setupTrigger(ctx, behavior, scheduleRun) {
     return () => clearTimeout(id)
   }
 
-  // Timer
+  // Timer. `mode: 'loop'` fires at t=0 (via a next-microtask setTimeout
+  // so the entity is fully registered first) and then every N seconds.
+  // Without the immediate fire, orbits and pulses feel dead for the
+  // first N seconds after preview starts. `mode: 'once'` still waits
+  // its full delay before firing.
   if (schema.kind === 'timer') {
     if (params.mode === 'loop') {
-      const id = setInterval(() => scheduleRun(behavior), Math.max(50, (params.seconds || 1) * 1000))
-      return () => clearInterval(id)
+      const kickoff = setTimeout(() => scheduleRun(behavior), 0)
+      const interval = setInterval(() => scheduleRun(behavior), Math.max(50, (params.seconds || 1) * 1000))
+      return () => { clearTimeout(kickoff); clearInterval(interval) }
     } else {
       const id = setTimeout(() => scheduleRun(behavior), Math.max(0, (params.seconds || 0) * 1000))
       return () => clearTimeout(id)

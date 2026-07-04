@@ -21,7 +21,7 @@ import { Text, useGLTF, Billboard } from '@react-three/drei'
 import { useStore, isEffectivelyVisible } from '../store'
 import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
-import { resolveSemantic } from '../appleSystem'
+import { resolveSemantic, resolveAttachmentStyle } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
 import { useBehaviorRuntime, registerEntity } from '../behaviors/runtime'
 import { SymbolIcon3D } from './SymbolIcon3D'
@@ -369,6 +369,178 @@ function GroupGizmo({ isSelected, scene }) {
   )
 }
 
+// LightGizmo — Blender-style light marker. A small unlit sphere at
+// the entity's origin + type-specific extras (rays, cone, arrows) so
+// the wearer sees where the light is and which direction it points.
+// When selected, we also draw a proxy wireframe sphere at the light's
+// falloff range — mirrors Blender's "Light distance" indicator so the
+// user can eyeball how far the light reaches.
+function LightGizmo({ entity, isSelected, scene }) {
+  const tint = scene.tintColor || '#007aff'
+  const lightColor = entity.lightColor || '#ffffff'
+  const gizmoColor = isSelected ? tint : lightColor
+  const type = entity.lightType || 'point'
+  const range = entity.lightRange ?? 3
+  const outerAngle = ((entity.lightOuterAngle || 45) * Math.PI) / 180
+
+  return (
+    <group>
+      {/* Core bulb — a bit larger (0.028m) so a fresh light is
+          unmistakably visible in the diorama. Unlit MeshBasic so it
+          reads as a marker, not a shaded sphere. */}
+      <mesh>
+        <sphereGeometry args={[0.028, 16, 16]} />
+        <meshBasicMaterial color={gizmoColor} />
+      </mesh>
+      {/* Halo — thin outline sphere so the bulb reads on any backdrop
+          without depending on shading. */}
+      <mesh>
+        <sphereGeometry args={[0.032, 16, 16]} />
+        <meshBasicMaterial color={gizmoColor} wireframe opacity={0.5} transparent />
+      </mesh>
+
+      {/* Point light: 6 short outward rays give the classic bulb icon. */}
+      {type === 'point' && (
+        <group>
+          {[
+            [ 0.06, 0, 0], [-0.06, 0, 0],
+            [0,  0.06, 0], [0, -0.06, 0],
+            [0, 0,  0.06], [0, 0, -0.06]
+          ].map((p, i) => {
+            const half = [p[0] / 2, p[1] / 2, p[2] / 2]
+            return (
+              <mesh key={i} position={half}>
+                <boxGeometry args={[
+                  Math.abs(p[0]) || 0.003,
+                  Math.abs(p[1]) || 0.003,
+                  Math.abs(p[2]) || 0.003
+                ]} />
+                <meshBasicMaterial color={gizmoColor} />
+              </mesh>
+            )
+          })}
+        </group>
+      )}
+      {/* Spot light: wireframe cone pointing along -Z, opening angle
+          matches the outer angle so the user sees the cone shape they
+          just dialled in. */}
+      {type === 'spot' && (
+        <mesh position={[0, 0, -0.10]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[
+            Math.tan(outerAngle / 2) * 0.20,
+            0.20,
+            24,
+            1,
+            true
+          ]} />
+          <meshBasicMaterial color={gizmoColor} wireframe />
+        </mesh>
+      )}
+      {/* Directional light: 5 parallel arrows pointing along -Z (sun
+          direction). Bigger so the direction reads at a glance. */}
+      {type === 'directional' && (
+        <group>
+          {[[-0.04, 0, 0], [0.04, 0, 0], [0, 0.04, 0], [0, -0.04, 0], [0, 0, 0]].map((p, i) => (
+            <mesh key={i} position={[p[0], p[1], -0.08]} rotation={[Math.PI / 2, 0, 0]}>
+              <coneGeometry args={[0.012, 0.05, 8]} />
+              <meshBasicMaterial color={gizmoColor} />
+            </mesh>
+          ))}
+        </group>
+      )}
+      {/* IBL: nested wireframe rings signal "environment sphere". */}
+      {type === 'ibl' && (
+        <>
+          <mesh>
+            <torusGeometry args={[0.05, 0.003, 8, 32]} />
+            <meshBasicMaterial color={gizmoColor} wireframe />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.05, 0.003, 8, 32]} />
+            <meshBasicMaterial color={gizmoColor} wireframe />
+          </mesh>
+        </>
+      )}
+
+      {/* Range proxy — Blender-style falloff sphere shown when the
+          light is selected. Point + spot share the same range field;
+          spot renders the sphere at the cone tip. Directional + IBL
+          have no falloff, so no proxy. */}
+      {isSelected && type === 'point' && (
+        <mesh>
+          <sphereGeometry args={[range, 24, 24]} />
+          <meshBasicMaterial color={gizmoColor} wireframe transparent opacity={0.22} />
+        </mesh>
+      )}
+      {isSelected && type === 'spot' && (
+        <mesh position={[0, 0, -range]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[
+            Math.tan(outerAngle / 2) * range,
+            range,
+            32,
+            1,
+            true
+          ]} />
+          <meshBasicMaterial color={gizmoColor} wireframe transparent opacity={0.22} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
+// LightSource — the real R3F light node. Renders in both edit and
+// preview mode so the designer sees the light's effect while tuning
+// it. Colour + intensity + range come from the entity's fields so a
+// scrub in the inspector updates the scene in real time.
+function LightSource({ entity }) {
+  const color = entity.lightColor || '#ffffff'
+  const intensity = entity.lightIntensity ?? 3
+  const range = entity.lightRange ?? 3.0
+  const castShadow = !!entity.lightCastsShadow
+  const type = entity.lightType || 'point'
+
+  if (type === 'point') {
+    return (
+      <pointLight
+        color={color}
+        intensity={intensity}
+        distance={range}
+        decay={2}
+        castShadow={castShadow}
+      />
+    )
+  }
+  if (type === 'spot') {
+    // Spot light points down the entity's local -Z axis. R3F's
+    // spotLight targets +Z by default; we invert with a target ref.
+    const outer = ((entity.lightOuterAngle || 45) * Math.PI) / 180
+    const inner = ((entity.lightInnerAngle || 30) * Math.PI) / 180
+    const penumbra = Math.max(0, 1 - inner / outer)
+    return (
+      <spotLight
+        color={color}
+        intensity={intensity}
+        distance={range}
+        angle={outer}
+        penumbra={penumbra}
+        decay={2}
+        castShadow={castShadow}
+      />
+    )
+  }
+  if (type === 'directional') {
+    return (
+      <directionalLight
+        color={color}
+        intensity={intensity}
+        castShadow={castShadow}
+      />
+    )
+  }
+  // IBL is scene-level (Environment) in preview; no per-entity light node.
+  return null
+}
+
 // CameraGizmo — wireframe pyramid pointing along -Z (camera look
 // direction). Stand-in for the wearer's headset; the "Camera View"
 // button on the toolbar snaps the orbit camera to this entity's
@@ -382,26 +554,50 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
   const kind = entity.attachmentKind || 'text'
   const billboard = entity.attachmentBillboard !== false
 
-  const fontSize    = entity.attachmentFontSize ?? 0.05
-  const padding     = entity.attachmentPadding ?? 0.02
-  const radius      = entity.attachmentCornerRadius ?? 0.02
+  // Resolve font size / horizontal-padding / vertical-padding / corner
+  // radius from the entity's `attachmentTextStyle` (defaults to 'body').
+  // Explicit `attachmentFontSize` / `attachmentHPadding` /
+  // `attachmentVPadding` / `attachmentPadding` / `attachmentCornerRadius`
+  // still win when set. The ramp gives hPadding ≈ 1.55 × vPadding so
+  // fresh chips read as SwiftUI's `.padding(.horizontal, N).padding(.vertical, M)`
+  // idiom rather than a uniform square around the text.
+  const { fontSize, hPadding, vPadding, cornerRadius: styleRadius, weight } = resolveAttachmentStyle(entity)
   const fg          = entity.attachmentColor || '#ffffff'
   const bg          = entity.attachmentBackground || '#1c1c1e'
 
-  // Estimate panel size based on text length (rough character width
-  // ratio). For image attachments use the explicit size. SF Symbols
-  // attach as a separate Lucide-rasterised icon to the leading edge of
-  // the label; reserve a square's worth of inline space for it.
+  // Estimate panel size based on text length. For image attachments use
+  // the explicit size. SF Symbols attach as a separate Lucide-rasterised
+  // icon to the leading edge of the label; reserve a square's worth of
+  // inline space for it. Multi-line text is respected: longest line
+  // drives width, line count drives height.
+  //
+  // Character-width estimate is intentionally generous (0.62) — Inter's
+  // mixed-case advance width averages ~0.55-0.58 em for lowercase and
+  // ~0.62-0.68 for uppercase / hero titles. Underestimating pushes text
+  // right up to the visual edge of the panel and makes the padding read
+  // as too tight, especially at largeTitle sizes.
   const text = entity.attachmentText || ''
+  const lines = String(text).split('\n')
+  const longestLineLen = lines.reduce((m, l) => Math.max(m, l.length), 0)
+  const lineCount = Math.max(1, lines.length)
   const hasSymbol = !!entity.attachmentSymbol
-  const charW = fontSize * 0.55
-  const symbolReserveW = hasSymbol ? fontSize * 1.4 + padding * 0.5 : 0
+  const charW = fontSize * 0.62
+  const symbolReserveW = hasSymbol ? fontSize * 1.4 + hPadding * 0.5 : 0
   const estW = (kind === 'image')
     ? (entity.attachmentSize ?? 0.2)
-    : Math.max(fontSize * 3, text.length * charW + padding * 2 + symbolReserveW)
+    : Math.max(fontSize * 3, longestLineLen * charW + hPadding * 2 + symbolReserveW)
   const estH = (kind === 'image')
     ? (entity.attachmentSize ?? 0.2)
-    : (fontSize * 1.4 + padding * 2)
+    : (fontSize * (1.4 + (lineCount - 1) * 1.15) + vPadding * 2)
+
+  // Capsule shape (SwiftUI's `.background(_, in: Capsule())`) caps the
+  // corner radius at half the short axis, giving a proper pill. Buttons
+  // default to capsule via ATTACHMENT_KINDS.button; the designer can
+  // switch to roundedRect for a shape-forward look.
+  const shape = entity.attachmentShape || (kind === 'button' ? 'capsule' : 'roundedRect')
+  const radius = shape === 'capsule'
+    ? Math.min(estW, estH) / 2
+    : styleRadius
 
   const fillShape = useMemo(() => roundedRectShape(estW, estH, radius), [estW, estH, radius])
 
@@ -422,8 +618,8 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
           name={entity.attachmentSymbol}
           sizeUnits={fontSize * 1.2}
           color={fg}
-          weight="semibold"
-          position={[-estW / 2 + padding + (fontSize * 0.6), 0, 0.002]}
+          weight={weight === 'regular' ? 'medium' : weight}
+          position={[-estW / 2 + hPadding + (fontSize * 0.6), 0, 0.002]}
         />
       )}
       {kind !== 'image' && (
@@ -433,8 +629,9 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
           color={fg}
           anchorX="center"
           anchorY="middle"
-          font={getInterFont('semibold')}
-          maxWidth={estW - padding * 2 - symbolReserveW}
+          font={getInterFont(weight)}
+          maxWidth={estW - hPadding * 2 - symbolReserveW}
+          textAlign="center"
         >
           {text || ' '}
         </Text>
@@ -662,8 +859,15 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
   const rot = (entity.rotation || [0, 0, 0]).map((d) => d * DEG2RAD)
   const scl = entity.scale || [1, 1, 1]
 
+  // Include hidden children too. Their group starts with visible=false
+  // (set imperatively via ref in the useEffect below) but they still
+  // mount and register with the entity registry so runtime showHide
+  // targets can find them. If we filtered by isEffectivelyVisible
+  // here, tap/hover reveal actions targeting hidden info cards would
+  // silently no-op — the card would never be in the registry to
+  // resolve.
   const children = items.filter(
-    (c) => c.parentId === entity.id && c.type === 'entity' && isEffectivelyVisible(items, c.id)
+    (c) => c.parentId === entity.id && c.type === 'entity'
   )
 
   // Behaviour runtime — owns pointer handlers + per-frame ticks for the
@@ -684,6 +888,17 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
     meshRef:  runtime.meshRef,
     entity
   }), [entity.id])
+
+  // Honour `entity.visible: false` imperatively — we mount all
+  // entities so the registry can resolve `showHide` targets, but
+  // authored-hidden ones start with their three.js group set
+  // invisible. A runtime `showHide` action then flips group.visible
+  // directly; React doesn't re-render this over the top because
+  // entity.visible in the store doesn't change during preview.
+  useEffect(() => {
+    const g = runtime.groupRef.current
+    if (g) g.visible = entity.visible !== false
+  }, [entity.visible])
 
   const onPointerDown = (e) => { e.stopPropagation(); select(entity.id) }
   // In preview mode every pointer-handler-bearing inner group swaps to
@@ -733,12 +948,34 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
             {meshGeometry(entity)}
             {materialNode(mat, opacity, iblBoost)}
           </mesh>
+          {/* PointLightComponent analog — visionOS RealityKit lets you
+              attach a light directly to an entity so its glow lights
+              surrounding surfaces, not just its own material. We
+              approximate by adding a <pointLight> at the entity's
+              origin when `castsLight` is on. Colour picks up the
+              material's emissive tint so a warm sun casts warm light. */}
+          {entity.castsLight && (
+            <pointLight
+              color={mat?.emissiveColor || mat?.baseColor || '#ffffff'}
+              intensity={entity.lightIntensity ?? 4}
+              distance={entity.lightRange ?? 3.0}
+              decay={2}
+              castShadow={false}
+            />
+          )}
         </group>
       )}
 
       {entity.entityKind === 'anchor' && !previewMode && (
         <group onPointerDown={onPointerDown}>
           <AnchorGizmo entity={entity} isSelected={isSelected} scene={scene} />
+        </group>
+      )}
+
+      {entity.entityKind === 'light' && (
+        <group onPointerDown={onPointerDown}>
+          {!previewMode && <LightGizmo entity={entity} isSelected={isSelected} scene={scene} />}
+          <LightSource entity={entity} />
         </group>
       )}
 
@@ -783,8 +1020,14 @@ export default function Entity3D({ entity, items, scene, parentOpacity = 1 }) {
 // host's local space.
 
 export function EntityChildren({ hostId, items, scene }) {
+  // Include hidden entities (visible: false) too — they mount but
+  // stay invisible. This is what lets a runtime `showHide` action
+  // find them in the entity registry and reveal them on demand
+  // (info cards that pop up when the wearer taps a model). If we
+  // filtered them out here, they'd never register and taps would
+  // silently no-op.
   const children = items.filter(
-    (c) => c.parentId === hostId && c.type === 'entity' && isEffectivelyVisible(items, c.id)
+    (c) => c.parentId === hostId && c.type === 'entity'
   )
   if (children.length === 0) return null
   return (

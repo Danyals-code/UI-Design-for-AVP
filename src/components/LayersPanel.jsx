@@ -21,7 +21,7 @@ import {
   WindowIcon, VolumeIcon, CloseIcon, PlusIcon,
   TabViewIcon, TabIcon, NavStackIcon,
   PageTabIcon, SplitViewIcon,
-  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon,
+  RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon, LightIcon,
   SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon,
   SymbolIcon
 } from './icons'
@@ -103,6 +103,7 @@ function rowIcon(item) {
         <circle cx="11" cy="7" r="0.6" fill="currentColor" />
       </svg>
     )
+    if (item.entityKind === 'light') return <LightIcon />
     // Model — use mesh-specific glyph when known, fall back to the
     // generic model entity icon.
     const MeshGlyph = MESH_ICONS[item.meshType] || ModelEntityIcon
