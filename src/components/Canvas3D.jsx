@@ -1,6 +1,6 @@
 import { useEffect, useRef, Suspense, memo, useState } from 'react'
 import * as THREE from 'three'
-import { Canvas, useThree, useLoader } from '@react-three/fiber'
+import { Canvas, useThree } from '@react-three/fiber'
 import {
   OrbitControls, Grid, GizmoHelper, GizmoViewport, Environment,
   ContactShadows, Lightformer

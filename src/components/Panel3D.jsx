@@ -6,13 +6,23 @@ import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
 import {
-  resolveSemantic, resolveAnyMaterial, isGlassMaterialKey,
-  TEXT_STYLES, ptToUnits, SF_SYMBOLS,
-  LIST_STYLES, computeListHeightPt, computeButtonFramePt, BUTTON_SIZES,
+  resolveSemantic,
+  resolveAnyMaterial,
+  isGlassMaterialKey,
+  TEXT_STYLES,
+  ptToUnits,
+  LIST_STYLES,
+  computeListHeightPt,
+  computeButtonFramePt,
+  BUTTON_SIZES,
   NAVBAR_STYLE_SPECS,
-  NAVBAR_SIDE_PADDING_PT, NAVBAR_ITEM_PT, NAVBAR_ITEM_GAP_PT,
-  NAVBAR_AVATAR_PT, NAVBAR_SEARCH_W_PT,
-  NAVBAR_BACK_CAPSULE_W_PT, NAVBAR_BACK_ICON_TEXT_GAP_PT,
+  NAVBAR_SIDE_PADDING_PT,
+  NAVBAR_ITEM_PT,
+  NAVBAR_ITEM_GAP_PT,
+  NAVBAR_AVATAR_PT,
+  NAVBAR_SEARCH_W_PT,
+  NAVBAR_BACK_CAPSULE_W_PT,
+  NAVBAR_BACK_ICON_TEXT_GAP_PT
 } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
@@ -337,13 +347,33 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
   )
 }
 
-export default function Panel3D({ panel, localPosition, resolvedSize }) {
-  // RealityView gets its own renderer — it's a SwiftUI view but its
-  // contents are RealityKit entities rather than panels. Dispatch before
-  // any hooks so the realityview branch has a stable hook count.
-  if (panel.panelType === 'realityview') {
-    return <RealityViewPanel3D panel={panel} localPosition={localPosition} resolvedSize={resolvedSize} />
+// Dispatcher between the two panel renderers. It calls no hooks itself, so a
+// panel switching between `realityview` and anything else swaps one component
+// type for another: React unmounts one and mounts the other, and the hook
+// order inside each stays fixed.
+//
+// The branch used to live inside the single component below, above all of its
+// hooks. That is a rules-of-hooks violation — every hook after it is called
+// conditionally, and React throws the moment a mounted panel crosses the
+// branch. It was latent only because `realityview` is not a
+// `switchPanelType` target today.
+export default function Panel3D(props) {
+  const { panelType } = props.panel
+  if (panelType === 'realityview') {
+    return <RealityViewPanel3D {...props} />
   }
+  // A Spacer is an invisible flexible gap: the layout engine reserves its
+  // space, and there is nothing to draw. Handled here so the renderer below
+  // never has to return before its hooks.
+  if (panelType === 'spacer') {
+    return <group position={props.localPosition || [0, 0, 0]} />
+  }
+  return <PanelSurface3D {...props} />
+}
+
+// Every other panel type: text, controls, shapes, gradients, images, 3D
+// primitives and presentation overlays.
+function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const { id, panelType } = panel
   // SwiftUI modifiers live in `panel.modifiers` as an ordered array. Reduce
   // it to a flat preview struct (last-write-wins per visual prop) so the
@@ -761,10 +791,8 @@ export default function Panel3D({ panel, localPosition, resolvedSize }) {
     resolvedFillOpacity = 0.98
   }
 
-  // Spacer: invisible flexible gap — render nothing
-  if (panelType === 'spacer') {
-    return <group position={localPosition || [0, 0, 0]} />
-  }
+  // Spacer is handled in the dispatcher above — it draws nothing and needs no
+  // hooks, so returning here would make every hook below conditional.
 
   const isShape = ['rectangle', 'circle', 'capsule'].includes(panelType)
   const isDivider = panelType === 'divider'

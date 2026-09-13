@@ -13,7 +13,7 @@
 // list — adding a modifier to a view that SwiftUI rejects is impossible
 // because that modifier never appears in the dropdown for that view.
 
-import { GLASS_DISPLAY_MODES, GLASS_SHAPES, CONTAINER_BG_PLACEMENTS } from '../appleSystem'
+
 
 // Convert a 6-digit hex color to a SwiftUI Color(...) expression.
 // SwiftUI has no `Color(hex:)` init in its stdlib — always use Color(red:green:blue:).

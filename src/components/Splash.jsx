@@ -193,7 +193,10 @@ function TemplateThumb({ kind }) {
           <rect x="66" y="60" width="22" height="8" rx="4" fill={grey} stroke="none" />
         </svg>
       )
-    case 'settings':
+    // The legacy Settings template's thumbnail. This said `settings` too, so
+    // it duplicated the case above and was unreachable, while `settingsOld`
+    // had no case at all and fell through to the blank default.
+    case 'settingsOld':
       return (
         <svg {...common}>
           <rect x="6" y="6" width="148" height="68" rx="6" fill="#2a2a2c" />

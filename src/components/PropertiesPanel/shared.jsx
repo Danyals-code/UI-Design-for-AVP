@@ -19,8 +19,13 @@ import {
   ptToUnits, unitsToPt
 } from '../../appleSystem'
 import {
-  Row, Section, NumField, IntField, PtField, Slider,
-  ColorRow, Select, SemanticColorPicker
+  Row,
+  Section,
+  PtField,
+  Slider,
+  ColorRow,
+  Select,
+  SemanticColorPicker
 } from './primitives'
 import { SymbolIcon } from '../icons'
 import { makeModifier } from '../../modifiers/registry'
