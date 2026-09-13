@@ -165,7 +165,14 @@ export function computeSize(item, items) {
       const fixedH = hMode === 'fixed' && Array.isArray(item.size) && item.size[1] ? item.size[1] : null
       if (mode === 'fixed') {
         const widthU = wrapHintFromMod ?? (Array.isArray(item.size) ? item.size[0] : iw)
-        return [widthU, fixedH ?? ih]
+        // Height has to be measured AT that width. A string wider than its
+        // fixed frame wraps when rendered, so reporting the unwrapped
+        // single-line height here would under-reserve by every extra line —
+        // and `resolvedChildSizes` (which the renderer uses) already measures
+        // at the bound, so the two paths would disagree and siblings would
+        // overlap. See the agreement tests in layout.test.js.
+        const [, measuredH] = textIntrinsicSize(item, widthU)
+        return [widthU, fixedH ?? measuredH]
       }
       // fit and fill both start from intrinsic at this stage. fill gets
       // resized later inside layoutStack once innerW is known. `fixed`
@@ -374,9 +381,16 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
   // Compute per-axis flex share so main-axis fill stack children get the
   // correct width/height here (matches what layoutStack hands them).
   const intrinsicSizes = children.map((c) => computeSize(c, items))
+  // A `fill` child on the stack's MAIN axis behaves like a Spacer: it shares
+  // the leftover space with its siblings. Giving it the whole inner extent
+  // would push every sibling out of the stack — which is what a fill-width
+  // Text in an HStack used to do to the button beside it.
+  const isTextLikeItem = (c) =>
+    c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
   let flexShareW = 0, flexShareH = 0
   if (isHStack) {
-    const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.widthMode === 'fill')
+    const isFlex = (c) => c.isSpacer ||
+      ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
     const flexCount = children.filter(isFlex).length
     const fixedW = intrinsicSizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
@@ -400,7 +414,9 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
     const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
     const isStack    = c.type === 'stack'
     if (isTextLike && c.widthMode === 'fill') {
-      rw = innerW
+      // Cross-axis fill (a VStack column) stretches to the full inner width;
+      // main-axis fill (an HStack row) takes only its share of the leftover.
+      rw = isHStack ? flexShareW : innerW
     }
     if (isStack) {
       // Main-axis fill gets the flex share; cross-axis fill stretches fully.
@@ -594,19 +610,23 @@ export function layoutStack(stack, items, outerSize = null) {
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
                    stack.stackType === 'section' || stack.stackType === 'disclosure' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') !== 'horizontal')
+  const isTextLikeItem = (c) =>
+    c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
   const mainAxisFill = (c) => {
-    if (c.type !== 'stack') return false
-    if (isHStack) return c.widthMode === 'fill'
-    if (isVStack) return c.heightMode === 'fill'
+    if (isHStack) return (c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill'
+    if (isVStack) return c.type === 'stack' && c.heightMode === 'fill'
     return false
   }
   const resolveChildSize = (c) => {
     const [cw, ch] = computeSize(c, items)
-    const isTextLike = c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
+    const isTextLike = isTextLikeItem(c)
     const isStack    = c.type === 'stack'
     let rw = cw
     let rh = ch
-    if (isTextLike && c.widthMode === 'fill') rw = Math.max(0, innerW)
+    // Cross-axis fill stretches to the inner width. Main-axis fill (in an
+    // HStack) is handled by the spacer/flex pass below, which knows how much
+    // space is actually left over, so leave the intrinsic width here.
+    if (isTextLike && c.widthMode === 'fill' && !isHStack) rw = Math.max(0, innerW)
     if (isStack) {
       // Cross-axis fill: stretch the dimension perpendicular to the stack's
       // main axis. Main-axis fill is handled below via the spacer pipeline.
@@ -675,17 +695,28 @@ export function layoutStack(stack, items, outerSize = null) {
 
   // ---- HStack / LazyHStack ----
   if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack') {
-    // Spacer expansion — treat fill-width stack children as flexible like spacers.
-    const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.widthMode === 'fill')
+    // Spacer expansion — a fill-width stack OR Text child is flexible like a
+    // spacer on this axis, sharing what is left rather than claiming it all.
+    const isFlex = (c) => c.isSpacer ||
+      ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
     const flexCount = children.filter(isFlex).length
     const fixedW = sizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
     const flexW = flexCount > 0 ? remaining / flexCount : 0
 
-    const effectiveSizes = sizes.map(([cw, ch], i) =>
-      isFlex(children[i]) ? [flexW, ch] : [cw, ch]
-    )
+    const effectiveSizes = sizes.map(([cw, ch], i) => {
+      const c = children[i]
+      if (!isFlex(c)) return [cw, ch]
+      // A Text narrowed to its flex share may wrap to more lines, so its
+      // height has to be re-measured at the width it actually gets — the same
+      // bound `resolvedChildSizes` hands the renderer.
+      if (isTextLikeItem(c)) {
+        const [, measuredH] = textIntrinsicSize(c, Math.max(0.0001, flexW))
+        return [flexW, measuredH]
+      }
+      return [flexW, ch]
+    })
     const totalW = effectiveSizes.reduce((s, [cw]) => s + cw, 0) + totalGap
     let x = -totalW / 2
     for (let i = 0; i < children.length; i++) {
