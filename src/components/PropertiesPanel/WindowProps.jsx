@@ -3,16 +3,26 @@
 
 import { useStore } from '../../store'
 import {
-  TEXT_STYLES, TEXT_STYLE_ORDER,
-  MATERIALS, MATERIAL_ORDER,
-  IMMERSION_STYLES, HOVER_EFFECTS, GESTURE_TYPES, WINDOW_RESIZABILITY,
-  WORLD_SCALING_BEHAVIOR, VOLUME_BASEPLATE_VISIBILITY,
-  VOLUME_WORLD_ALIGNMENT, VOLUME_VIEWPOINTS,
+  TEXT_STYLES,
+  TEXT_STYLE_ORDER,
+  IMMERSION_STYLES,
+  HOVER_EFFECTS,
+  GESTURE_TYPES,
+  WINDOW_RESIZABILITY,
+  WORLD_SCALING_BEHAVIOR,
+  VOLUME_BASEPLATE_VISIBILITY,
+  VOLUME_WORLD_ALIGNMENT,
+  VOLUME_VIEWPOINTS,
   POINTS_PER_METER
 } from '../../appleSystem'
 import {
-  Row, Section, NumField, IntField, PtField,
-  Select, SemanticColorPicker, MaterialField
+  Row,
+  Section,
+  NumField,
+  PtField,
+  Select,
+  SemanticColorPicker,
+  MaterialField
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 import { ToolbarWizard } from './wizards'

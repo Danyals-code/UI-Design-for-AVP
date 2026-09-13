@@ -1,15 +1,15 @@
 // Low-level inspector primitives — fields, sliders, color picker, segmented
 // containers, section accordions. Reused across every per-domain inspector.
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import {
-  SEMANTIC_COLOR_ORDER,
   SCENE_COLOR_GROUPS,
   SCENE_COLOR_LABELS,
   STACK_TYPES,
   MATERIAL_LIBRARY,
   MATERIAL_LIBRARY_VALUES,
-  unitsToPt, ptToUnits
+  unitsToPt,
+  ptToUnits
 } from '../../appleSystem'
 import { useStore } from '../../store'
 import { useScrub } from './useScrub'

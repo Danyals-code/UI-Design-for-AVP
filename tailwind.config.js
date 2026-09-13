@@ -20,6 +20,7 @@ export default {
         accentDim:  '#0a5a9c',
         accentBg:   'rgba(10, 132, 255, 0.12)',
         danger:     '#ff453a',
+        warn:       '#ff9f0a',
         success:    '#30d158',
         // legacy aliases so existing class names still resolve
         panel:      '#181818',

@@ -107,6 +107,12 @@ export const makeTab = (overrides = {}) => ({
 // won't drift when items are reseeded (e.g. paste, undo).
 let windowGroupCounter = 1
 export const nextWindowGroupId = () => `Window${windowGroupCounter++}`
+// Saved and restored with the project, for the same reason the item id
+// counter is: reopening a file whose windows are Window1..Window5 with the
+// counter still at 1 would mint a colliding group id on the next add, and
+// `openWindow(id:)` routes by that string.
+export const getWindowGroupCounter = () => windowGroupCounter
+export const setWindowGroupCounter = (v) => { windowGroupCounter = v }
 
 export const makeWindow = (overrides = {}) => ({
   id: nextId('window'),

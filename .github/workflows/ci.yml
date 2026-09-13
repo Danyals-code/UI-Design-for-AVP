@@ -1,0 +1,51 @@
+name: CI
+
+# Runs the same gate as `npm run check`, but as three separate steps so the
+# GitHub UI names which stage failed instead of showing one opaque red cross.
+on:
+  push:
+    branches: [main]
+  # Covers feature branches: this repo merges through PRs, so a branch gets
+  # checked the moment one is opened.
+  pull_request:
+  # Lets a branch be checked from the Actions tab before opening a PR.
+  workflow_dispatch:
+
+# A new push to the same branch supersedes the run in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Matches the `engines.node` floor in package.json. 20 is the active
+          # LTS and satisfies ESLint 9, Vite 5 and Vitest 3.
+          node-version: '20'
+          cache: npm
+
+      # `npm ci` installs strictly from the lockfile and fails if it has
+      # drifted from package.json, which is what we want in CI.
+      - name: Install
+        run: npm ci
+
+      # Errors only. The remaining warnings are tracked deliberately and must
+      # not fail the build; see eslint.config.js for what is switched on.
+      - name: Lint
+        run: npm run lint:errors
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

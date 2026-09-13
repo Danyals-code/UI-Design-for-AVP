@@ -6,11 +6,19 @@
 import { useStore } from '../../store'
 import { VStackIcon, HStackIcon, ZStackIcon } from '../icons'
 import {
-  STACK_TYPES, MATERIALS, MATERIAL_ORDER,
-  TEXT_STYLES, TEXT_STYLE_ORDER
+  STACK_TYPES,
+  TEXT_STYLES,
+  TEXT_STYLE_ORDER
 } from '../../appleSystem'
 import {
-  Row, Section, IntField, PtField, Slider, Select, SemanticColorPicker, StackAlignmentPicker, MaterialField
+  Row,
+  Section,
+  IntField,
+  Slider,
+  Select,
+  SemanticColorPicker,
+  StackAlignmentPicker,
+  MaterialField
 } from './primitives'
 import { ModifierStack } from './ModifierStack'
 

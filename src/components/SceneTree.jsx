@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState, useEffect } from 'react'
+import { useRef, useMemo, useState } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
@@ -602,7 +602,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       )}
 
       {/* TabView: auto-render bottom tab bar with clickable tabs */}
-      {stack.stackType === 'tabView' && <TabBar3D stack={stack} children={children} w={w} h={h} scene={scene} />}
+      {stack.stackType === 'tabView' && <TabBar3D stack={stack} childItems={children} w={w} h={h} scene={scene} />}
 
       {children.map((c) => {
         // In a TabView, only the active Tab is positioned by layoutStack.
@@ -622,9 +622,12 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
 
 // Auto-rendered tab bar at the bottom of a TabView stack.
 // Shows each Tab's label + icon, highlights the active one, clickable.
-function TabBar3D({ stack, children, w, h, scene }) {
+// `childItems` is the stack's child *store records*, not React children — the
+// name matters, because passing them as `children` reads as JSX content and
+// React reserves that prop.
+function TabBar3D({ stack, childItems, w, h, scene }) {
   const updateItem = useStore((s) => s.updateItem)
-  const tabs = children.filter((c) => c.stackType === 'tab')
+  const tabs = childItems.filter((c) => c.stackType === 'tab')
   if (tabs.length === 0) return null
 
   const barH = ptToUnits(64)

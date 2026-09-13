@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
 import {
-  TextIcon, ButtonIcon, CanvasIcon, ImageIcon,
+  TextIcon, ButtonIcon, ImageIcon,
   ToggleIcon, SegmentedIcon, SliderIcon, StepperIcon,
   ProgressIcon, GaugeIcon,
   SearchIcon, ListIcon, TableIcon, MenuIcon,
@@ -9,19 +9,12 @@ import {
   NavBarIcon,
   VStackIcon, HStackIcon, ZStackIcon,
   WindowIcon, SplitViewIcon,
-  OrnamentLeading, OrnamentTrailing, OrnamentTop, OrnamentBottom,
   TabBarIcon, ToolbarIcon,
   SpacerIcon, DividerIcon,
-  RectangleIcon, CircleIcon, CapsuleIcon,
-  GridLayoutIcon, SectionIcon, DisclosureIcon, NavStackIcon,
-  LazyVStackIcon, LazyHStackIcon,
+  RectangleIcon,
   SheetIcon, PopoverIcon, AlertIcon,
-  LabelIcon, TextFieldIcon, SecureFieldIcon, TextEditorIcon, SearchFieldIcon,
-  PickerIcon, DatePickerIcon, ColorPickerIcon, LinkIcon,
-  AsyncImageIcon, ContentUnavailableIcon,
-  FormIcon, GroupBoxIcon, OutlineGroupIcon,
-  EllipseIcon, UnevenRectIcon, PathIcon,
-  LinearGradientIcon, RadialGradientIcon, AngularGradientIcon,
+  LabelIcon, TextFieldIcon, SecureFieldIcon, SearchFieldIcon,
+  PickerIcon, LinkIcon,
   SphereIcon, BoxIcon, PlaneIcon, ConeIcon, CylinderIcon, Text3DIcon, MeshIcon,
   RealityViewIcon, AnchorIcon, EntityGroupIcon, ModelEntityIcon, LightIcon
 } from './icons'

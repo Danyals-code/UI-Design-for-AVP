@@ -25,3 +25,7 @@ yarn-error.log*
 # System files
 .DS_Store
 Thumbs.db
+
+# Local editor and tooling state (any dot-directory), except CI config
+.*/
+!.github/

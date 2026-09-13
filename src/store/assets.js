@@ -20,6 +20,8 @@
 // the panel sets it on dragstart, the canvas reads it on drop and
 // instantiates a model entity referencing the asset.
 
+import { undoable } from './undo'
+
 let _idCounter = 1
 const nextId = () => `asset-${Date.now().toString(36)}-${_idCounter++}`
 
@@ -27,10 +29,37 @@ const MAX_ASSET_BYTES = 25 * 1024 * 1024  // 25 MB
 
 export const ASSET_LIMITS = { MAX_BYTES: MAX_ASSET_BYTES }
 
+// True when `url` names a mesh the canvas can actually load and draw.
+//
+// The renderer's only mesh loader is drei's `useGLTF`, so glTF binary
+// (.glb) and JSON (.gltf) are the loadable pair. Two shapes both count:
+//
+//   • a path or http(s) URL ending in .glb / .gltf (templates and the
+//     public/ folder use these), optionally with a ?query or #hash
+//   • a base64 data URL carrying a glTF mime type — which is what an
+//     imported asset holds, since `importAssets` inlines the bytes so a
+//     project can survive a reload without a backing server
+//
+// Everything else resolves false and the caller falls back to the
+// wireframe placeholder: `.usdz` because browsers cannot decode it
+// without conversion (and it is visionOS's own format, so the
+// placeholder is the common case), `.obj` because no OBJLoader is wired
+// up, and '' because that is what `meshDefaults('usdz')` seeds.
+//
+// Lives here rather than in Entity3D so it is testable without pulling
+// the whole three.js stack into the test run.
+export function isLoadableMeshUrl(url) {
+  if (!url || typeof url !== 'string') return false
+  if (/^data:/i.test(url)) {
+    return /^data:(model\/gltf-binary|model\/gltf\+json)/i.test(url)
+  }
+  return /\.(glb|gltf)(\?|#|$)/i.test(url)
+}
+
 // Sniff the file's MIME type and intent (mesh vs image). Anything
 // else is rejected with a console warning — the panel surfaces the
 // rejection by simply not adding it to the list.
-function classifyFile(file) {
+export function classifyFile(file) {
   const name = (file.name || '').toLowerCase()
   const mime = file.type || ''
   if (mime.startsWith('image/')) return { assetType: 'image', mimeType: mime || 'image/*' }
@@ -53,28 +82,34 @@ function readAsDataURL(file) {
 export function createAssetsSlice(set, get) {
   return {
     // ---- actions ----
+    //
+    // Library mutations are `undoable` like every other document edit:
+    // assets are part of the project, so importing or deleting one has to
+    // be reversible with the same Cmd-Z the user uses everywhere else.
+    // `pendingDropAsset` is the exception at the bottom — that is transient
+    // drag state, not document state.
 
     // Create a folder under `parentId` (null = root). Returns the new id.
     createAssetFolder: (name, parentId = null) => {
       const id = nextId()
-      set((s) => ({
+      undoable(set, get, (s) => ({
         assets: [...s.assets, { id, kind: 'folder', name: name || 'New Folder', parentId }]
       }))
       return id
     },
 
-    renameAsset: (id, name) => set((s) => ({
+    renameAsset: (id, name) => undoable(set, get, (s) => ({
       assets: s.assets.map((a) => a.id === id ? { ...a, name } : a)
     })),
 
     // Tag a folder (or asset) with a colour swatch. Stored as a hex
     // string so the panel can paint the folder glyph + a thin label
     // accent. `null` clears the colour back to the neutral default.
-    setAssetColor: (id, color) => set((s) => ({
+    setAssetColor: (id, color) => undoable(set, get, (s) => ({
       assets: s.assets.map((a) => a.id === id ? { ...a, color: color || null } : a)
     })),
 
-    deleteAsset: (id) => set((s) => {
+    deleteAsset: (id) => undoable(set, get, (s) => {
       // Cascade-delete: if it's a folder, drop everything under it
       // recursively. Cheaper than walking parents on every render.
       const toDelete = new Set([id])
@@ -90,7 +125,7 @@ export function createAssetsSlice(set, get) {
       return { assets: s.assets.filter((a) => !toDelete.has(a.id)) }
     }),
 
-    moveAsset: (id, parentId) => set((s) => {
+    moveAsset: (id, parentId) => undoable(set, get, (s) => {
       // Refuse moves that would orphan the parent inside one of its
       // own descendants — would create a cycle.
       const descendants = new Set([id])
@@ -138,7 +173,7 @@ export function createAssetsSlice(set, get) {
         })
       }
       if (records.length) {
-        set((s) => ({ assets: [...s.assets, ...records] }))
+        undoable(set, get, (s) => ({ assets: [...s.assets, ...records] }))
       }
       return records.map((r) => r.id)
     },
@@ -224,9 +259,17 @@ export function createAssetsSlice(set, get) {
         overrides: {
           meshType: 'usdz',
           name: asset.name.replace(/\.[^.]+$/, ''),
-          usdzAssetName: asset.fileName,
-          usdzAssetUrl: asset.dataUrl,
-          usdzAssetId: asset.id
+          // `usdzAsset` is the field Entity3D actually reads, and it
+          // accepts either a bundle resource name or a resolvable URL
+          // (see `isLoadableMeshUrl`). This used to write
+          // `usdzAssetName` / `usdzAssetUrl`, which nothing read — so a
+          // dropped GLB always fell through to the wireframe
+          // placeholder. `usdzAssetId` stays as a back-reference to the
+          // library record so the exporter can name the asset instead
+          // of inlining its bytes.
+          usdzAsset: asset.dataUrl,
+          usdzAssetId: asset.id,
+          usdzFileName: asset.fileName
         }
       })
     }

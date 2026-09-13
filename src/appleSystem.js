@@ -793,7 +793,6 @@ export function resolveAnyMaterial(key, scene) {
   const color = resolveSemantic(key, scene)
   return {
     fillType: 'solid',
-    color,
     gradientFrom: color,
     gradientTo: color,
     gradientAngle: 180,

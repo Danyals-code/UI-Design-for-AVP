@@ -7,9 +7,9 @@
 import { useStore } from '../../store'
 import { Section, Row, Select, ColorRow } from './primitives'
 import {
-  TRIGGERS, ACTIONS,
   TRIGGER_OPTIONS,
-  getTriggerSchema, getActionSchema,
+  getTriggerSchema,
+  getActionSchema,
   getActionOptionGroups,
   defaultParamsFor
 } from '../../behaviors/registry'

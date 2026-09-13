@@ -14,9 +14,23 @@
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
-import { unitsToPt, textStyleDefaultWeight } from '../appleSystem'
-import { emitPanel, isInteractivePanel } from '../panels/registry'
+import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS } from '../appleSystem'
+import { emitPanel, isInteractivePanel, compileTapAction } from '../panels/registry'
 import { MODIFIERS } from '../modifiers/registry'
+import { emitRealityView, hasEntityChildren } from './realitykit'
+import {
+  emitBehaviorModifiers, emitBehaviorMethods, behaviorStateDecls
+} from './behaviors'
+
+// Behaviour plans collected while rendering one view file.
+//
+// Gestures, `@State` and the generated methods all belong at view scope, but
+// they are discovered deep inside `renderWindow` / `renderPanel`. Threading a
+// collector through every renderer signature would touch a dozen call sites
+// for one feature, so `wrapTabView` clears this at entry and reads it after
+// the body is built. Generation is synchronous and single-threaded per file,
+// so a module-scoped accumulator is safe here.
+let pendingBehaviorPlans = []
 
 // ---------- helpers ----------
 
@@ -258,6 +272,23 @@ function renderModifiers(panel, lines, pad) {
 function renderPanel(panel, items, pad, out) {
   const ind = indent(pad)
   const push = (l) => out.push(ind + l)
+
+  // A RealityView's children are RealityKit entities, not panels, so the
+  // entity emitter owns it. The registry's own emit is a stub that only
+  // prints a TODO; intercepting here is what turns it into real content.
+  // With no entities we fall through to that stub, which is the honest
+  // output for an empty RealityView.
+  if (panel.panelType === 'realityview' && hasEntityChildren(panel.id, items)) {
+    const plan = emitRealityView(panel.id, items, pad, out, {
+      frameDepth: panel.depth || null
+    })
+    if (plan && plan.any) {
+      emitBehaviorModifiers(plan, pad, out)
+      pendingBehaviorPlans.push(plan)
+    }
+    renderModifiers(panel, out, pad)
+    return
+  }
   const sym = panel.symbolName
   const textColor = swiftColor(panel.textColorToken, panel.textColor)
   const fill = swiftColor(panel.colorToken, panel.color)
@@ -618,6 +649,92 @@ function renderStack(stack, items, pad, out, stateBag) {
   }
 }
 
+// ---------- navigation bar -> .toolbar ---------------------------------
+//
+// A NavigationBar has no single SwiftUI primitive; it is window chrome, and
+// SwiftUI expresses that as `.navigationTitle` plus `.toolbar { ... }` on the
+// window body. That is exactly how the designer models it too (navbar is a
+// window-level panel, never nested in a content stack), so the mapping is
+// direct. `NAVBAR_STYLE_SPECS` decides which slots the chosen style fills.
+function emitNavbarToolbar(panel, items, pad, out) {
+  const ind = `${indent(pad)}    `
+  const spec = NAVBAR_STYLE_SPECS[panel.navbarStyle] || NAVBAR_STYLE_SPECS.trailingButtons
+  const lookupItem = (id) => items.find((it) => it.id === id) || null
+  const title = panel.title || ''
+
+  // A leading-aligned title is what `.navigationTitle` already renders on
+  // visionOS; a centred one needs the explicit `.principal` slot.
+  if (title && spec.titleAlign !== 'center') {
+    out.push(`${ind}.navigationTitle("${escapeString(title)}")`)
+  }
+
+  // One Button per configured item. `label` wins over `symbolName` when set,
+  // matching how the canvas draws the chip.
+  const buttonFor = (b) => {
+    const action = compileTapAction(b?.tapAction, lookupItem)
+    const label = b?.label
+      ? `Text("${escapeString(b.label)}")`
+      : `Image(systemName: "${escapeString(b?.symbolName || 'circle')}")`
+    return `Button{ ${action} } label: { ${label} }`
+  }
+
+  const rows = []
+  const centredTitle = title && spec.titleAlign === 'center'
+  if (centredTitle) {
+    rows.push([`ToolbarItem(placement: .principal) {`, [`Text("${escapeString(title)}").font(.headline)`], `}`])
+  }
+
+  if (spec.leading === 'buttons') {
+    const btns = (panel.leadingButtons || []).map(buttonFor)
+    if (btns.length) {
+      rows.push([`ToolbarItemGroup(placement: .topBarLeading) {`, btns, `}`])
+    }
+  } else if (spec.leading === 'backCircle' || spec.leading === 'backCapsule') {
+    // The designer's Back affordance maps to a dismiss action. Which
+    // environment value that is depends on how the window was presented, so
+    // the generated button points at the two candidates rather than guessing.
+    const label = spec.leading === 'backCapsule'
+      ? `Label("Back", systemImage: "chevron.backward")`
+      : `Image(systemName: "chevron.backward")`
+    rows.push([`ToolbarItem(placement: .topBarLeading) {`, [
+      `// Use @Environment(\\.dismiss) for a sheet, or @Environment(\\.dismissWindow) for a window.`,
+      `Button{ /* dismiss() */ } label: { ${label} }`
+    ], `}`])
+  }
+
+  if (spec.trailing === 'buttons') {
+    const btns = (panel.trailingButtons || []).map(buttonFor)
+    if (btns.length) {
+      rows.push([`ToolbarItemGroup(placement: .topBarTrailing) {`, btns, `}`])
+    }
+  } else if (spec.trailing === 'avatar') {
+    rows.push([`ToolbarItem(placement: .topBarTrailing) {`, [
+      `Image(systemName: "person.crop.circle.fill")`,
+      `    .font(.title2)`
+    ], `}`])
+  } else if (spec.trailing === 'search') {
+    // `.searchable` is a view modifier, not a toolbar item, so it is emitted
+    // alongside the toolbar rather than inside it.
+    rows.push(null)
+  }
+
+  if (rows.filter(Boolean).length > 0) {
+    out.push(`${ind}.toolbar {`)
+    for (const row of rows) {
+      if (!row) continue
+      const [open, body, close] = row
+      out.push(`${ind}    ${open}`)
+      for (const l of body) out.push(`${ind}        ${l}`)
+      out.push(`${ind}    ${close}`)
+    }
+    out.push(`${ind}}`)
+  }
+
+  if (spec.trailing === 'search') {
+    out.push(`${ind}.searchable(text: $navbarSearchText, prompt: "Search")`)
+  }
+}
+
 function renderWindow(win, items, pad, out, stateBag) {
   const ind = indent(pad)
   // A Window's direct content children — separate ornaments and presentation
@@ -633,8 +750,17 @@ function renderWindow(win, items, pad, out, stateBag) {
   // on the window body. Direct children with stackType 'toolbar' route
   // here instead of being emitted inline.
   const toolbarKids = ownChildren.filter((c) => c.type === 'stack' && c.stackType === 'toolbar')
+  // Navigation bars are window chrome and export as `.toolbar { … }` on the
+  // body, so they route out of the inline content the same way toolbars do.
+  const navbarKids = ownChildren.filter((c) => c.type === 'panel' && c.panelType === 'navbar')
+  // RealityKit entities parented straight to the window. A volumetric window
+  // IS a RealityView, so its entity children become that view's content.
+  // Without this they fell out of the render entirely: every volume template
+  // exported an empty `ZStack { }`.
+  const entityKids = ownChildren.filter((c) => c.type === 'entity')
   const inlineKids = ownChildren.filter((c) =>
-    !presentationKids.includes(c) && !ornamentKids.includes(c) && !toolbarKids.includes(c)
+    !presentationKids.includes(c) && !ornamentKids.includes(c) && !toolbarKids.includes(c) &&
+    !navbarKids.includes(c) && !entityKids.includes(c)
   )
 
   // Wrap the window content in a ScrollView when the designer flipped
@@ -647,14 +773,41 @@ function renderWindow(win, items, pad, out, stateBag) {
     if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
     else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
   }
+  if (entityKids.length > 0) {
+    const plan = emitRealityView(win.id, items, pad + 1, out)
+    if (plan && plan.any) {
+      // Gestures attach to the RealityView itself, so they go here rather
+      // than on the enclosing ZStack.
+      emitBehaviorModifiers(plan, pad + 1, out)
+      pendingBehaviorPlans.push(plan)
+    }
+  }
   out.push(closeWrap)
-  out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
-  if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
+
+  // A volumetric window is sized in metres by `.defaultSize(… in: .meters)`
+  // on the WindowGroup, and its content fills the volume. Pinning the body to
+  // a point-based frame would fight that, so flat plates get the frame and
+  // volumes do not.
+  const isVolumetric = win.windowStyle === 'volumetric'
+  if (!isVolumetric) {
+    out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
+    if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
+  }
 
   // Toolbars first — they sit at the chrome level. Each child Toolbar
   // attaches as its own `.toolbar { … }` modifier.
   for (const t of toolbarKids) {
     emitToolbarModifier(t, items, pad, out, stateBag)
+  }
+
+  // Navigation bars, same chrome level. A `trailingSearch` style needs a
+  // `@State` string for its `.searchable` binding.
+  for (const nb of navbarKids) {
+    const spec = NAVBAR_STYLE_SPECS[nb.navbarStyle] || NAVBAR_STYLE_SPECS.trailingButtons
+    if (spec.trailing === 'search') {
+      stateBag.push({ name: 'navbarSearchText', type: 'String', default: '""' })
+    }
+    emitNavbarToolbar(nb, items, pad, out)
   }
 
   // Ornaments next (visionOS draws them in the scene-relative coordinate
@@ -687,6 +840,8 @@ function renderWindow(win, items, pad, out, stateBag) {
 // ---------- top-level file wrappers ----------
 
 function wrapTabView(viewName, windows, items) {
+  // Reset the per-file behaviour collector before anything renders into it.
+  pendingBehaviorPlans = []
   const body = []
   // `stateBag` entries are either a string (legacy: Bool=false, used for
   // `showing_*` and `isExpanded_*` flags) or an object
@@ -747,6 +902,18 @@ function wrapTabView(viewName, windows, items) {
     }
   }
 
+  // RealityKit is only imported when the view actually builds entities, so
+  // a plain 2D layout does not carry an unused import.
+  const usesRealityKit = body.some((l) => typeof l === 'string' && l.includes('RealityView'))
+
+  // Behaviour scope: `@State` above the body, generated methods below it.
+  const behaviorDecls = []
+  const behaviorMethods = []
+  for (const plan of pendingBehaviorPlans) {
+    for (const l of behaviorStateDecls(plan)) behaviorDecls.push(l)
+    emitBehaviorMethods(plan, 1, behaviorMethods)
+  }
+
   return [
     `//`,
     `//  ${viewName}.swift`,
@@ -754,16 +921,19 @@ function wrapTabView(viewName, windows, items) {
     `//`,
     ``,
     `import SwiftUI`,
+    usesRealityKit ? `import RealityKit` : null,
     ``,
     `struct ${viewName}: View {`,
+    ...behaviorDecls,
     ...stateDecls,
-    stateDecls.length ? `` : null,
+    (stateDecls.length || behaviorDecls.length) ? `` : null,
     `    var body: some View {`,
     ...body,
     `    }`,
+    ...behaviorMethods,
     `}`,
     ``,
-    `#Preview(windowStyle: .automatic) {`,
+    `#Preview(windowStyle: ${windows.some((w) => w.windowStyle === 'volumetric') ? '.volumetric' : '.automatic'}) {`,
     `    ${viewName}()`,
     `}`,
     ``
