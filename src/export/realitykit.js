@@ -370,7 +370,7 @@ function transformLines(entity, varName) {
 // The SwiftUI view for one attachment, as lines for the `attachments:`
 // builder. Sizing comes from the shared ATTACHMENT_TEXT_STYLES ramp so the
 // exported chip matches the canvas.
-function attachmentViewLines(entity, attachId) {
+function attachmentViewLines(entity, _attachId) {
   const style = resolveAttachmentStyle(entity)
   const kind = entity.attachmentKind || 'text'
   const label = esc(entity.attachmentText || ATTACHMENT_KINDS[kind]?.defaults?.attachmentText || '')

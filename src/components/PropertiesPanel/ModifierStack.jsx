@@ -13,7 +13,8 @@ import {
   MODIFIERS, getAllowedModifiers,
   viewKind, makeModifier
 } from '../../modifiers/registry'
-import { Section, Row, NumField, IntField, Slider, ColorRow, Select } from './primitives'
+import { Section, Row, NumField, IntField, Slider, ColorRow, Select, SwiftWarning } from './primitives'
+import { validateSwiftFragment } from '../../export/swiftValidate'
 
 // ---- per-modifier inspector bodies -----------------------------------
 //
@@ -431,6 +432,33 @@ function ModifierBody({ m, set }) {
           </div>
         </Row>
       )
+
+    // Escape hatch — one free-text field holding a whole chain entry. It is
+    // appended to the view's chain verbatim, so it is validated the same way
+    // the custom panel's body is: a stray bracket here breaks the generated
+    // file well downstream of this row.
+    case 'customModifier': {
+      const src = m.source || ''
+      const check = validateSwiftFragment(src)
+      return (
+        <>
+          <Row label="Swift">
+            <input
+              className="inspector-input flex-1 font-mono text-[10px]"
+              value={src}
+              spellCheck={false}
+              placeholder=".padding(8)"
+              onChange={(e) => set({ source: e.target.value })}
+            />
+          </Row>
+          {!check.ok && <SwiftWarning message={check.message} />}
+          <div className="text-[9px] text-textMute leading-snug mt-1">
+            Appended to this view&apos;s modifier chain exactly as typed. The
+            canvas cannot preview it.
+          </div>
+        </>
+      )
+    }
 
     // No-arg modifiers (italic, underline, strikethrough) render no body —
     // the row title carries the meaning.

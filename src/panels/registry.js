@@ -1367,7 +1367,7 @@ export const PANELS = {
       const tree = renderNodes(0, 0)
       const dump = (nodes, indent) => {
         const ind = '    '.repeat(indent)
-        const parts = nodes.map((n, i) => {
+        const parts = nodes.map((n) => {
           const prefix = `${ind}OutlineNode(title: "${n.title}"`
           if (!n.children || !n.children.length) return `${prefix})`
           const inner = dump(n.children, indent + 1)
@@ -1728,6 +1728,58 @@ export const PANELS = {
       push(`RealityView { content in`)
       push(`    // TODO: build entities from this RealityView's child tree (see designer)`)
       push(`}`)
+    }
+  },
+
+  // ---- escape hatch ----------------------------------------------------
+  //
+  // Raw Swift, authored by the designer and emitted verbatim.
+  //
+  // Every other entry in this registry models one SwiftUI view, which means
+  // the reachable surface is exactly the set of entries in this file: a view
+  // Apple ships but we have not modelled is simply unbuildable, and closing
+  // that by hand is unbounded work. This entry removes the ceiling instead —
+  // anything expressible in Swift can be placed in the tree today, at the
+  // cost of no canvas preview.
+  //
+  // The canvas draws a labelled placeholder rather than attempting to
+  // interpret the source. Rendering arbitrary Swift is not something this
+  // app can do, and a placeholder that says so is more honest than a box
+  // that pretends to be the view.
+  //
+  // The source is validated for structural sanity before export (see
+  // src/export/swiftValidate.js) because it lands mid-file: an unbalanced
+  // brace here breaks the whole generated view, not just this node.
+  custom: {
+    defaults: {
+      size: [ptToUnits(240), ptToUnits(80)],
+      // Swift source emitted verbatim in this node's position. The default
+      // is a working one-liner so a freshly-added node exports something
+      // that compiles rather than a hole in the file.
+      code: 'Text("Hello from raw Swift")',
+      // Short display name drawn on the placeholder. Kept separate from
+      // `code` so a long multi-line fragment still reads as one tidy box
+      // on the canvas.
+      label: 'Custom Swift',
+      color: '#2a2f3a',
+      colorToken: null,
+      cornerRadius: ptToUnits(12)
+    },
+    emit(panel, ctx) {
+      const { push } = ctx
+      // Normalise line endings so a fragment pasted from a Windows editor
+      // does not emit stray \r into the Swift file.
+      const src = String(panel.code ?? '').replace(/\r\n?/g, '\n')
+      if (!src.trim()) {
+        // An empty fragment still has to produce a view: the node occupies a
+        // position in a result builder, and emitting nothing there would
+        // silently change the parent's layout.
+        push('EmptyView()')
+        return
+      }
+      // One push per line so each gets the current indentation prefix; the
+      // fragment's own internal indentation rides on top of it.
+      for (const line of src.split('\n')) push(line)
     }
   }
 }

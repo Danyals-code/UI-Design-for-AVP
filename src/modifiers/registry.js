@@ -83,16 +83,6 @@ const KIND_INTERACTIVE = new Set([
 // chain (Button, Label, Ticker, Slideshow, Text3D).
 const KIND_TEXTUAL = new Set(['text', 'link', 'button', 'label', 'ticker', 'slideshow', 'text3d'])
 
-// Views that render a tintable shape/icon — accept `.foregroundStyle()`.
-// Includes textual views (foregroundStyle replaces .foregroundColor) plus
-// shapes/symbols/images.
-const KIND_TINTABLE = new Set([
-  ...KIND_TEXTUAL,
-  'image', 'asyncimage',
-  'rectangle', 'circle', 'capsule', 'ellipse', 'unevenRoundedRect', 'path',
-  'divider', 'progress', 'gauge'
-])
-
 // Views with a layout box that `.padding()` / `.border()` / `.clipShape()`
 // can wrap. Stack + Window are containers; almost every concrete panel has a
 // frame too. 3D primitives + presentation panels are the explicit no.
@@ -118,7 +108,6 @@ const isOn = (v) => v === true
 // primitives into this file. The actual inspector imports primitives.jsx and
 // passes the rendered children back through.
 
-const allKinds = (kinds) => (k) => kinds.has(k)
 const containerOnly = (k) => k === 'stack' || k === 'window'
 
 export const MODIFIERS = {
@@ -762,6 +751,41 @@ export const MODIFIERS = {
     appliesTo: (k) => k === 'stack',
     summarize() {},
     emit(args) { return isOn(args.value) ? `.scrollDisabled(true)` : null }
+  },
+
+  // ---- escape hatch ----------------------------------------------------
+  //
+  // An arbitrary modifier, authored by the designer and appended verbatim.
+  //
+  // Every other entry here models one SwiftUI method, so the reachable set
+  // is exactly this file. This entry lifts that limit: any modifier Apple
+  // ships — or any one that arrives after this was written — can be applied
+  // today without a registry change.
+  //
+  // `appliesTo` is deliberately unrestricted where the modifier section is
+  // shown at all. The strict allow-list exists to stop the inspector
+  // offering a modifier SwiftUI would reject on that view; here the user is
+  // asserting they know what they are attaching, and second-guessing them
+  // would defeat the point. (3D primitives and presentation panels hide the
+  // modifier section entirely — reach for the `custom` panel there.)
+  //
+  // `summarize` is intentionally a no-op: the canvas cannot know what an
+  // arbitrary modifier does visually, and guessing would be worse than
+  // rendering the view unmodified.
+  customModifier: {
+    type: 'customModifier',
+    swiftName: '.custom',
+    group: 'Custom',
+    defaults: { source: '.padding(8)' },
+    appliesTo: () => true,
+    summarize() {},
+    emit(args) {
+      const raw = String(args.source ?? '').trim()
+      if (!raw) return null
+      // Tolerate both `.opacity(0.5)` and `opacity(0.5)` — the leading dot
+      // is what makes it a chain entry, and typing it is easy to forget.
+      return raw.startsWith('.') ? raw : `.${raw}`
+    }
   }
 }
 
@@ -790,7 +814,10 @@ const ORDER = [
   // Navigation
   'navigationTitle', 'toolbarBackground',
   // Scroll
-  'scrollIndicators', 'scrollDisabled'
+  'scrollIndicators', 'scrollDisabled',
+  // Escape hatch — last in the dropdown so the modelled modifiers stay the
+  // obvious first choice and this is the deliberate fallback.
+  'customModifier'
 ]
 
 export const ALL_MODIFIER_TYPES = ORDER

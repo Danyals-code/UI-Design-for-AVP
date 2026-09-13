@@ -228,3 +228,96 @@ describe('assets are part of history', () => {
     expect(s()._past.length).toBe(past)
   })
 })
+
+describe('refused edits stay out of history', () => {
+  // Roughly forty guards across the slices refuse an illegal edit by
+  // returning state unchanged. `undoable` used to snapshot BEFORE running
+  // the mutation, so each refusal still recorded a history entry: the next
+  // Cmd-Z restored an identical state and looked broken, and the user had
+  // to press it twice to reverse their last real edit.
+
+  it('records nothing when the last tab refuses to be deleted', () => {
+    const tab = s().items.find((it) => it.type === 'tab')
+    const before = s().items
+
+    s().removeItem(tab.id)
+
+    expect(s().items).toBe(before)
+    expect(s()._past).toHaveLength(0)
+  })
+
+  it('records nothing for an unknown id', () => {
+    s().removeItem('no-such-item')
+    s().updateItem('no-such-item', { name: 'ghost' })
+    expect(s()._past).toHaveLength(0)
+  })
+
+  it('records nothing for a move the tree rejects', () => {
+    // Tabs are top-level and never reparent.
+    const tab = s().items.find((it) => it.type === 'tab')
+    const win = s().items.find((it) => it.type === 'window')
+
+    s().moveItem(tab.id, win.id, 'inside')
+
+    expect(s()._past).toHaveLength(0)
+  })
+
+  it('leaves one undo between the user and their last real edit', () => {
+    const win = s().items.find((it) => it.type === 'window')
+    const original = win.name
+    const tab = s().items.find((it) => it.type === 'tab')
+
+    s().renameItem(win.id, 'Renamed')
+    s().removeItem(tab.id)          // refused — must not consume the undo
+
+    s().undo()
+
+    expect(s().items.find((it) => it.id === win.id).name).toBe(original)
+  })
+
+  it('does not dirty a pristine scene', () => {
+    // sceneIsDirty gates the "switching modes resets your scene" warning,
+    // so a refusal must not make an untouched document look edited.
+    useStore.setState({ sceneIsDirty: false })
+    const tab = s().items.find((it) => it.type === 'tab')
+
+    s().removeItem(tab.id)
+
+    expect(s().sceneIsDirty).toBe(false)
+  })
+
+  it('records nothing when a patch re-applies values already held', () => {
+    // The path a user hits constantly: re-clicking the segmented option
+    // that is already active, or a colour picker re-emitting its current
+    // hex. `.map()` and object spread both produce fresh references, so
+    // this has to be caught by value, not by identity.
+    const win = s().items.find((it) => it.type === 'window')
+    s().updateItem(win.id, { name: 'Stable', material: 'glass' })
+    const past = s()._past.length
+
+    s().updateItem(win.id, { name: 'Stable', material: 'glass' })
+
+    expect(s()._past).toHaveLength(past)
+  })
+
+  it('still records a patch that changes one field of several', () => {
+    const win = s().items.find((it) => it.type === 'window')
+    s().updateItem(win.id, { name: 'Stable', material: 'glass' })
+    const past = s()._past.length
+
+    s().updateItem(win.id, { name: 'Stable', material: 'thin' })
+
+    expect(s()._past).toHaveLength(past + 1)
+    expect(s().items.find((it) => it.id === win.id).material).toBe('thin')
+  })
+
+  it('still records the edits that do land', () => {
+    // The guard above must not swallow real history.
+    const win = s().items.find((it) => it.type === 'window')
+
+    s().renameItem(win.id, 'Renamed')
+
+    expect(s()._past).toHaveLength(1)
+    expect(s().sceneIsDirty).toBe(true)
+  })
+})

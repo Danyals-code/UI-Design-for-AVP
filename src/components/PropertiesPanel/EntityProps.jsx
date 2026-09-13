@@ -41,7 +41,7 @@ import {
 // 100-px drag covers 0.5 m, comfortable for furniture-scale tweaks.
 // Pointer-down is intercepted so a still click still focuses the input
 // for keyboard editing.
-function MeterField({ value, onChange, step = 0.01, min }) {
+function MeterField({ value, onChange, min }) {
   const v = Number.isFinite(value) ? value : 0
   const apply = (n) => {
     let next = n
@@ -1068,65 +1068,6 @@ function ObjectSection({ item }) {
 
       <div className="text-[10px] text-textMute leading-snug mt-2">
         {meta.description} <code className="text-textDim">{meta.swift}</code>
-      </div>
-    </Section>
-  )
-}
-
-// ---- Interaction section --------------------------------------------
-//
-// Trigger → Action wiring. Currently both dropdowns hold placeholder
-// option lists; the real options will be derived from the selected
-// entity's kind, the panels in scope, and the cross-tab namespace
-// once the interaction graph backend lands. Storing the picks under
-// `item.interaction` so they survive selection changes and exports.
-const TRIGGER_OPTIONS = [
-  { value: 'none',    label: '— None —' },
-  { value: 'tap',     label: 'Tap' },
-  { value: 'longTap', label: 'Long tap' },
-  { value: 'hover',   label: 'Hover' },
-  { value: 'gaze',    label: 'Gaze' },
-  { value: 'pinch',   label: 'Pinch' },
-  { value: 'drag',    label: 'Drag' },
-  { value: 'onAppear', label: 'On appear' }
-]
-const ACTION_OPTIONS = [
-  { value: 'none',        label: '— None —' },
-  { value: 'showWindow',  label: 'Open window' },
-  { value: 'closeWindow', label: 'Close window' },
-  { value: 'navigate',    label: 'Navigate to tab' },
-  { value: 'play',        label: 'Play animation' },
-  { value: 'toggle',      label: 'Toggle visibility' },
-  { value: 'highlight',   label: 'Highlight entity' },
-  { value: 'message',     label: 'Send message' }
-]
-
-function InteractionSection({ item }) {
-  const updateItem = useStore((s) => s.updateItem)
-  const interaction = item.interaction || {}
-  const trigger = interaction.trigger || 'none'
-  const action  = interaction.action  || 'none'
-  const setField = (patch) =>
-    updateItem(item.id, { interaction: { ...interaction, ...patch } })
-  return (
-    <Section title="Interaction" defaultOpen={false}>
-      <Row label="Trigger">
-        <Select
-          value={trigger}
-          options={TRIGGER_OPTIONS}
-          onChange={(v) => setField({ trigger: v })}
-        />
-      </Row>
-      <Row label="Action">
-        <Select
-          value={action}
-          options={ACTION_OPTIONS}
-          onChange={(v) => setField({ action: v })}
-        />
-      </Row>
-      <div className="text-[10px] text-textMute leading-snug mt-2">
-        Stub options — the real list will be derived from your scene's
-        entities and tabs once interactions are wired up.
       </div>
     </Section>
   )

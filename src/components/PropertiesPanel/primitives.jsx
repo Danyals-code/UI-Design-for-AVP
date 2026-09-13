@@ -335,3 +335,19 @@ export function TabButton({ active, onClick, children }) {
     </button>
   )
 }
+
+// Inline structural warning for raw-Swift fields (the `custom` panel body
+// and the `.custom` modifier). Non-blocking on purpose: the designer is
+// allowed to save a fragment mid-edit, and a fragment that does not balance
+// yet is a normal intermediate state, not an error to refuse. What it must
+// not do is reach Xcode unannounced — the exported file would break far from
+// where the text was typed.
+export function SwiftWarning({ message }) {
+  if (!message) return null
+  return (
+    <div className="flex gap-1.5 items-start text-[9px] text-amber-400/90 leading-snug mt-1.5">
+      <span aria-hidden="true" className="flex-shrink-0">&#9888;</span>
+      <span>{message}</span>
+    </div>
+  )
+}

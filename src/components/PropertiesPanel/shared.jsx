@@ -174,7 +174,6 @@ export function ExplicitFrameSection({ item, updateItem, lockHeight = false, loc
 // Merging them into one "Layout" section halves the inspector's scroll
 // distance for the most common case.
 export function LayoutSection({ item, updateItem, scene, lockHeight = false, lockHeightHint = null, embedded = false }) {
-  const scheme = scene?.designScheme || 'light'
   const hasSize = !!item.size
   const Wrap = embedded ? LayoutInline : LayoutStandalone
   return (
@@ -222,7 +221,6 @@ function LayoutInline({ children })     { return <>{children}</> }
 // ---- Appearance --------------------------------------------------------
 
 export function AppearanceSection({ item, updateItem, scene }) {
-  const scheme = scene?.designScheme || 'light'
   return (
     <Section title="Appearance">
       <Row label="Fill">
@@ -247,7 +245,6 @@ export function AppearanceSection({ item, updateItem, scene }) {
 // ---- Text section (shared by text/button/slideshow/ticker) -------------
 
 export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTitle = 'Text', includeBody = true, includeAlign = true, includeWeight = true, isText = false, embedded = false }) {
-  const scheme = scene?.designScheme || 'light'
   // `embedded` skips the outer <Section> so the caller can render the
   // text controls inline within another section header — used by the
   // consolidated Button inspector where label text sits below the

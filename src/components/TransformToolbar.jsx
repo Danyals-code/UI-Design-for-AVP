@@ -29,7 +29,6 @@ export default function TransformToolbar() {
   const transformMode = useStore((s) => s.transformMode)
   const setTransformMode = useStore((s) => s.setTransformMode)
 
-  const transformKind = useStore((s) => s.transformKind)
   const transformAxis = useStore((s) => s.transformAxis)
   const setTransformAxis = useStore((s) => s.setTransformAxis)
 

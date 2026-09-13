@@ -652,6 +652,47 @@ RealityKit code.
 
 ---
 
+## Escape hatch
+
+One view type exists to have no SwiftUI equivalent: it is whatever the
+designer types. Every other entry in this document models a specific Apple
+API, which means the set of buildable views is exactly the set catalogued
+here. `custom` removes that ceiling — a view we have not modelled, a helper
+the user already wrote, or an API newer than this file can all be placed in
+the tree today.
+
+| Type | Default frame | Key fields | Emit |
+| --- | --- | --- | --- |
+| `custom` | 240×80 | `code` (Swift source), `label` (placeholder caption) | the contents of `code`, verbatim, one line per line |
+
+- **Defaults:** `code: 'Text("Hello from raw Swift")'`, `label: 'Custom Swift'`,
+  fill `#2a2f3a`, corner radius 12pt.
+- **Emit:** each line of `code` is pushed at the current indentation, so the
+  fragment's own internal indentation nests correctly inside the generated
+  view. Line endings are normalised, so a fragment pasted from a Windows
+  editor does not carry `` into the Swift file. An empty `code` emits
+  `EmptyView()` rather than nothing — the node occupies a slot in a result
+  builder, and emitting nothing there would silently change the parent's
+  layout.
+- **Canvas:** a labelled placeholder at the node's frame, captioned with
+  `label` and the first non-blank line of `code`. It is deliberately not a
+  preview: rendering arbitrary Swift is not something this app can do, and a
+  box that pretended otherwise would be worse than one that says so.
+- **Validation:** `code` is checked by
+  [src/export/swiftValidate.js](src/export/swiftValidate.js) for balanced
+  brackets and string literals that close on the line they open — the same
+  two structural properties the export test suite pins for generated code.
+  Failures are a non-blocking inline warning, since a fragment that does not
+  balance *yet* is a normal mid-edit state.
+
+There is a matching modifier, `customModifier` (`.custom` in the Add Modifier
+dropdown), which appends an arbitrary chain entry to any view that shows the
+modifier section. It applies to every such view rather than a curated list:
+the strict allow-list exists to stop the inspector offering a modifier SwiftUI
+would reject, and here the user is asserting they know what they are attaching.
+
+---
+
 ## Entities (RealityKit)
 
 Live alongside panels in `items[]` with `type: 'entity'`. Factories in

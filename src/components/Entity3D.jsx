@@ -656,7 +656,7 @@ function AttachmentPanel3D({ entity, isSelected, scene }) {
   return billboard ? <Billboard>{panel}</Billboard> : panel
 }
 
-function CameraGizmo({ entity, isSelected, scene }) {
+function CameraGizmo({ isSelected, scene }) {
   const tint = scene.tintColor || '#007aff'
   // Pyramid dimensions in metres — small enough to live alongside
   // sub-metre primitives without dominating, but visible from across

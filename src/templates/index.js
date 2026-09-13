@@ -2011,12 +2011,6 @@ function loopRotateY(period = 8.0) {
     action('rotateTo', { mode: 'relative', rotation: [0, 360, 0], duration: period, curve: 'linear' })
   )
 }
-function loopRotateX(period = 30.0) {
-  return behavior(
-    trigger('timer', { mode: 'loop', seconds: period }),
-    action('rotateTo', { mode: 'relative', rotation: [360, 0, 0], duration: period, curve: 'linear' })
-  )
-}
 
 // Tap → reveal a linked info card via showHide. The card lives with
 // `visible: false` in the tree; the tap on the model targets its id

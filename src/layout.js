@@ -2,9 +2,9 @@
 // DisclosureGroup/NavigationStack semantics. Given a stack item and its children,
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
-import { ptToUnits, computeListHeightPt, TEXT_STYLES } from './appleSystem'
+import { ptToUnits, computeListHeightPt, TEXT_STYLES, textStyleDefaultWeight } from './appleSystem'
 import { summarizeModifiers } from './modifiers/registry'
-import { measureSwiftUIText } from './text'
+import { measureSwiftUIText, singleLineWidth } from './text'
 
 // Pulls the text-relevant inputs off a panel + its summarized modifiers
 // in scene-unit form. Centralised so layout.js and Panel3D.jsx feed
@@ -14,6 +14,13 @@ export function textMetrics(item, modSummary) {
   const fontSize = item.textStyle
     ? ptToUnits(TEXT_STYLES[item.textStyle]?.pt ?? 17)
     : (item.fontSize || ptToUnits(17))
+  // Weight feeds the measurer: a bold heading is materially wider than the
+  // same string at regular, so measuring everything as regular under-reserves
+  // space and the canvas wraps a line later than the device. An explicit
+  // `fontWeight` on the item wins; otherwise the text style's own default
+  // applies (visionOS body resolves to medium, titles to bold).
+  const fontWeight = item.fontWeight
+    || (item.textStyle ? textStyleDefaultWeight(item.textStyle) : 'regular')
   // tracking + kerning both widen inter-character space in SwiftUI;
   // they're additive in the layout too so measurement matches render.
   const trackingPt    = (modSummary?.tracking || 0) + (modSummary?.kerning || 0)
@@ -25,7 +32,7 @@ export function textMetrics(item, modSummary) {
   const fixedSizeH = !!modSummary?.fixedSizeH
   const fixedSizeV = !!modSummary?.fixedSizeV
   return {
-    fontSize, trackingPt, lineSpacingPt, lineLimit, truncationMode,
+    fontSize, fontWeight, trackingPt, lineSpacingPt, lineLimit, truncationMode,
     minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
   }
 }
@@ -114,12 +121,18 @@ function textIntrinsicSize(item, wrapBound = null) {
 
   // Hard-line content-hug width — used when there's no parent proposal
   // and as the fallback intrinsic width for fixedSizeH / fit modes.
+  //
+  // Measured through the text engine rather than estimated from character
+  // count: the widest line is frequently not the longest one in a
+  // proportional face, and hugging the wrong width shows up as a stack that
+  // reserves too little room and clips, or too much and leaves a gap.
   const hardLines = text.split('\n')
-  const longest = hardLines.reduce((acc, l) =>
-    acc.length > l.length ? acc : l, '')
   const intrinsicW = Math.max(
     ptToUnits(40),
-    longest.length * (m.fontSize * 0.55 + ptToUnits(m.trackingPt || 0))
+    hardLines.reduce((acc, l) => Math.max(
+      acc,
+      singleLineWidth(l, m.fontSize, m.trackingPt || 0, 1, m.fontWeight)
+    ), 0)
   )
 
   // If horizontal is fixed (or fit), don't wrap. Just measure at the
@@ -553,7 +566,6 @@ export function layoutStack(stack, items, outerSize = null) {
       // Section headers honour Apple's pl-24 / pr-24 inset by nudging
       // their X anchor leftward (so the title hugs the 24pt-from-left
       // edge instead of centring inside the column).
-      const isText = c.type === 'panel' && c.panelType === 'text'
       const xOffset = isSectionHeader(c) ? SECTION_PAD_X : 0
       // z=0.01 lifts items in front of the sidebar plate (which sits at
       // z=0.002 with depthWrite off). Without this lift the items
@@ -612,11 +624,6 @@ export function layoutStack(stack, items, outerSize = null) {
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') !== 'horizontal')
   const isTextLikeItem = (c) =>
     c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
-  const mainAxisFill = (c) => {
-    if (isHStack) return (c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill'
-    if (isVStack) return c.type === 'stack' && c.heightMode === 'fill'
-    return false
-  }
   const resolveChildSize = (c) => {
     const [cw, ch] = computeSize(c, items)
     const isTextLike = isTextLikeItem(c)

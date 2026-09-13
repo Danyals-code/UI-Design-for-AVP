@@ -291,7 +291,6 @@ function Canvas3D() {
   const showAxes = useStore((s) => s.showAxes)
   const scene = useStore((s) => s.scene)
   const preview3D = scene.preview3D
-  const isWindow = scene.sceneMode === 'window'
   const isVolume = scene.sceneMode === 'volume'
   // Volume mode is always 3D — no flat head-on view there. Window mode
   // honours the user's 2D / 3D toggle.

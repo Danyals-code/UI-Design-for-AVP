@@ -351,7 +351,6 @@ function LayerRow({ item, depth, visibleIds, query }) {
   }
 
   const canDelete = !isTab || items.filter((it) => it.type === 'tab').length > 1
-  const tabsCount = items.filter((it) => it.type === 'tab').length
 
   return (
     <>
