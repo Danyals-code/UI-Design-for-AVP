@@ -85,6 +85,51 @@ function shapeStrokeOverlay(panel, shapeExpr, ctx) {
 //   style, weight     — pre-resolved font style + weight clauses (e.g.
 //                       '.body' and '.weight(.semibold)')
 
+// Compile a panel tapAction into the SwiftUI statement that goes inside a
+// Button/control closure. Shared by the Button emitter and the Navigation
+// Bar toolbar emitter so both honour the same Interaction wiring.
+//
+// Unrecognized / null actions return a `/* no action */` BLOCK comment so
+// the user can spot un-wired controls. It must stay a block comment: the
+// result is interpolated mid-line, and a `//` line comment would swallow
+// the rest of the expression. src/export/swiftui.test.js pins this.
+export function compileTapAction(a, lookupItem = () => null) {
+  if (!a || !a.type) return '/* no action */'
+  if (a.type === 'navigateWindow') {
+    const tgt = a.windowId ? lookupItem(a.windowId) : null
+    // Use the window's `windowGroupId` — the same string the
+    // exporter emits as `WindowGroup(id: "...")`. Falling back
+    // to the sanitised name keeps legacy save files working.
+    const gid = tgt?.windowGroupId
+      || (tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '') : 'Window')
+    return `openWindow(id: "${gid}")`
+  }
+  if (a.type === 'navigateTab') {
+    return `selectedTab = ${a.tab ?? 0}`
+  }
+  if (a.type === 'presentSheet') {
+    const tgt = a.panelId ? lookupItem(a.panelId) : null
+    const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
+    return `${flag} = true`
+  }
+  if (a.type === 'dismiss') {
+    const tgt = a.panelId ? lookupItem(a.panelId) : null
+    const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
+    return `${flag} = false`
+  }
+  if (a.type === 'flipToggle') {
+    const tgt = a.panelId ? lookupItem(a.panelId) : null
+    const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
+    return `${bind}.toggle()`
+  }
+  if (a.type === 'setToggle') {
+    const tgt = a.panelId ? lookupItem(a.panelId) : null
+    const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
+    return `${bind} = ${a.value ? 'true' : 'false'}`
+  }
+  return '/* no action */'
+}
+
 export const PANELS = {
   // ---- Phase 0 — primitives ----
   canvas: {
@@ -212,45 +257,14 @@ export const PANELS = {
       //   dismiss        → clear the `isShowingX` flag   (@State binding)
       //   flipToggle     → call `.toggle()` on the binding
       //   setToggle      → assignment to the binding
-      // Unrecognized / null actions emit a `// no action` comment so
-      // the user can spot un-wired buttons in the source.
-      const compileAction = (a) => {
-        if (!a || !a.type) return '// no action'
-        if (a.type === 'navigateWindow') {
-          const tgt = a.windowId ? lookupItem(a.windowId) : null
-          // Use the window's `windowGroupId` — the same string the
-          // exporter emits as `WindowGroup(id: "...")`. Falling back
-          // to the sanitised name keeps legacy save files working.
-          const gid = tgt?.windowGroupId
-            || (tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '') : 'Window')
-          return `openWindow(id: "${gid}")`
-        }
-        if (a.type === 'navigateTab') {
-          return `selectedTab = ${a.tab ?? 0}`
-        }
-        if (a.type === 'presentSheet') {
-          const tgt = a.panelId ? lookupItem(a.panelId) : null
-          const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
-          return `${flag} = true`
-        }
-        if (a.type === 'dismiss') {
-          const tgt = a.panelId ? lookupItem(a.panelId) : null
-          const flag = tgt?.name ? `isShowing${tgt.name.replace(/[^A-Za-z0-9_]/g, '')}` : 'isShowingSheet'
-          return `${flag} = false`
-        }
-        if (a.type === 'flipToggle') {
-          const tgt = a.panelId ? lookupItem(a.panelId) : null
-          const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
-          return `${bind}.toggle()`
-        }
-        if (a.type === 'setToggle') {
-          const tgt = a.panelId ? lookupItem(a.panelId) : null
-          const bind = tgt?.name ? tgt.name.replace(/[^A-Za-z0-9_]/g, '').replace(/^./, c => c.toLowerCase()) : 'toggleValue'
-          return `${bind} = ${a.value ? 'true' : 'false'}`
-        }
-        return '// no action'
-      }
-      const body = compileAction(panel.tapAction)
+      // Unrecognized / null actions emit a `/* no action */` comment so
+      // the user can spot un-wired buttons in the source. It MUST stay a
+      // BLOCK comment: the result is interpolated mid-line into
+      // `Button{ <body> } label: { <label> }`, so a `//` line comment would
+      // swallow the closing brace, the `label:` argument and the whole
+      // trailing modifier chain, emitting Swift that does not compile.
+      // src/export/swiftui.test.js pins this.
+      const body = compileTapAction(panel.tapAction, lookupItem)
       push(`Button${role}{ ${body} } label: { ${label} }${bs}${shape}${size}${tint}`)
     }
   },
@@ -261,7 +275,15 @@ export const PANELS = {
       color: '#c7c7cc',
       colorToken: 'tertiary',
       cornerRadius: ptToUnits(14),
-      imageUrl: null          // blob URL or external URL
+      // Resolvable image source: a base64 data URL for an imported
+      // asset, a /public path for template art, or an external URL the
+      // user pasted. Never a `blob:` URL — those are scoped to the page
+      // session and would not survive a reload or an export.
+      imageUrl: null,
+      // Back-reference to the assets-library record when the image came
+      // from there, so the exporter can name the asset rather than
+      // inlining its bytes. Null for pasted URLs and template paths.
+      imageAssetId: null
     },
     emit(panel, ctx) {
       const { push, sym } = ctx
