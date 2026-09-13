@@ -38,9 +38,26 @@ export const createItemsSlice = (set, get) => ({
   setEditing:    (id) => set({ editingId: id, selectedId: id }),
   clearEditing:  ()   => set({ editingId: null }),
 
-  updateItem: (id, patch) => undoable(set, get, (s) => ({
-    items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it))
-  })),
+  // `.map()` hands back a fresh array even when nothing matched, and
+  // `{ ...it, ...patch }` a fresh object even when every value is the one
+  // the item already held — so without these two guards `undoable` sees a
+  // new reference and records history for an edit that changed nothing.
+  // That is not a rare path: re-clicking the active segmented option or a
+  // colour picker re-emitting the same hex both land here, and each one
+  // cost the user a Cmd-Z that undid to an identical state.
+  //
+  // Values compare by identity, so an array or object field (position,
+  // size, modifiers) always reads as changed. That is the safe direction:
+  // it records history it might not need to, rather than dropping an edit.
+  updateItem: (id, patch) => undoable(set, get, (s) => {
+    const target = s.items.find((it) => it.id === id)
+    if (!target) return s
+    const changes = Object.keys(patch).some((k) => !Object.is(target[k], patch[k]))
+    if (!changes) return s
+    return {
+      items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it))
+    }
+  }),
 
   renameItem: (id, name) => undoable(set, get, (s) => {
     // Tabs are top-level namespaces — they don't get the .copy
@@ -57,9 +74,12 @@ export const createItemsSlice = (set, get) => ({
     }
   }),
 
-  toggleVisibility: (id) => undoable(set, get, (s) => ({
-    items: s.items.map((it) => (it.id === id ? { ...it, visible: !it.visible } : it))
-  })),
+  toggleVisibility: (id) => undoable(set, get, (s) => {
+    if (!s.items.some((it) => it.id === id)) return s
+    return {
+      items: s.items.map((it) => (it.id === id ? { ...it, visible: !it.visible } : it))
+    }
+  }),
 
   // toggleCollapse is non-undoable on purpose — flipping a layers row open
   // is UI state, not document state.

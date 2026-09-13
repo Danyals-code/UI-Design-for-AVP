@@ -191,14 +191,6 @@ function TemplateIcon({ size = 14 }) {
   )
 }
 
-function PlusIcon({ size = 11 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M5.5 2V9" /><path d="M2 5.5H9" />
-    </svg>
-  )
-}
-
 // Crumb component — clickable folder name plus separator chevron.
 function Crumb({ label, onClick, isLast }) {
   return (

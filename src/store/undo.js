@@ -31,20 +31,64 @@ const snapshot = (s) => ({
   idCounter: getIdCounter()
 })
 
-// Wraps a zustand set() call so it pushes an undo snapshot first.
+// The document fields a snapshot restores. A mutation that leaves every one
+// of them untouched did not change the document, so it must not cost the
+// user a history entry. `_past` / `_future` are excluded on purpose: they
+// are the history itself, not part of the state being versioned.
+const UNDOABLE_KEYS = ['items', 'assets', 'selectedId', 'activeTabId', 'scene']
+
+// Did `patch` actually change anything worth undoing? Slice guards bail by
+// returning the state object unchanged (`return s`), so the common no-op is
+// caught by identity alone; comparing per-field as well covers a partial
+// patch that happens to re-set a field to the value it already held. Keys
+// absent from the patch are left alone by zustand's merge, so they cannot
+// represent a change.
+//
+// This is an identity comparison, not a deep one, which is exactly right
+// here: every slice builds new arrays and objects (`map` / `filter` /
+// spread) rather than mutating in place, so a changed document always
+// arrives as a fresh reference.
+const changesDocument = (patch, before) =>
+  UNDOABLE_KEYS.some((k) => k in patch && patch[k] !== before[k])
+
+// Wraps a zustand set() call so a real edit pushes an undo snapshot.
 // During drags we skip snapshots — drag-start captures one instead.
 //
+// The mutation runs BEFORE the snapshot is committed, because roughly forty
+// guards across the slices refuse an illegal edit by returning state
+// unchanged (deleting the last tab, reparenting a node into its own
+// subtree, an unknown id). Snapshotting first recorded history for those
+// too, which cost the user a phantom Cmd-Z that restored an identical state
+// and appeared to do nothing — the next Cmd-Z was the one that finally
+// reversed their last real edit. It also flipped `sceneIsDirty` on a scene
+// nothing had touched, firing the "switching modes resets your scene"
+// warning against a pristine document.
+//
+// Every slice action is a synchronous pure updater, so calling it here and
+// handing the result to `set` is equivalent to `set(fn)`.
+//
 // Sets `sceneIsDirty: true` by default; actions that *replace* the scene
-// (applyTemplate, switchSceneMode) override this in their fn() return so
-// the freshly seeded scene starts pristine.
+// (applyTemplate, switchSceneMode) override this in their fn() return —
+// hence the patch spreading last — so the freshly seeded scene starts
+// pristine.
 export const undoable = (set, get, fn) => {
-  const s = get()
-  if (!s.isDragging) {
-    const snap = snapshot(s)
-    const past = [...s._past, snap].slice(-MAX_UNDO)
-    set({ _past: past, _future: [], sceneIsDirty: true })
+  const before = get()
+  const patch = typeof fn === 'function' ? fn(before) : fn
+  if (!patch) return
+
+  // A refused edit still applies its patch (it may carry UI-only fields),
+  // but leaves history and the dirty flag untouched.
+  if (!changesDocument(patch, before) || before.isDragging) {
+    set(patch)
+    return
   }
-  set(fn)
+
+  set({
+    _past: [...before._past, snapshot(before)].slice(-MAX_UNDO),
+    _future: [],
+    sceneIsDirty: true,
+    ...patch
+  })
 }
 
 export const createUndoSlice = (set, get) => ({

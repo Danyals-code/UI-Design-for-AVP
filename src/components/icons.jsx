@@ -60,7 +60,7 @@ import {
   Sofa, Bed, CornerUpLeft, CornerUpRight, Sparkles,
   Apple, ToggleLeft, MonitorSmartphone, Library, Maximize2,
   // Phase 9 — bigger catalogue
-  FileText as FileTextIcon, Files, Clipboard,
+  FileText as FileTextIcon, Files, Clipboard, Braces,
   PenLine, Eraser, Paperclip, Link as LinkIcon2, Link2,
   CheckCircle, CheckSquare, XCircle, XSquare, PlusCircle, PlusSquare,
   MinusCircle, MinusSquare, Octagon, AlertCircle, AlertOctagon,
@@ -136,6 +136,8 @@ export const HandIcon         = wrap(Hand, 13)
 
 // ---- Views / controls -----------------------------------------------
 export const TextIcon         = wrap(Type, 12)
+// Escape hatch — braces read as "this is source, not a view".
+export const CustomSwiftIcon  = wrap(Braces, 12)
 export const ButtonIcon       = wrap(MousePointerClick, 12)
 export const LabelIcon        = wrap(Tag, 12)
 export const LinkIcon         = wrap(LucideLink, 12)

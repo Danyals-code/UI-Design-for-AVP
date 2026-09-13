@@ -249,6 +249,13 @@ scrollable flag, modifiers.
 Every SwiftUI primitive lives here (~55 types - full list and per-type
 defaults in [VIEWS.md](VIEWS.md), source in
 [src/panels/registry.js](src/panels/registry.js)):
+- **Escape hatch:** `custom` ("Custom Swift" in the Shift+A palette under
+  **Views**). Holds raw Swift that is emitted exactly as typed, so a view
+  this designer does not model - or one Apple ships after this was written -
+  can still be placed in the tree. The canvas draws a labelled placeholder
+  at the node's frame rather than attempting to interpret the source, so
+  the surrounding stack lays out against the right box and nobody mistakes
+  it for a preview. Structural problems are flagged inline before export.
 - **Text / typography:** text, link, label, ticker
   - **Text** uses the SwiftUI measurement pipeline in
     [src/text.js](src/text.js) - tighten (5%) → scale (down to
@@ -256,6 +263,14 @@ defaults in [VIEWS.md](VIEWS.md), source in
     character-level fallback for words wider than the bound) →
     truncate (head/middle/tail). Layout and renderer share the same
     measurement so reserved and rendered heights stay aligned.
+  - Widths come from **real Inter metrics**, measured through a Canvas2D
+    context ([src/textMeasure.js](src/textMeasure.js)) and installed over
+    the engine's built-in uniform-advance approximation at startup. Font
+    weight is part of the measurement, since bold is materially wider than
+    regular at the same size. This is what makes the canvas break lines
+    where the device breaks them: under a flat per-character advance,
+    `lllllllllll` and `WWWWWWWWWWW` measure identically - with real metrics
+    they differ by about 4x.
 - **Inputs:** textfield, securefield, search. Grouped under **Inputs**
   in the Shift+A palette. The inspector shares one "Input Type"
   switcher so the same panel can pivot between the three in place -
@@ -576,6 +591,18 @@ Common modifiers: padding, frame, background, foregroundStyle, font,
 opacity, offset, rotation, scaleEffect, blur, shadow, clipShape,
 overlay, transition, hoverEffect, accessibility label/hint/value,
 gesture, contextMenu, animation, etc.
+
+**Custom** (last in the Add Modifier dropdown) takes a raw chain entry
+and appends it verbatim - `.symbolEffect(.bounce)`, or anything else
+SwiftUI accepts that the registry does not model. The leading dot is
+added for you if you omit it. Structural problems (an unclosed bracket,
+a string literal left open) surface as an inline warning, because the
+text lands mid-chain in the generated file where a stray bracket breaks
+the whole view. The canvas cannot preview an arbitrary modifier, so the
+view renders unmodified.
+
+The modifier section is hidden for 3D primitives and presentation panels,
+so reach for the **Custom Swift** panel there instead.
 
 ---
 

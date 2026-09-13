@@ -22,11 +22,12 @@ import {
   NAVBAR_AVATAR_PT,
   NAVBAR_SEARCH_W_PT,
   NAVBAR_BACK_CAPSULE_W_PT,
-  NAVBAR_BACK_ICON_TEXT_GAP_PT
+  NAVBAR_BACK_ICON_TEXT_GAP_PT,
+  textStyleDefaultWeight
 } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
-import { measureSwiftUIText } from '../text'
+import { measureSwiftUIText, singleLineWidth } from '../text'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
 
@@ -357,10 +358,94 @@ function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
 // conditionally, and React throws the moment a mounted panel crosses the
 // branch. It was latent only because `realityview` is not a
 // `switchPanelType` target today.
+// Canvas placeholder for the raw-Swift escape hatch.
+//
+// There is no honest way to draw a view whose source we never parse, so the
+// node renders as a labelled slab at the frame the real view will occupy.
+// That keeps the surrounding stack laying out against the right box while
+// being unmistakably not-a-preview: a designer should never have to wonder
+// whether what they see here is what the device will draw.
+function CustomSwift3D({ panel, localPosition, resolvedSize }) {
+  const scene = useStore((s) => s.scene)
+  const select = useStore((s) => s.select)
+  const selectedId = useStore((s) => s.selectedId)
+  const isSelected = !scene.previewMode && selectedId === panel.id
+
+  const size = (resolvedSize && Array.isArray(resolvedSize))
+    ? resolvedSize
+    : (Array.isArray(panel.size) ? panel.size : [ptToUnits(240), ptToUnits(80)])
+  const [w, h] = size
+  const cornerRadius = panel.cornerRadius ?? ptToUnits(12)
+  const fillShape = useMemo(() => roundedRectShape(w, h, cornerRadius), [w, h, cornerRadius])
+
+  const outlinePad = Math.max(w, h) * 0.0025
+  const outlineShape = useMemo(
+    () => roundedRectShape(w + outlinePad, h + outlinePad, cornerRadius + outlinePad / 2),
+    [w, h, cornerRadius, outlinePad]
+  )
+
+  const tint = scene.tintColor || '#007aff'
+  const fontUrl = getInterFont('medium')
+  const monoUrl = getInterFont('regular')
+
+  // First non-blank source line, trimmed and clipped — enough to tell two
+  // custom nodes apart in the layers tree without trying to render the body.
+  const preview = useMemo(() => {
+    const first = String(panel.code ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) || 'empty'
+    return first.length > 34 ? `${first.slice(0, 33)}…` : first
+  }, [panel.code])
+
+  const onPointerDown = (e) => { e.stopPropagation(); select(panel.id) }
+
+  return (
+    <group position={localPosition || [0, 0, 0]}>
+      {isSelected && (
+        <mesh position={[0, 0, -0.012]}>
+          <shapeGeometry args={[outlineShape]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.28} />
+        </mesh>
+      )}
+      <mesh position={[0, 0, -0.001]} onPointerDown={onPointerDown}>
+        <shapeGeometry args={[fillShape]} />
+        <meshBasicMaterial color={panel.color || '#2a2f3a'} transparent opacity={0.55} side={THREE.DoubleSide} />
+      </mesh>
+      <Text
+        position={[0, ptToUnits(7), 0.004]}
+        font={fontUrl}
+        fontSize={ptToUnits(12)}
+        color={resolveSemantic('primary', scene)}
+        anchorX="center"
+        anchorY="middle"
+        maxWidth={w * 0.9}
+      >
+        {panel.label || 'Custom Swift'}
+      </Text>
+      <Text
+        position={[0, -ptToUnits(8), 0.004]}
+        font={monoUrl}
+        fontSize={ptToUnits(9)}
+        color={tint}
+        anchorX="center"
+        anchorY="middle"
+        maxWidth={w * 0.9}
+      >
+        {preview}
+      </Text>
+    </group>
+  )
+}
+
 export default function Panel3D(props) {
   const { panelType } = props.panel
   if (panelType === 'realityview') {
     return <RealityViewPanel3D {...props} />
+  }
+  // Raw Swift is never interpreted — it draws a placeholder at its frame.
+  if (panelType === 'custom') {
+    return <CustomSwift3D {...props} />
   }
   // A Spacer is an invisible flexible gap: the layout engine reserves its
   // space, and there is nothing to draw. Handled here so the renderer below
@@ -426,7 +511,11 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         minimumScaleFactor: modSummary.minimumScaleFactor ?? 1,
         allowsTightening:   !!modSummary.allowsTightening,
         fixedSizeH:         mode === 'fit' || !!modSummary.fixedSizeH,
-        fixedSizeV:         !!modSummary.fixedSizeV
+        fixedSizeV:         !!modSummary.fixedSizeV,
+        // Must match what layout.js reserved for this panel, or the box the
+        // stack set aside and the text drawn into it disagree.
+        fontWeight: panel.fontWeight
+          || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
       })
       const w = frameWidthU != null
         ? frameWidthU
@@ -449,7 +538,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     if (Array.isArray(panel.size)) return panel.size
     const text = panel.text || ''
     const fontSize = panel.fontSize || ptToUnits(17)
-    return [Math.max(ptToUnits(40), text.length * fontSize * 0.55), fontSize * 1.5]
+    // Legacy fallback for a panel carrying neither a resolved size nor an
+    // explicit frame. Measured rather than estimated from character count so
+    // it agrees with every other sizing path in the app.
+    return [
+      Math.max(ptToUnits(40), singleLineWidth(text, fontSize, 0, 1, panel.fontWeight)),
+      fontSize * 1.5
+    ]
   })()
   // Input fields (text / secure / search) render a pill (capsule) by
   // default — the radius tracks the field height so it stays a true pill
@@ -794,9 +889,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // Spacer is handled in the dispatcher above — it draws nothing and needs no
   // hooks, so returning here would make every hook below conditional.
 
-  const isShape = ['rectangle', 'circle', 'capsule'].includes(panelType)
   const isDivider = panelType === 'divider'
-  const isPresentation = ['sheet', 'popover', 'alert'].includes(panelType)
   // `toggle` and `stepper` don't paint a frame fill — their controls
   // are drawn as their own widgets by their overlays (track+knob for
   // toggle, ± circle buttons for stepper), and the row itself is just
@@ -824,7 +917,6 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // the label so the panel still reads as an Image affordance.
   const imageHasMedia = (panelType === 'image' || panelType === 'asyncimage') && !!panel.imageUrl
   const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder && !imageHasMedia
-  const isComplex = ['list', 'table', 'menu', 'progress', 'slider', 'stepper', 'gauge', 'search'].includes(panelType)
 
   // Buttons read their font size from the `BUTTON_SIZES` preset that
   // matches `panel.buttonSize`. The Label section's text-style picker
@@ -896,7 +988,6 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     if (modSummary.textCase === 'lowercase') return s.toLowerCase()
     return s
   }
-  const lineLimit = modSummary.lineLimit && modSummary.lineLimit > 0 ? modSummary.lineLimit : undefined
   const letterSpacing = ptToUnits((modSummary.tracking || 0) + (modSummary.kerning || 0))
   const baselineOffsetY = modSummary.baselineOffset ? ptToUnits(modSummary.baselineOffset) : 0
   const lineHeight = modSummary.lineSpacing
@@ -1362,7 +1453,6 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const primary = resolveSemantic('primary', scene)
     const secondary = resolveSemantic('secondary', scene)
     const separator = resolveSemantic('tertiary', scene)
-    const tint = scene.tintColor || '#007aff'
     const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
     const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
 
@@ -2441,7 +2531,9 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
               minimumScaleFactor: modSummary.minimumScaleFactor ?? 1,
               allowsTightening:   !!modSummary.allowsTightening,
               fixedSizeH:         !!modSummary.fixedSizeH,
-              fixedSizeV:         !!modSummary.fixedSizeV
+              fixedSizeV:         !!modSummary.fixedSizeV,
+              fontWeight: panel.fontWeight
+                || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
             })
           : null
         // Join the post-pipeline lines back with '\n' so drei's <Text>

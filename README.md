@@ -44,6 +44,16 @@ Xcode, a Mac, or a headset.
   planes attached every frame keep child meshes inside the plate edges,
   so text and panels never leak past rounded corners. Marking a window
   scrollable wires a wheel-driven scroll on its content sub-group.
+- **Raw-Swift escape hatch.** A `Custom Swift` view and a `.custom`
+  modifier take source the designer types and emit it verbatim, so a view
+  or API this designer doesn't model is still reachable without a code
+  change. The canvas draws an honest placeholder rather than guessing at
+  a preview, and fragments are structurally validated before they can
+  break the generated file.
+- **Text measured with real font metrics.** Wrapping, truncation and
+  intrinsic sizing run on actual Inter advance widths (weight included)
+  rather than a flat per-character constant, so the canvas breaks lines
+  where the device does.
 - **SwiftUI text pipeline.** A dedicated text engine (`src/text.js`)
   runs the full tighten → scale → wrap → truncate flow so the canvas
   measures Text the way the device does - `lineLimit`,
@@ -113,7 +123,14 @@ expensive, because two code paths have to agree with each other:
   `resolvedChildSizes` (which sizes them for the renderer) must not drift,
   or siblings overlap. Checked across every stack in every template.
 - **`src/text.js`** - the SwiftUI Text pipeline: `lineLimit` as a hard cap,
-  every truncation mode, scale floors, tightening bounds.
+  every truncation mode, scale floors, tightening bounds. Plus the
+  measurement seam: that an installed measurer is consulted, that real
+  per-glyph widths change where lines break, and that font weight reaches
+  it. The suite runs on the built-in uniform-advance approximation, so it
+  pins pipeline *behaviour* independently of whichever font is installed.
+- **`src/export/swiftValidate.js`** - the escape hatch: raw Swift reaches
+  the generated file byte-for-byte, and a fragment that would break that
+  file is caught while the user can still see it.
 - **`src/store/`** and **`src/appleSystem.js`** - undo/redo and clipboard
   invariants, project round-trip, and complete material resolution for all
   24 library entries in both design schemes.
@@ -154,6 +171,7 @@ src/
   appleSystem.js          - visionOS design tokens (type ramp, materials, colours, SF Symbols, presets)
   layout.js               - stack layout math (VStack / HStack / ZStack / Grid / ScrollView, fit/fixed/fill)
   text.js                 - SwiftUI Text measurement (tighten → scale → wrap → truncate)
+  textMeasure.js          - real Inter metrics via Canvas2D, installed over text.js at startup
   shapes.js               - rounded-rect / ellipse / rim-ring geometry helpers
   containment.js          - SwiftUI containment rules (which views may legally nest where)
   fonts.js                - Inter woff URLs per weight, upright + italic
@@ -173,6 +191,7 @@ src/
     entities.js           - RealityKit entity CRUD, material slots, components, transforms
     clipboard.js          - deep subtree copy / paste with fresh ids
     assets.js             - imported meshes + images, folder tree, drag-into-scene
+    persistence.js        - project serialize / open / save-to-file + debounced autosave
 
   panels/
     registry.js           - view registry: 55 panel types, each with defaults + SwiftUI emit()
@@ -192,9 +211,13 @@ src/
     index.js              - 6 window + 6 volume templates, blank seeds, legacy keys
   export/
     swiftui.js            - SwiftUI generator: one view file per tab + App.swift
+    swiftValidate.js      - structural check for designer-authored raw Swift
+    realitykit.js         - the entity subtree as a RealityView (meshes, materials, attachments)
+    behaviors.js          - trigger / action wiring as gestures, @State and generated methods
 
   components/
     Topbar.jsx            - project title, help button, tab strip
+    FileMenu.jsx          - New / Open / Save project menu + autosave status
     LayersPanel.jsx       - left tree of tabs / windows / stacks / panels / entities
     AssetsPanel.jsx       - imported mesh + image library with folders
     PropertiesPanel.jsx   - public inspector entry point (re-exports PropertiesPanel/)

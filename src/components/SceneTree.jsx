@@ -173,11 +173,13 @@ function LiquidGlass({
   // inside the renderer. Carries `.layers`, `.innerShadow`,
   // `.dropShadow` etc. When omitted we fall back to MATERIALS[material].
   materialConfig = null,
-  // Frosted-glass blur. We approximate a real backdrop blur (which
-  // would need a render-target + Gaussian shader) by adding a soft
-  // white overlay layer on top of the base fill — the more the
-  // amount, the brighter and softer the plate reads. Good enough to
-  // signal "frosted" in the editor; export maps to SwiftUI's
+  // Frosted-glass blur. Switches the plate's fill to a
+  // `meshPhysicalMaterial` driven by three.js's transmission framebuffer,
+  // which mip-blurs whatever is actually behind the plate — see the fill
+  // mesh below for why `ior` is set and `transparent` deliberately is not.
+  // `blurAmount` (pt) maps onto material roughness, which is what selects
+  // the mip level, so a larger amount reads as a softer backdrop rather
+  // than a brighter plate. Export maps this to SwiftUI's
   // `.background(.regularMaterial)` modifier with the right radius.
   blur = false,
   blurAmount = 12,
@@ -1161,7 +1163,7 @@ function Window3D({ window: win, items, previewPosition }) {
 // or more Tabs in the scene — clicking an icon switches the active page.
 // Height scales with tab count so it never wastes space.
 
-function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, anchorHeight, scene, selectTab }) {
+function PageTabBar3D({ tabs, activeTabId, anchorPosition, anchorWidth, scene, selectTab }) {
   const tabW = ptToUnits(56)
   const tabH = ptToUnits(56)
   const padding = ptToUnits(10)
@@ -1530,7 +1532,6 @@ export default function SceneTree() {
           activeTabId={activeTabId}
           anchorPosition={anchor.position}
           anchorWidth={anchor.size[0]}
-          anchorHeight={anchor.size[1]}
           scene={scene}
           selectTab={selectTab}
         />

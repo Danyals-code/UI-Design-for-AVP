@@ -11,8 +11,9 @@
 
 import {
   Row, Section, IntField, PtField, NumField, Slider, ColorRow, Select,
-  SemanticColorPicker, MaterialField
+  SemanticColorPicker, MaterialField, SwiftWarning
 } from '../components/PropertiesPanel/primitives'
+import { validateSwiftFragment } from '../export/swiftValidate'
 import {
   TextSection,
   FigmaFrameSection,
@@ -1678,7 +1679,45 @@ export const INSPECTORS = {
         </div>
       </Section>
     </>
-  )
+  ),
+
+  // Escape hatch. The body is emitted into the generated view verbatim, so
+  // the only editor that makes sense is a plain monospaced textarea — any
+  // structured control here would be a guess about Swift we cannot make.
+  custom: ({ item, updateItem }) => {
+    const code = item.code ?? ''
+    const check = validateSwiftFragment(code)
+    return (
+      <Section title="Custom Swift" defaultOpen={true}>
+        <Row label="Name">
+          <input
+            value={item.label || ''}
+            placeholder="Custom Swift"
+            onChange={(e) => updateItem(item.id, { label: e.target.value })}
+            className="field flex-1"
+          />
+        </Row>
+        <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">
+          Body &mdash; emitted verbatim
+        </div>
+        <textarea
+          value={code}
+          spellCheck={false}
+          rows={8}
+          onChange={(e) => updateItem(item.id, { code: e.target.value })}
+          className="field w-full font-mono text-[10px] leading-relaxed resize-y"
+          placeholder={'Text("Hello")\n    .font(.largeTitle)'}
+        />
+        <SwiftWarning message={check.ok ? null : check.message} />
+        <div className="text-[10px] text-textMute leading-relaxed mt-2">
+          Anything valid in a SwiftUI view builder works here &mdash; a view this
+          designer does not model, a helper you already wrote, a brand-new API.
+          It exports exactly as typed and is <strong>not</strong> drawn on the
+          canvas, which shows a placeholder at this node&apos;s frame instead.
+        </div>
+      </Section>
+    )
+  }
 }
 
 // Shared transform editor — Z offset (visionOS .offset(z:)) plus rotation
@@ -1744,6 +1783,11 @@ const mergedShape = { frameMode: 'none', hasFill: false, mergedIdentity: true }
 export const PANEL_META = {
   text: mergedFigmaFrame,
   link: { ...figmaFrame, useSymbol: true },
+  // Custom Swift keeps an explicit frame: the placeholder has to occupy the
+  // space the real view will, or the surrounding stack lays out around a hole.
+  // `mergedIdentity` drops the generic "Object — Custom" header because the
+  // per-type inspector already owns the name field.
+  custom: { frameMode: 'explicit', hasFill: true, mergedIdentity: true },
   // Label owns Name + Frame + Title + Icon + Symbol + Style + ImgScale +
   // Mode + Variant inside one consolidated section. mergedIdentity drops
   // the generic "Object — Label" header; useSymbol stays false (already

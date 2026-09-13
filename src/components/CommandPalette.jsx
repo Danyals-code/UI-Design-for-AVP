@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
 import {
-  TextIcon, ButtonIcon, ImageIcon,
+  TextIcon, ButtonIcon, ImageIcon, CustomSwiftIcon,
   ToggleIcon, SegmentedIcon, SliderIcon, StepperIcon,
   ProgressIcon, GaugeIcon,
   SearchIcon, ListIcon, TableIcon, MenuIcon,
@@ -108,6 +108,10 @@ export default function CommandPalette() {
     { id: 'confirmationdialog', label: 'Confirmation Dialog', group: 'Presentations', Icon: AlertIcon, run: () => addPresentation('confirmationdialog') },
     { id: 'inspector', label: 'Inspector', group: 'Presentations', Icon: SheetIcon, run: () => addPresentation('inspector') },
     { id: 'navigationlink', label: 'Navigation Link', group: 'Views', Icon: LinkIcon, run: () => addPanel('navigationlink') },
+    // Escape hatch — anything SwiftUI can express but this designer does
+    // not model. Grouped under Views because that is what it produces, and
+    // listed last there so the modelled views stay the obvious first pick.
+    { id: 'custom',    label: 'Custom Swift', group: 'Views', Icon: CustomSwiftIcon, run: () => addPanel('custom') },
     // Toolbar / ToolbarItem / ToolbarItemGroup — placement chrome (spec §1.26)
     { id: 'toolbarStack',      label: 'Toolbar Stack',       group: 'Layout', Icon: VStackIcon, run: () => addStack('toolbar') },
     { id: 'toolbarItem',       label: 'Toolbar Item',        group: 'Layout', Icon: VStackIcon, run: () => addStack('toolbarItem') },
@@ -178,10 +182,6 @@ export default function CommandPalette() {
   const VOLUME_ALLOWED_GROUPS = useMemo(() => new Set(['RealityKit', '3D', 'Volume']), [])
   // Inside Windows we only want the plain "Window" — split views are
   // SwiftUI-only, not volumetric. Filter that out by id.
-  const VOLUME_ALLOWED_IDS = useMemo(() => new Set([
-    'window', // a plain window can be set to volumetric afterwards
-    // Everything in RealityKit + 3D groups passes via the group filter.
-  ]), [])
 
   const visibleCommands = useMemo(() => {
     if (!isVolume) return commands

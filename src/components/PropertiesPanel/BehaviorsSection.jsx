@@ -23,7 +23,7 @@ const newId = (prefix) => `${prefix}-${Date.now().toString(36)}-${nextLocalId++}
 // is the object whose key the row mutates ({ params } on a trigger or
 // action). `onChange` writes the whole new params object back up.
 
-function ParamRow({ param, value, onChange, items, schemaParams }) {
+function ParamRow({ param, value, onChange, items }) {
   const v = value === undefined ? param.default : value
   if (param.type === 'select') {
     return (
@@ -209,7 +209,6 @@ function TriggerEditor({ trigger, onChange, items }) {
             value={(trigger?.params || {})[p.key]}
             onChange={setParam}
             items={items}
-            schemaParams={trigger?.params || {}}
           />
         )
       })}
@@ -268,7 +267,6 @@ function ActionEditor({ action, onChange, onRemove, items, isOnly }) {
             value={(action?.params || {})[p.key]}
             onChange={setParam}
             items={items}
-            schemaParams={action?.params || {}}
           />
         )
       })}

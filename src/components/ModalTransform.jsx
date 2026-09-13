@@ -46,7 +46,6 @@ function entityWorldPosition(items, entity) {
 export default function ModalTransform() {
   const { camera, gl } = useThree()
   const transformMode = useStore((s) => s.transformMode)
-  const transformKind = useStore((s) => s.transformKind)
   const selectedId    = useStore((s) => s.selectedId)
   const items         = useStore((s) => s.items)
   const updateItem    = useStore((s) => s.updateItem)

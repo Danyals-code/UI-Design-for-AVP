@@ -718,9 +718,7 @@ function NavSplitConfig({ item }) {
   const items = useStore((s) => s.items)
   const select = useStore((s) => s.select)
   const updateItem = useStore((s) => s.updateItem)
-  const renameItem = useStore((s) => s.renameItem)
   const removeItem = useStore((s) => s.removeItem)
-  const addStack = useStore((s) => s.addStack)
 
   // ---- shape inference ----
   // Walk the children (in document order, the same way the renderer
@@ -728,9 +726,9 @@ function NavSplitConfig({ item }) {
   // section-header text + list pairs, then detail destinations.
   const allChildren = items.filter((c) => c.parentId === item.id)
   const header = allChildren.find((c) => c.name === 'Header' && c.slot === 'sidebar')
-  const headerKids = header ? items.filter((c) => c.parentId === header.id) : []
-  const headerTitle = headerKids.find((c) => c.name === 'Title')
-  const editButton  = headerKids.find((c) => c.name === 'Edit')
+  // The Header's own title / Edit-button toggles live in NavSplitHeaderRow,
+  // which reads them straight off the tree — this component only needs to
+  // know that a header exists so it can exclude it from the group pairing.
 
   // Pair section-header text panels with their following Group list.
   const sidebarChildren = allChildren.filter((c) => c.slot === 'sidebar' && c !== header)
@@ -746,10 +744,6 @@ function NavSplitConfig({ item }) {
   }
 
   const destinations = allChildren.filter((c) => c.slot === 'detail')
-
-  // ---- header toggles ----
-  const showHeader     = header ? (header.visible !== false) : false
-  const showEditButton = editButton ? (editButton.visible !== false) : false
 
   // Mint fresh, globally-unique navTags / destinations for new items.
   const SAMPLE_TITLES   = ['Inbox','Drafts','Sent','Archive','Trash','Spam','Junk','Important','Starred','Flagged','Outbox','All Mail']
@@ -891,7 +885,7 @@ function NavSplitConfig({ item }) {
             Empty. Use the buttons below to add items or a section.
           </div>
         )}
-        {groups.map((g, gi) => {
+        {groups.map((g) => {
           const rows = g.list.rows || []
           const headerVisible = g.header ? g.header.visible !== false : true
           const removeWholeGroup = () => {

@@ -11,8 +11,11 @@
 // stays within the floor the caller set - rather than pinning exact glyph
 // widths, which would just re-state the 0.55 advance constant.
 
-import { describe, it, expect } from 'vitest'
-import { measureSwiftUIText, wrapLines, singleLineWidth, glyphAdvanceUnits } from './text'
+import { describe, it, expect, afterEach } from 'vitest'
+import {
+  measureSwiftUIText, wrapLines, singleLineWidth, glyphAdvanceUnits,
+  setTextMeasurer, resetTextMeasurer
+} from './text'
 import { ptToUnits } from './appleSystem'
 
 const FS = ptToUnits(17)          // body size
@@ -241,5 +244,98 @@ describe('measureSwiftUIText', () => {
       expect(Number.isFinite(r.width)).toBe(true)
       expect(Number.isFinite(r.height)).toBe(true)
     })
+  })
+})
+
+describe('pluggable measurement', () => {
+  // The module ships a uniform advance — every glyph `fontSize * 0.55` — so
+  // it can run in Node. The browser swaps in real Inter metrics. These pin
+  // the seam itself: that a measurer is consulted, that it actually changes
+  // where lines break, and that the default is restored for other tests.
+  afterEach(() => { resetTextMeasurer() })
+
+  it('routes width questions through the installed measurer', () => {
+    const seen = []
+    setTextMeasurer((text, fontSize) => {
+      seen.push(text)
+      return text.length * fontSize * 0.55
+    })
+    singleLineWidth('abc', FS)
+    expect(seen).toContain('abc')
+  })
+
+  it('restores the built-in approximation on reset', () => {
+    const before = singleLineWidth('abc', FS)
+    setTextMeasurer(() => 999)
+    expect(singleLineWidth('abc', FS)).toBe(999)
+    resetTextMeasurer()
+    expect(singleLineWidth('abc', FS)).toBeCloseTo(before, 10)
+  })
+
+  it('treats a null measurer as "use the default"', () => {
+    const before = singleLineWidth('abc', FS)
+    setTextMeasurer(null)
+    expect(singleLineWidth('abc', FS)).toBeCloseTo(before, 10)
+  })
+
+  it('breaks lines by real width, not by character count', () => {
+    // The bug the whole refactor exists to fix: under a uniform advance
+    // these two strings are identical in width, because they are the same
+    // length. In any proportional face they are nowhere near it.
+    const narrow = 'lll lll lll lll'
+    const wide   = 'WWW WWW WWW WWW'
+    expect(narrow.length).toBe(wide.length)
+
+    // A measurer where 'W' costs four times what 'l' does.
+    setTextMeasurer((text, fontSize) => {
+      let w = 0
+      for (const ch of text) w += (ch === 'W' ? 4 : ch === 'l' ? 1 : 2)
+      return w * fontSize * 0.25
+    })
+
+    const bound = W(120)
+    expect(wrapLines(wide, FS, bound).length)
+      .toBeGreaterThan(wrapLines(narrow, FS, bound).length)
+  })
+
+  it('passes the font weight through to the measurer', () => {
+    // Bold is wider than regular at the same size, so the weight has to
+    // reach the measurer or headings under-reserve their space.
+    const weights = []
+    setTextMeasurer((text, fontSize, weight) => {
+      weights.push(weight)
+      return text.length * fontSize * (weight === 'bold' ? 0.7 : 0.55)
+    })
+    measureSwiftUIText('some heading text', FS, W(200), { fontWeight: 'bold' })
+    expect(weights).toContain('bold')
+  })
+
+  it('reserves more width for bold than for regular', () => {
+    setTextMeasurer((text, fontSize, weight) =>
+      text.length * fontSize * (weight === 'bold' ? 0.7 : 0.55))
+    const regular = measureSwiftUIText('Heading', FS, W(4000), { fontWeight: 'regular' })
+    const bold    = measureSwiftUIText('Heading', FS, W(4000), { fontWeight: 'bold' })
+    expect(bold.width).toBeGreaterThan(regular.width)
+  })
+
+  it('still terminates when a single glyph exceeds the whole bound', () => {
+    // The character-break fallback consumes at least one character per pass;
+    // without that floor an over-wide glyph loops forever.
+    setTextMeasurer((text, fontSize) => text.length * fontSize * 50)
+    const lines = wrapLines('abcd', FS, W(10))
+    expect(lines.length).toBe(4)
+    expect(lines.join('')).toBe('abcd')
+  })
+
+  it('keeps truncation inside the bound when glyphs are uneven', () => {
+    setTextMeasurer((text, fontSize) => {
+      let w = 0
+      for (const ch of text) w += (ch === 'W' ? 4 : 1)
+      return w * fontSize * 0.25
+    })
+    const bound = W(160)
+    const r = measureSwiftUIText('WWWWWWWWWWWW WWWWWWWWWWWW', FS, bound, { lineLimit: 1 })
+    expect(r.lines).toHaveLength(1)
+    expect(r.width).toBeLessThanOrEqual(bound + 1e-9)
   })
 })
