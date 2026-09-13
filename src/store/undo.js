@@ -15,6 +15,12 @@ export const MAX_UNDO = 50
 
 const snapshot = (s) => ({
   items: s.items.map((it) => ({ ...it })),
+  // Assets are part of the document, so importing, renaming, recolouring,
+  // deleting or re-foldering one has to be undoable like every other edit.
+  // The records are shallow-copied: `dataUrl` is an immutable string shared
+  // by reference, so history costs one pointer per asset, not a copy of the
+  // payload.
+  assets: (s.assets || []).map((a) => ({ ...a })),
   selectedId: s.selectedId,
   activeTabId: s.activeTabId,
   scene: { ...s.scene },
@@ -51,6 +57,7 @@ export const createUndoSlice = (set, get) => ({
       _past: s._past.slice(0, -1),
       _future: future,
       items: prev.items,
+      assets: prev.assets ?? s.assets,
       selectedId: prev.selectedId,
       activeTabId: prev.activeTabId,
       scene: prev.scene,
@@ -67,6 +74,7 @@ export const createUndoSlice = (set, get) => ({
       _future: s._future.slice(1),
       _past: past,
       items: next.items,
+      assets: next.assets ?? s.assets,
       selectedId: next.selectedId,
       activeTabId: next.activeTabId,
       scene: next.scene,

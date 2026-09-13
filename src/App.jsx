@@ -82,11 +82,25 @@ function useVerticalResizer(initialPct = 60) {
 const SPLASH_SEEN_KEY = 'visionos-designer:splash-seen-v1'
 
 export default function App() {
+  // Restore the autosaved project before first paint, so a refresh lands
+  // the user back where they were instead of on a fresh seed. Runs once:
+  // the ref guards React 18's double-invoke in StrictMode, which would
+  // otherwise restore twice and clobber the history we just cleared.
+  const restoredRef = useRef(false)
+  const [restored] = useState(() => {
+    if (restoredRef.current) return false
+    restoredRef.current = true
+    try { return useStore.getState().restoreAutosave() } catch { return false }
+  })
+
   // Splash opens only on the FIRST launch (or when explicitly
   // re-opened from the topbar). Returning users skip the splash and
   // land in the editor immediately — way less friction than the
-  // previous "show on every launch" behaviour.
+  // previous "show on every launch" behaviour. A restored project also
+  // suppresses it: the user already has work on screen, and a template
+  // picker over the top of it invites destroying it by accident.
   const [splashOpen, setSplashOpen] = useState(() => {
+    if (restored) return false
     try { return !localStorage.getItem(SPLASH_SEEN_KEY) } catch { return true }
   })
   const closeSplash = () => {
@@ -132,6 +146,31 @@ export default function App() {
     setLeftWidth((w) => (target > w ? target : w))
   }, [assetCount, setLeftWidth])
 
+  // Autosave. Subscribing to the store rather than calling save from each
+  // action keeps persistence out of every slice: any change to the document
+  // schedules one debounced write. Selection and drag state are excluded so
+  // merely clicking around does not churn localStorage.
+  useEffect(() => {
+    let prev = useStore.getState()
+    const unsub = useStore.subscribe((s) => {
+      const documentChanged =
+        s.items !== prev.items ||
+        s.scene !== prev.scene ||
+        s.assets !== prev.assets ||
+        s.activeTabId !== prev.activeTabId ||
+        s.projectName !== prev.projectName
+      prev = s
+      if (documentChanged) s.scheduleAutosave()
+    })
+    // A pending debounce would be lost on close, so flush the last edit.
+    const onLeave = () => { try { useStore.getState().flushAutosave() } catch {} }
+    window.addEventListener('beforeunload', onLeave)
+    return () => {
+      unsub()
+      window.removeEventListener('beforeunload', onLeave)
+    }
+  }, [])
+
   useEffect(() => {
     // Read the current selection + item list fresh on every key so we always
     // nudge the currently-selected item, not a stale one.
@@ -143,6 +182,13 @@ export default function App() {
 
       if (mod && key === 'z' && !e.shiftKey) { undo(); e.preventDefault(); return }
       if (mod && key === 'z' && e.shiftKey) { redo(); e.preventDefault(); return }
+      // Save the project file. Intercepted so the browser's own
+      // "save this page" dialog never opens over the editor.
+      if (mod && key === 's') {
+        useStore.getState().saveProjectToFile()
+        e.preventDefault()
+        return
+      }
       if (mod && key === 'c') { if (selectedId) { copyItem(selectedId); e.preventDefault() } return }
       if (mod && key === 'v') { pasteItem(); e.preventDefault(); return }
       if (mod && key === 'd') { if (selectedId) { copyItem(selectedId); pasteItem(); e.preventDefault() } return }

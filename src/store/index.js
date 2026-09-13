@@ -17,6 +17,7 @@ import { createItemsSlice } from './items'
 import { createClipboardSlice } from './clipboard'
 import { createEntitiesSlice } from './entities'
 import { createAssetsSlice, ASSETS_INITIAL_STATE } from './assets'
+import { createPersistenceSlice, PERSISTENCE_INITIAL_STATE } from './persistence'
 
 export { isEffectivelyVisible } from './helpers'
 
@@ -95,6 +96,9 @@ export const useStore = create((set, get) => ({
   // See `src/store/assets.js` for the record shape.
   ...ASSETS_INITIAL_STATE,
 
+  // Project save / open / autosave state (projectName, lastSavedAt, ...).
+  ...PERSISTENCE_INITIAL_STATE,
+
   // ---- actions (composed from slices) ----
   ...createUndoSlice(set, get),
   ...createSceneSlice(set, get),
@@ -105,5 +109,6 @@ export const useStore = create((set, get) => ({
   ...createItemsSlice(set, get),
   ...createClipboardSlice(set, get),
   ...createEntitiesSlice(set, get),
-  ...createAssetsSlice(set, get)
+  ...createAssetsSlice(set, get),
+  ...createPersistenceSlice(set, get)
 }))

@@ -14,14 +14,15 @@
 // requiring designers to think about the conversion. Refining this when
 // volumetric windows render is a future tuning pass.
 
-import { useEffect, useMemo, useRef, Suspense } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useEffect, useMemo, Suspense } from 'react'
+
 import * as THREE from 'three'
 import { Text, useGLTF, Billboard } from '@react-three/drei'
-import { useStore, isEffectivelyVisible } from '../store'
+import { useStore } from '../store'
+import { isLoadableMeshUrl } from '../store/assets'
 import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
-import { resolveSemantic, resolveAttachmentStyle } from '../appleSystem'
+import { resolveAttachmentStyle } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
 import { useBehaviorRuntime, registerEntity } from '../behaviors/runtime'
 import { SymbolIcon3D } from './SymbolIcon3D'
@@ -737,14 +738,12 @@ function Text3DEntity({ entity, mat, opacity }) {
 // place / scale / rotate the entity even though the model is missing
 // from the canvas preview.
 
-// drei's useGLTF caches by URL. We treat any entity.usdzAsset that
-// looks like a URL/path ending in .glb or .gltf as a real asset and
-// load it; otherwise we fall back to the wireframe placeholder so
-// USDZ-named bundle resources still preview the entity's footprint.
-function isLoadableMesh(asset) {
-  if (!asset) return false
-  return /\.(glb|gltf)(\?|#|$)/i.test(asset)
-}
+// drei's useGLTF caches by URL. `isLoadableMeshUrl` (src/store/assets.js)
+// decides whether entity.usdzAsset names something we can actually load —
+// a .glb/.gltf path or a glTF data URL from an imported asset. Anything
+// else falls back to the wireframe placeholder so USDZ-named bundle
+// resources still preview the entity's footprint.
+const isLoadableMesh = isLoadableMeshUrl
 
 function GltfModel({ url, opacity }) {
   const { scene: gltfScene } = useGLTF(url)

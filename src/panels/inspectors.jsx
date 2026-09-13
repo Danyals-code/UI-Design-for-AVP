@@ -14,8 +14,12 @@ import {
   SemanticColorPicker, MaterialField
 } from '../components/PropertiesPanel/primitives'
 import {
-  TextSection, FigmaFrameSection, LayoutSection, SymbolSection,
-  LIST_STYLES, LIST_STYLE_ORDER, BUTTON_STYLES
+  TextSection,
+  FigmaFrameSection,
+  LayoutSection,
+  SymbolSection,
+  LIST_STYLES,
+  LIST_STYLE_ORDER
 } from '../components/PropertiesPanel/shared'
 import { useStore } from '../store'
 import { resolveSemantic, resolveAnyMaterial, SF_SYMBOLS, SYMBOL_VARIANTS } from '../appleSystem'
@@ -23,18 +27,35 @@ import { SymbolIcon } from '../components/icons'
 import SymbolPicker from '../components/SymbolPicker'
 import { useState } from 'react'
 import {
-  BUTTON_BORDER_SHAPES, CONTROL_SIZES,
-  BUTTON_SIZES, BUTTON_SIZE_ORDER, BUTTON_SHAPES, BUTTON_SHAPE_ORDER,
-  DATE_PICKER_STYLES, PROGRESS_VIEW_STYLES, GAUGE_STYLES,
-  MENU_STYLES, MENU_ORDER, MENU_INDICATOR_VISIBILITY,
-  FORM_STYLES, GROUP_BOX_STYLES, DISCLOSURE_GROUP_STYLES,
-  TABLE_STYLES, TAB_VIEW_STYLES, WINDOW_STYLES,
-  PICKER_STYLES, TOGGLE_STYLES, LABEL_STYLES,
+  CONTROL_SIZES,
+  BUTTON_SIZES,
+  BUTTON_SIZE_ORDER,
+  BUTTON_SHAPES,
+  BUTTON_SHAPE_ORDER,
+  DATE_PICKER_STYLES,
+  PROGRESS_VIEW_STYLES,
+  GAUGE_STYLES,
+  MENU_STYLES,
+  MENU_ORDER,
+  MENU_INDICATOR_VISIBILITY,
+  FORM_STYLES,
+  GROUP_BOX_STYLES,
+  TABLE_STYLES,
+  PICKER_STYLES,
+  TOGGLE_STYLES,
+  LABEL_STYLES,
   SYMBOL_RENDERING_MODES,
-  KEYBOARD_TYPES, TEXT_CONTENT_TYPES, SUBMIT_LABELS, TEXT_AUTOCAPITALIZATION,
-  DATE_COMPONENTS, IMAGE_SCALES,
-  NAVBAR_STYLES, NAVBAR_STYLE_SPECS, NAVBAR_INTERACTIONS,
-  ptToUnits, segmentedFrame
+  KEYBOARD_TYPES,
+  TEXT_CONTENT_TYPES,
+  SUBMIT_LABELS,
+  TEXT_AUTOCAPITALIZATION,
+  DATE_COMPONENTS,
+  IMAGE_SCALES,
+  NAVBAR_STYLES,
+  NAVBAR_STYLE_SPECS,
+  NAVBAR_INTERACTIONS,
+  ptToUnits,
+  segmentedFrame
 } from '../appleSystem'
 
 // ---- shared mini-inspectors -------------------------------------------
@@ -44,6 +65,35 @@ import {
 // as `mergedIdentity` so the generic "Object — Image" header is dropped.
 const ImageInspector = ({ item, updateItem, switchPanelType, scene }) => {
   const renameItem = useStore((s) => s.renameItem)
+  const importAssets = useStore((s) => s.importAssets)
+  const [importError, setImportError] = useState(null)
+
+  // Upload routes through the assets library rather than
+  // `URL.createObjectURL`. A blob: URL is scoped to the page session, so
+  // it dies on reload and means nothing to the SwiftUI exporter;
+  // `importAssets` inlines the bytes as a base64 data URL that survives
+  // both. `imageAssetId` back-references the library record so the
+  // exporter can later emit `Image("Name")` instead of the payload.
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0]
+    // Let the same file be re-picked after a failure — without this the
+    // input holds the old value and onChange never fires again.
+    e.target.value = ''
+    if (!file) return
+    setImportError(null)
+    const ids = await importAssets([file])
+    if (!ids || ids.length === 0) {
+      setImportError('Could not import that file. Images only, up to 25 MB.')
+      return
+    }
+    const record = useStore.getState().assets.find((a) => a.id === ids[0])
+    if (!record) {
+      setImportError('Import succeeded but the asset could not be found.')
+      return
+    }
+    updateItem(item.id, { imageUrl: record.dataUrl, imageAssetId: record.id })
+  }
+
   return (
   <Section title="Image" defaultOpen={true}>
     <Row label="Name">
@@ -63,25 +113,33 @@ const ImageInspector = ({ item, updateItem, switchPanelType, scene }) => {
           type="file"
           accept="image/*"
           className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) {
-              const url = URL.createObjectURL(file)
-              updateItem(item.id, { imageUrl: url })
-            }
-          }}
+          onChange={onPickFile}
         />
       </label>
       {item.imageUrl && (
-        <button className="btn btn-ghost" onClick={() => updateItem(item.id, { imageUrl: null })}>Clear</button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => {
+            setImportError(null)
+            updateItem(item.id, { imageUrl: null, imageAssetId: null })
+          }}
+        >Clear</button>
       )}
     </Row>
+    {importError && (
+      <div className="text-[10px] text-danger px-1 pb-1">{importError}</div>
+    )}
     <Row label="URL">
       <input
-        value={item.imageUrl || ''}
-        onChange={(e) => updateItem(item.id, { imageUrl: e.target.value || null })}
+        // Pasting a URL is still supported, and it detaches the panel
+        // from any library record so the two never disagree.
+        value={item.imageUrl?.startsWith('data:') ? '' : (item.imageUrl || '')}
+        placeholder={item.imageUrl?.startsWith('data:') ? 'Imported asset' : 'https://...'}
+        onChange={(e) => updateItem(item.id, {
+          imageUrl: e.target.value || null,
+          imageAssetId: null
+        })}
         className="field flex-1"
-        placeholder="https://..."
       />
     </Row>
     <Row label="Fit">

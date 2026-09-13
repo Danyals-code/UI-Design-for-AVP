@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { SearchIcon } from './icons'
 import HelpDialog from './HelpDialog'
+import FileMenu from './FileMenu'
 
 export default function Topbar({ onTitleClick, previewMode = false }) {
   const count = useStore((s) => s.items.length)
@@ -30,6 +31,10 @@ export default function Topbar({ onTitleClick, previewMode = false }) {
           visionOS Designer
         </span>
       </button>
+
+      {/* File menu + project name + autosave state. Hidden in preview,
+          which is meant to read as the deployed app, not the editor. */}
+      {!previewMode && <FileMenu />}
 
       <div className="flex-1" />
 
