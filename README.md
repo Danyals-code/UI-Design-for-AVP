@@ -85,7 +85,45 @@ npm run build     # production build in dist/
 npm run preview   # serve the built app
 ```
 
-Requires Node 18+.
+Requires Node 18.18+ (see `engines` in package.json). CI runs Node 20.
+
+## Quality gates
+
+```bash
+npm run check     # lint errors, then tests, then build - the CI gate
+```
+
+Or individually:
+
+```bash
+npm test          # Vitest, single run
+npm run test:watch
+npm run lint      # everything, warnings included
+npm run lint:errors  # errors only - what CI gates on
+```
+
+The test suite covers the four subsystems where a silent regression is
+expensive, because two code paths have to agree with each other:
+
+- **`src/export/`** - every template exports Swift that is structurally
+  valid: braces balance, string literals close on the line they open, and
+  no line of code is handed to a `//` comment. Plus the RealityKit and
+  toolbar output, and the behaviour codegen.
+- **`src/layout.js`** - `layoutStack` (which positions children) and
+  `resolvedChildSizes` (which sizes them for the renderer) must not drift,
+  or siblings overlap. Checked across every stack in every template.
+- **`src/text.js`** - the SwiftUI Text pipeline: `lineLimit` as a hard cap,
+  every truncation mode, scale floors, tightening bounds.
+- **`src/store/`** and **`src/appleSystem.js`** - undo/redo and clipboard
+  invariants, project round-trip, and complete material resolution for all
+  24 library entries in both design schemes.
+
+ESLint is tuned for correctness rather than style: hooks rules, undefined
+and unused bindings, duplicate keys and cases. Warnings are tracked but do
+not fail the build; errors do.
+
+CI (`.github/workflows/ci.yml`) runs the same three steps on pull requests
+and on pushes to `main`, and can be triggered by hand from the Actions tab.
 
 ## Documentation map
 
@@ -110,37 +148,108 @@ architecture: update README.
 
 ```
 src/
-  App.jsx                 - top-level layout (topbar, panels, viewport, resize gutters)
+  App.jsx                 - top-level layout (topbar, side columns, viewport, resize gutters)
   main.jsx                - React entry point
-  store.js                - Zustand store (scene graph, history, clipboard, modifiers)
-  appleSystem.js          - visionOS design tokens (text styles, glass, SF Symbols, presets)
-  layout.js               - stack layout math (HStack / VStack / ZStack, fit/fixed/fill)
-  text.js                 - SwiftUI Text measurement (tighten/scale/wrap/truncate)
-  shapes.js               - rounded-rect geometry helpers for 3D panels
-  fonts.js                - font stack + SF Symbol unicode map
+  store.js                - public store entry point (re-exports store/)
+  appleSystem.js          - visionOS design tokens (type ramp, materials, colours, SF Symbols, presets)
+  layout.js               - stack layout math (VStack / HStack / ZStack / Grid / ScrollView, fit/fixed/fill)
+  text.js                 - SwiftUI Text measurement (tighten → scale → wrap → truncate)
+  shapes.js               - rounded-rect / ellipse / rim-ring geometry helpers
+  containment.js          - SwiftUI containment rules (which views may legally nest where)
+  fonts.js                - Inter woff URLs per weight, upright + italic
+  index.css               - Tailwind layers + the inspector/field/segmented component classes
+
+  store/                  - Zustand store, split into per-domain slices over one shared root
+    index.js              - composes every slice, owns the initial state
+    factories.js          - element factories (tab/window/stack/panel/entity), id counter, DEFAULT_SCENE
+    helpers.js            - tree walks (ancestors, owning tab, name uniqueness, hover resolution)
+    undo.js               - snapshot undo/redo + the `undoable()` wrapper every mutation goes through
+    items.js              - generic CRUD: select, update, rename, remove, visibility, move/reparent
+    scene.js              - scene settings, templates, mode switch, tap actions, add-flow wizards
+    tabs.js               - tabs (top-level pages)
+    windows.js            - windows + window chrome (tab bar, toolbar, NavigationSplitView)
+    stacks.js             - stacks + the in-window TabView
+    panels.js             - panel add, type switch, presentations, text styles
+    entities.js           - RealityKit entity CRUD, material slots, components, transforms
+    clipboard.js          - deep subtree copy / paste with fresh ids
+    assets.js             - imported meshes + images, folder tree, drag-into-scene
+
+  panels/
+    registry.js           - view registry: 55 panel types, each with defaults + SwiftUI emit()
+    inspectors.jsx        - per-panelType inspector bodies + PANEL_META
+  modifiers/
+    registry.js           - 42 SwiftUI modifiers: defaults, strict allow-list, inspector row, emit
+  realityKit/
+    registry.js           - entity kinds, anchor targets, meshes, materials, components, light types
+  behaviors/              - preview-only interaction system (never mutates the store)
+    registry.js           - the locked trigger + action vocabulary with param schemas
+    runtime.js            - per-entity runtime: tweens, continuous motion, trigger wiring
+    eventBus.js           - broadcast + lifecycle pub/sub (exports as NotificationCenter)
+    tween.js              - easing and lerp helpers
+  wizards/
+    registry.js           - structural add-flows (sidebar, toolbar, list, table, picker, menu, ...)
+  templates/
+    index.js              - 6 window + 6 volume templates, blank seeds, legacy keys
+  export/
+    swiftui.js            - SwiftUI generator: one view file per tab + App.swift
+
   components/
-    Topbar.jsx            - file / edit / view / scene menus and tab strip
-    LayersPanel.jsx       - left-hand tree of tabs, windows and panels
-    PropertiesPanel.jsx   - right-hand inspector for modifiers/styles/animation
-    Canvas3D.jsx          - three-fiber canvas, camera routing, OrbitControls
-    SceneTree.jsx         - converts the store into 3D meshes
-    Panel3D.jsx           - per-panel geometry, stacks, and rounded-rect backgrounds
-    ViewportOverlay.jsx   - viewport toolbar (zoom, grid, HDRI, pan, VR/Flat View)
-    CommandPalette.jsx    - ⌘K palette
-    AddDropdown.jsx       - "+" menu in the layers panel
+    Topbar.jsx            - project title, help button, tab strip
+    LayersPanel.jsx       - left tree of tabs / windows / stacks / panels / entities
+    AssetsPanel.jsx       - imported mesh + image library with folders
+    PropertiesPanel.jsx   - public inspector entry point (re-exports PropertiesPanel/)
+    Canvas3D.jsx          - three-fiber canvas, lighting, camera routing, post-processing
+    SceneTree.jsx         - store → 3D: windows, stacks, liquid-glass plates, navigation capsules
+    Panel3D.jsx           - 3D renderers for all 55 view types
+    Entity3D.jsx          - RealityKit entity rendering, gizmos, lights, attachments
+    DemoVolumeScene.jsx   - studio backdrop GLB behind the user's content
+    ViewportOverlay.jsx   - top-right toolbar (zoom, overlays, Window/Volume, 2D/3D)
+    TransformToolbar.jsx  - Blender-style move / rotate / scale tool switch
+    ModalTransform.jsx    - cursor-driven G / R / S modal transforms
+    FirstPersonControls.jsx - preview-mode WASD + mouse-look camera rig
+    PreviewButton.jsx     - bottom-centre Preview / Exit Preview pill and hint strip
+    SceneInfoOverlay.jsx  - Blender-style scene statistics HUD
+    CommandPalette.jsx    - ⇧A / ⌘K add palette
+    AddDropdown.jsx       - layers-panel "+" trigger for the add palette
+    AddWizardDialog.jsx   - modal that renders the pending wizard's schema
+    Splash.jsx            - first-launch scene-type + template picker
+    HelpDialog.jsx        - in-app guide
+    SwiftExportDialog.jsx - generated SwiftUI files, one tab button per file
     SymbolPicker.jsx      - SF Symbol picker (renders Lucide icons)
     SymbolIcon3D.jsx      - rasterises Lucide SVGs to CanvasTexture for 3D
     icons.jsx             - Lucide imports, SF Symbol → Lucide map, SymbolIcon (DOM)
-    Entity3D.jsx          - renders RealityKit entities (volume mode)
-    DemoVolumeScene.jsx   - studio backdrop + demo volume content
+    PropertiesPanel/      - the inspector, split per domain
+      index.jsx           - Object / Scene tab router
+      TabProps.jsx        - tab inspector
+      WindowProps.jsx     - window inspector (frame, material, spatial, ornaments)
+      StackProps.jsx      - stack inspector, plus the NavigationSplitView controls
+      PanelProps.jsx      - registry-driven panel inspector scaffold
+      EntityProps.jsx     - RealityKit entity inspector
+      SceneProps.jsx      - scene tab: viewport, lighting, Materials & Colors, export
+      BehaviorsSection.jsx - trigger / action card editor
+      ModifierStack.jsx   - Blender-style stacked SwiftUI modifiers
+      primitives.jsx      - fields, sliders, colour pickers, section accordions
+      shared.jsx          - shared inspector sections (text, frame, layout, symbol)
+      wizards.jsx         - inline toolbar / tab-bar / split-view wizards
+      useScrub.js         - drag-to-scrub numeric fields
 ```
 
 ### Scene Graph
 
-The store ([`src/store.js`](src/store.js)) keeps a flat `items` array and a
-`selectedId`. Each item is either a tab, a window, a panel, or a leaf
-control. Relationships are tracked via `parentId`, and structural helpers on
-the store handle reparenting, duplication, history and paste.
+The store ([`src/store/`](src/store/index.js), re-exported from
+[`src/store.js`](src/store.js)) keeps one flat `items` array plus a
+`selectedId`. Every node lives in that array - tabs, windows, stacks,
+panels and RealityKit entities alike - and relationships are tracked only
+via `parentId`. Because there is a single array, selection, undo,
+clipboard, visibility and drag-reparenting are each implemented once and
+work for every node type.
+
+The store is composed from per-domain slices (see the layout above). They
+all read and write the same root via `set`/`get` rather than owning a
+subtree, so consumers keep using `useStore((s) => s.someAction)`
+regardless of which slice an action lives in. Every mutating action is
+wrapped in `undoable()`, which snapshots `items`, selection, active tab,
+scene settings and the id counter before applying the change.
 
 ### Design Tokens
 
