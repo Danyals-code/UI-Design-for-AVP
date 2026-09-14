@@ -134,8 +134,12 @@ names the renderer branches on live in `appleSystem.js`
 a misspelled case never matches and the canvas silently keeps its default -
 which is the defect, reappearing in the form it was fixed from.
 
-Two style fields are deliberately inert on **both** sides, and say so in the
-ledger: `groupBoxStyle` (SwiftUI ships one `GroupBoxStyle`, so the picker has
+Four fields are deliberately one-sided and say so in the ledger, because the
+other side has nowhere to put them: `selectedColorToken` (the segmented
+selection pill is drawn by `.pickerStyle(.segmented)` and SwiftUI exposes no
+way to re-material it) and `dotCount` (placeholder bullets in an empty
+SecureField, which has no placeholder-dot API on device) are canvas-only; and
+two style fields are inert on **both** sides: `groupBoxStyle` (SwiftUI ships one `GroupBoxStyle`, so the picker has
 one option and the emitter elides it) and `headerProminence` (it styles
 `Section` headers and the list panel has no sections, so the emitted modifier
 does nothing on device either).

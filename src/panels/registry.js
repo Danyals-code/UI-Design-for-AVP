@@ -17,11 +17,23 @@
 // exporter pick it up automatically.
 
 import {
-  TEXT_STYLES, ptToUnits, segmentedFrame, materialSwiftValue,
+  TEXT_STYLES, ptToUnits, unitsToPt, segmentedFrame, materialSwiftValue,
   NAVBAR_HEIGHT_PT, normalizeButton
 } from '../appleSystem'
 
 const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?? 17)
+
+// `fieldShape` picks the edge an input field draws: a pill (the visionOS
+// default) or the stored corner radius. The canvas has always honoured it and
+// the export said nothing, so a field the designer squared off came back
+// round. `.clipShape` is where that lives in SwiftUI — the field's own
+// recessed background is what gets clipped. AUDIT #20.
+function fieldShapeModifier(panel) {
+  const shape = panel.fieldShape || 'pill'
+  if (shape === 'pill') return '.clipShape(Capsule())'
+  const r = Math.round(unitsToPt(panel.cornerRadius ?? 0)) || 12
+  return `.clipShape(RoundedRectangle(cornerRadius: ${r}))`
+}
 
 // Resolve a panel's colorToken/color to a valid UIColor Swift expression for
 // use inside SimpleMaterial on 3D primitives. UIColor can bridge from Color.
@@ -300,9 +312,24 @@ export const PANELS = {
       imageAssetId: null
     },
     emit(panel, ctx) {
-      const { push, sym } = ctx
-      if (sym) push(`Image(systemName: "${sym}")`)
-      else push(`Image(systemName: "photo")   // placeholder asset`)
+      const { push, sym, escapeString } = ctx
+      if (sym) { push(`Image(systemName: "${sym}")`); return }
+      // The export used to emit a `photo` placeholder whatever the designer
+      // had actually put in the frame, so an image reached Xcode as a
+      // symbol. It now says what the source is. AUDIT #20.
+      const url = panel.imageUrl
+      if (!url) { push(`Image(systemName: "photo")   // no image set`); return }
+      if (/^https?:\/\//i.test(url)) {
+        push(`AsyncImage(url: URL(string: "${escapeString(url)}"))`)
+        return
+      }
+      // A data: URL from the asset library, or a bundled /public path. Either
+      // way the bytes belong in an asset catalog rather than in the source,
+      // so name the asset and say where it came from.
+      const name = /^data:/i.test(url)
+        ? (panel.name || 'Image')
+        : (url.split('/').pop() || 'Image').replace(/\.[^.]+$/, '')
+      push(`Image("${escapeString(name)}")   // add this asset to your catalog`)
     }
   },
 
@@ -367,6 +394,11 @@ export const PANELS = {
       const matSwift = materialSwiftValue(panel.colorToken)
       push(`Picker("", selection: .constant("${escapeString(sel)}")) {`)
       opts.forEach((o) => push(`    Text("${escapeString(o)}").tag("${escapeString(o)}")`))
+      // `selectedColorToken` — the raised selection pill's material tier —
+      // is deliberately not emitted: `.pickerStyle(.segmented)` draws that
+      // pill itself and SwiftUI exposes no API to re-material it. The canvas
+      // has to paint something there, so it uses the tier; the export has
+      // nowhere to put it. Recorded as EXEMPT in parity.baseline.js.
       push(`}.pickerStyle(.segmented).background(${matSwift}, in: Capsule())`)
     }
   },
@@ -924,7 +956,7 @@ export const PANELS = {
       imageScale: 'medium'
     },
     emit(panel, ctx) {
-      const { push, escapeString, sym, style, weight } = ctx
+      const { push, escapeString, sym, style, weight, swiftColor } = ctx
       const icon = sym || panel.iconName || 'circle.fill'
       const ls = panel.styles?.labelStyle && panel.styles.labelStyle !== 'automatic'
         ? `.labelStyle(.${panel.styles.labelStyle})` : ''
@@ -932,7 +964,32 @@ export const PANELS = {
         ? `.imageScale(.${panel.imageScale})` : ''
       const sm = panel.symbolRenderingMode && panel.symbolRenderingMode !== 'monochrome'
         ? `.symbolRenderingMode(.${panel.symbolRenderingMode})` : ''
-      push(`Label("${escapeString(panel.text || 'Label')}", systemImage: "${icon}").font(.${style}${weight})${ls}${is}${sm}`)
+      const trailing = `.font(.${style}${weight})${ls}${is}${sm}`
+
+      // The Settings.app icon tile — a tinted rounded square behind the
+      // glyph. The canvas has drawn it since the Label existed and the
+      // export dropped every part of it: the tile, its colour, its radius,
+      // its size, and even the glyph's own colour. AUDIT #20.
+      //
+      // `Label(_:systemImage:)` has nowhere to put any of that, so a tile
+      // needs the explicit two-closure form.
+      const tile = panel.iconTileColor
+      if (!tile) {
+        const fg = panel.iconColor ? `.foregroundStyle(${swiftColor(null, panel.iconColor)})` : ''
+        push(`Label("${escapeString(panel.text || 'Label')}", systemImage: "${icon}")${trailing}${fg}`)
+        return
+      }
+      const tileSize = panel.iconTileSize ?? 28
+      const tileRadius = panel.iconTileRadius ?? 6
+      const glyph = swiftColor(null, panel.iconColor || '#ffffff')
+      push(`Label {`)
+      push(`    Text("${escapeString(panel.text || 'Label')}")`)
+      push(`} icon: {`)
+      push(`    Image(systemName: "${icon}")`)
+      push(`        .foregroundStyle(${glyph})`)
+      push(`        .frame(width: ${tileSize}, height: ${tileSize})`)
+      push(`        .background(${swiftColor(panel.iconTileColor.startsWith('#') ? null : panel.iconTileColor, panel.iconTileColor)}, in: RoundedRectangle(cornerRadius: ${tileRadius}))`)
+      push(`}${trailing}`)
     }
   },
 
@@ -994,6 +1051,7 @@ export const PANELS = {
       if (panel.axis === 'vertical' && panel.lineLimit && panel.lineLimit !== 1) {
         lines.push(`    .lineLimit(${panel.lineLimit})`)
       }
+      lines.push(`    ${fieldShapeModifier(panel)}`)
       push(lines.join('\n' + ctx.ind))
     }
   },
@@ -1033,7 +1091,7 @@ export const PANELS = {
       const { push, escapeString } = ctx
       const sl = panel.submitLabel && panel.submitLabel !== 'return'
         ? `.submitLabel(.${panel.submitLabel})` : ''
-      push(`SecureField("${escapeString(panel.text || '')}", text: .constant(""))${sl}`)
+      push(`SecureField("${escapeString(panel.text || '')}", text: .constant(""))${sl}${fieldShapeModifier(panel)}`)
     }
   },
 
@@ -1051,7 +1109,10 @@ export const PANELS = {
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
-      push(`TextEditor(text: .constant("${escapeString(panel.text || '')}"))`)
+      // `lineCount` is the height the designer drew the editor at, in lines.
+      // The canvas rules that many lines and the export said nothing. AUDIT #20.
+      const ll = panel.lineCount > 0 ? `.lineLimit(${panel.lineCount})` : ''
+      push(`TextEditor(text: .constant("${escapeString(panel.text || '')}"))${ll}`)
     }
   },
 

@@ -204,16 +204,33 @@ export const PANEL = {
   styles: debt('export-only: the shared styles bag (controlSize and friends) reaches the export only'),
 
   // -- canvas-only visuals the export drops ---------------------------------
-  fieldShape: debt('canvas-only: pill vs rounded field shape is not emitted'),
-  imageUrl: debt('canvas-only: export emits a placeholder Image(systemName:) instead of the asset'),
-  symbolVariant: debt('canvas-only: .fill / .circle variant is drawn but not emitted'),
-  selectedColorToken: debt('canvas-only: colour-picker selection is not emitted'),
-  dotCount: debt('canvas-only: slideshow dot count is not emitted'),
-  lineCount: debt('canvas-only: ticker line count is not emitted'),
-  iconColor: debt('canvas-only: label icon colour is not emitted'),
-  iconTileColor: debt('canvas-only: label icon tile is a canvas-side treatment'),
-  iconTileRadius: debt('canvas-only: label icon tile is a canvas-side treatment'),
-  iconTileSize: debt('canvas-only: label icon tile is a canvas-side treatment')
+  //
+  // AUDIT #20 emptied in phase 1.9. This group ran the other way from the
+  // rest of Stage 1 — the canvas drew these and the EXPORT dropped them — so
+  // the work was in the emitters. Eight now reach the file: the field shape
+  // as a `.clipShape`, the image as a named asset or an `AsyncImage` rather
+  // than a `photo` placeholder, the symbol variant as `.symbolVariant`, the
+  // editor's line count as `.lineLimit`, and the Label's icon tile as the
+  // explicit two-closure `Label { } icon: { }` form that can carry a colour,
+  // a size and a corner radius.
+  //
+  // The two below have no SwiftUI API behind them, so emitting anything
+  // would have been invention rather than translation:
+  //
+  //   selectedColorToken  The raised pill in a segmented control is drawn by
+  //                       `.pickerStyle(.segmented)` itself, and SwiftUI
+  //                       exposes no way to re-material it. The canvas has to
+  //                       paint something there, so it uses the tier; the
+  //                       export has nowhere to put it.
+  //
+  //   dotCount            How many bullets the editor draws in an EMPTY
+  //                       SecureField, so the field reads as a password field
+  //                       before anything is typed. On device SecureField
+  //                       masks the real value and there is no
+  //                       placeholder-dot API; the placeholder is the prompt
+  //                       string, which is already emitted.
+  selectedColorToken: ex('canvas-only: the segmented selection pill is system-drawn - see the note above'),
+  dotCount: ex('canvas-only: placeholder bullets in an empty SecureField - see the note above')
 }
 
 // ---------------------------------------------------------------------------
@@ -288,4 +305,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 41
+export const DEBT_CEILING = 31

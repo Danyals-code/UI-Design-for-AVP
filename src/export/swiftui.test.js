@@ -1297,3 +1297,97 @@ describe('the date picker shows the components it emits', () => {
     expect(emit({ dateStyle: 'automatic' })).not.toContain('.datePickerStyle(')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Canvas-only visuals now reach the file (AUDIT #20)
+//
+// This group ran the other way from the rest of Stage 1: the canvas drew
+// these and the EXPORT dropped them, so a filled icon came back outlined, an
+// image came back as a `photo` placeholder, and a Label's tinted icon tile
+// came back as a plain row. The work was in the emitters, so these read the
+// generated Swift.
+// ---------------------------------------------------------------------------
+describe('canvas-only visuals reach the export', () => {
+  const emit = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('carries the SF Symbol variant the canvas draws', () => {
+    for (const variant of ['fill', 'circle', 'square', 'slash']) {
+      expect(emit('label', { symbolName: 'star', symbolVariant: variant }))
+        .toContain(`.symbolVariant(.${variant})`)
+    }
+  })
+
+  it('never puts symbolVariant on a view with no symbol to vary', () => {
+    expect(emit('text', { symbolVariant: 'fill', symbolName: null }))
+      .not.toContain('.symbolVariant(')
+    expect(emit('label', { symbolName: 'star', symbolVariant: null }))
+      .not.toContain('.symbolVariant(')
+  })
+
+  it('names the image instead of emitting a photo placeholder', () => {
+    // A pasted http URL is a real remote image.
+    expect(emit('image', { imageUrl: 'https://example.com/hero.png' }))
+      .toContain('AsyncImage(url: URL(string: "https://example.com/hero.png"))')
+    // A bundled path becomes an asset-catalog reference by its basename.
+    expect(emit('image', { imageUrl: '/samples/mountain.jpg' }))
+      .toContain('Image("mountain")')
+    // A data: URL from the asset library has no filename, so the panel's own
+    // name is the best handle the designer will recognise.
+    expect(emit('image', { name: 'Hero Shot', imageUrl: 'data:image/png;base64,AAA' }))
+      .toContain('Image("Hero Shot")')
+    // ...and an empty frame still says so rather than lying about a photo.
+    expect(emit('image', { imageUrl: null })).toContain('// no image set')
+  })
+
+  it('carries the field shape the canvas draws the edge from', () => {
+    expect(emit('textfield', { fieldShape: 'pill' })).toContain('.clipShape(Capsule())')
+    expect(emit('securefield', { fieldShape: 'pill' })).toContain('.clipShape(Capsule())')
+    const rounded = emit('textfield', { fieldShape: 'rounded' })
+    expect(rounded).toContain('.clipShape(RoundedRectangle(cornerRadius:')
+    expect(rounded).not.toContain('Capsule()')
+  })
+
+  it('carries the editor height the canvas rules lines for', () => {
+    expect(emit('texteditor', { lineCount: 7 })).toContain('.lineLimit(7)')
+    expect(emit('texteditor', { lineCount: 0 })).not.toContain('.lineLimit(')
+  })
+
+  describe('the Label icon tile', () => {
+    const tile = { symbolName: 'gear', iconColor: '#ffffff', iconTileColor: '#007aff', iconTileSize: 30, iconTileRadius: 8 }
+
+    it('switches to the two-closure form, which can carry one', () => {
+      // `Label(_:systemImage:)` has nowhere to put a tile, so a tile forces
+      // the explicit form. Emitting the short form with a tile set would
+      // silently drop every part of it — the original defect.
+      const swift = emit('label', tile)
+      expect(swift).toContain('Label {')
+      expect(swift).toContain('} icon: {')
+      expect(swift).toContain('Image(systemName: "gear")')
+    })
+
+    it('carries the colour, the size and the radius', () => {
+      const swift = emit('label', tile)
+      expect(swift).toContain('.frame(width: 30, height: 30)')
+      expect(swift).toContain('cornerRadius: 8')
+      // Both colours reach it: the glyph's and the tile's.
+      expect(swift.match(/\.foregroundStyle\(/g)?.length).toBeGreaterThanOrEqual(1)
+      expect(swift).toContain('.background(')
+    })
+
+    it('stays on the short form when there is no tile', () => {
+      const swift = emit('label', { symbolName: 'gear', iconTileColor: null })
+      expect(swift).toContain('Label("Label", systemImage: "gear")')
+      expect(swift).not.toContain('} icon: {')
+    })
+
+    it('still carries a bare icon colour without a tile', () => {
+      expect(emit('label', { symbolName: 'gear', iconTileColor: null, iconColor: '#ff3b30' }))
+        .toContain('.foregroundStyle(')
+    })
+  })
+})

@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3, 1.2, 1.6 and
-1.8 have landed since; each is marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6 and 1.1–1.4, 1.6–1.9 have landed
+since; each is marked where it changed a finding. Only 1.5 remains.*
 
 The goal this document serves, in the project's own framing:
 
@@ -28,12 +28,12 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **Stage 2 is complete, Stage 1 is nearly through, and the
-count is now 41**.
+divergences**; **both stages are done bar one phase, and the count is now
+31**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
-| Canvas honours a field, exporter drops it | 28 fields | 16 |
+| Canvas honours a field, exporter drops it | 28 fields | 6 |
 | Exporter emits a property, canvas ignores it | 83 fields + modifiers | 23 |
 | Neither side reads a field the inspector writes | 7 fields | 2 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
@@ -97,10 +97,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 547 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 556 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
-  had — and +11 from 1.8).
+  had — +11 from 1.8 and +9 from 1.9).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -758,11 +758,48 @@ decision cannot drift. Verified by perturbation: typo a style name or let a
 time-only picker show a date and three fail. Confirmed in the running app with
 one of each type seeded at a non-default style.
 
-**1.9 — Canvas-only visuals the export drops (#20)** *(1 day)*
-The last filed group: `symbolVariant`, `imageUrl`, `fieldShape`, `dotCount`,
-`lineCount` and the label icon-tile fields, 10 divergences. These run the
-other way from most of Stage 1 — the canvas draws them and the *export* drops
-them.
+**1.9 — Canvas-only visuals the export drops (#20)** ✅ **done**
+
+The last filed group, and the only one that runs the other way: the canvas
+drew these and the **export** dropped them, so the work was in the emitters
+rather than the renderer. Parity debt 41 → 31.
+
+Eight now reach the file:
+
+- **`symbolVariant`** as `.symbolVariant(.fill)`, emitted once in
+  `renderPanel` rather than inside each symbol-bearing emitter — the field is
+  universal — and guarded on the panel actually having a symbol, so it never
+  lands on a view with no glyph to vary.
+- **`imageUrl`** says what the source is instead of emitting a `photo`
+  placeholder whatever the designer had put in the frame: an `AsyncImage` for
+  a remote URL, a named `Image("…")` for a bundled path or an imported asset,
+  and an honest `// no image set` for an empty frame.
+- **`fieldShape`** as `.clipShape(Capsule())` or a rounded rectangle at the
+  panel's own radius — a field the designer squared off used to come back
+  round.
+- **`lineCount`** as `.lineLimit(n)` on the TextEditor.
+- **The Label's icon tile** — `iconColor`, `iconTileColor`, `iconTileSize`,
+  `iconTileRadius`. `Label(_:systemImage:)` has nowhere to put any of it, so a
+  tile switches the emitter to the explicit `Label { } icon: { }` form.
+
+**Two have no SwiftUI API behind them, so emitting anything would have been
+invention rather than translation:**
+
+- `selectedColorToken` — the raised pill in a segmented control is drawn by
+  `.pickerStyle(.segmented)` itself and SwiftUI exposes no way to re-material
+  it. The canvas has to paint something there; the export has nowhere to put
+  it. *(An `.environment` hack was written and then removed: it compiled and
+  meant nothing.)*
+- `dotCount` — how many bullets the editor draws in an **empty** SecureField,
+  so it reads as a password field before anything is typed. On device
+  SecureField masks the real value and there is no placeholder-dot API; the
+  placeholder is the prompt string, which is already emitted.
+
+*Acceptance:* 9 new tests reading the generated Swift, including that the
+short `Label` form is still used when there is no tile — emitting it *with*
+one would silently drop every part of the tile, which is the original defect.
+Verified by perturbation: reverting the tile, the image source or the symbol
+variant fails 5, the parity harness among them.
 
 ---
 
@@ -976,7 +1013,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
 Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5
-Week 4   1.8 style pickers (#19) ✅ · 1.9 canvas-only visuals (#20)
+Week 4   1.8 style pickers (#19) ✅ · 1.9 canvas-only visuals (#20) ✅
 ```
 
 *Revised after 1.4.* Stage 2's phases are done. **1.7 moved ahead of 1.1**: it
@@ -1020,7 +1057,7 @@ Found by the parity harness after the first pass, so not in the narrative above:
 | 17 | ~~**Control ranges are ignored by the canvas.**~~ — **fixed in 1.7.** Original text: Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `appleSystem.js` (`controlFraction`), `Panel3D.jsx` | — |
 | 18 | **The whole `environment` section is dead.** Font, Foreground, Locale and LTR/RTL are editable on every stack and window, and read by neither side — five more controls in the same class as #13. | `StackProps.jsx:574–582` | Medium |
 | 19 | ~~**Per-type style pickers do not reach the canvas.**~~ — **fixed in 1.8**; 11 wired, 2 shown to be inert on both sides. Original text: `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
-| 20 | **Canvas-only visuals dropped on export.** `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |
+| 20 | ~~**Canvas-only visuals dropped on export.**~~ — **fixed in 1.9**; 8 emitted, 2 shown to have no SwiftUI API. Original text: `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |
 | 21 | ~~`fontSize` is a canvas-side mirror of the exported `textStyle`~~ — **fixed in 2.3**; nothing writes it any more and `textStyle` is the single source. | `store/panels.js` | — |
 
 Found while implementing 2.1:

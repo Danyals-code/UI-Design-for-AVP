@@ -488,6 +488,17 @@ function renderPanel(panel, items, pad, out) {
     lookupItem: (id) => items.find((it) => it.id === id) || null
   })
 
+  // `.symbolVariant` — the `.fill` / `.circle` / `.square` / `.slash` form of
+  // an SF Symbol. The canvas swaps the actual glyph for it (see the symbol
+  // map in `icons.jsx`) and the export dropped it, so a filled icon on screen
+  // came back outlined in Xcode. Emitted here rather than inside each
+  // symbol-bearing emitter because the field is universal — every panel type
+  // carries it — and guarded on the panel actually having a symbol, so it
+  // never lands on a view with no glyph to vary. AUDIT #20.
+  if (panel.symbolName && panel.symbolVariant) {
+    out.push(`${indent(pad)}    .symbolVariant(.${panel.symbolVariant})`)
+  }
+
   renderModifiers(panel, out, pad)
 
   // Panel sizing, after the user's own modifier chain so the frame bounds

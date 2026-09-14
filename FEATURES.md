@@ -720,6 +720,13 @@ The exporter ([src/export/swiftui.js](src/export/swiftui.js)) emits:
   device. `scrollAxis` and `scrollShowsIndicators` are read by both sides.
 - **Free placement**: a control dragged around a window plate exports the
   matching `.offset(x:y:)`.
+- **The canvas-side visuals too**: the SF Symbol variant (`.fill` /
+  `.circle` / …), an input field's pill-or-rounded edge, a Text
+  Editor's line count, and a Label's tinted icon tile - colour, size
+  and corner radius, via the explicit `Label { } icon: { }` form.
+  An Image names its asset or emits an `AsyncImage` for a remote URL,
+  rather than the `photo` placeholder it used to emit whatever you had
+  put in the frame.
 
 Modifier order follows how the canvas composes a container — content inset,
 then box sized, then box painted — so `.padding()` precedes `.frame()`
