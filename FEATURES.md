@@ -328,6 +328,18 @@ defaults in [VIEWS.md](VIEWS.md), source in
     Form is the grouped card with separators (or the two-column
     layout under `.columns`), an Outline Group is the indented
     disclosure tree, and a collapsed row hides its whole subtree.
+  - **The per-type Style pickers change the canvas, not only the
+    export.** A List honours row separators (visible / hidden, and
+    their tint), row spacing and item tint; a Table drawn `.inset`
+    swaps its grid rules for alternating row fills; a Menu set to
+    `.button` collapses to its label with an optional chevron; a
+    Picker lays its options out in the styles that lay them out
+    (`.segmented`, `.wheel`, `.inline`, `.palette`) and shows the
+    selected value with a chevron in the menu-ish ones; a Date Picker
+    draws a month grid for `.graphical` and drum columns for `.wheel`,
+    and shows only the components it was asked for; and a Text Field
+    with a vertical axis grows down to its line limit instead of
+    clipping one line.
 - **Presentation:** sheet, popover, alert, confirmationdialog,
   inspector, navigationlink, contentUnavailable
   - **These present over the window rather than flowing inside it**,

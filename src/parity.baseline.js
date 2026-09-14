@@ -155,19 +155,29 @@ export const PANEL = {
   // layout, and `rowHeight` — which reached NEITHER side — lays the rows out
   // on the canvas and rides along as `.frame(minHeight:)` on each generated
   // row.
-  groupBoxStyle: debt('export-only: canvas draws one groupbox treatment'),
-  listItemTint: debt('export-only: canvas ignores per-row tint'),
-  listRowSeparator: debt('export-only: canvas always draws separators'),
-  listRowSeparatorTint: debt('export-only: canvas separator colour is fixed'),
-  listRowSpacing: debt('export-only: canvas row spacing comes from the list style'),
-  menuStyle: debt('export-only: canvas draws one menu treatment'),
-  menuIndicator: debt('export-only: canvas always draws the indicator'),
-  tableStyle: debt('export-only: canvas draws one table treatment'),
-  headerProminence: debt('export-only: canvas header styling is fixed'),
-  pickerOptions: debt('export-only: canvas draws the picker without its options'),
-  dateStyle: debt('export-only: canvas date rendering is fixed'),
-  displayedComponents: debt('export-only: canvas always draws the same date-picker fields'),
-  axis: debt('export-only: canvas TextEditor / scroll axis is fixed'),
+  // AUDIT #19 emptied in phase 1.8. Eleven of the thirteen now change the
+  // canvas: the list row family, both menu fields, the table style, the
+  // picker's options in the styles that lay them out, both date-picker
+  // fields, and the text field's growth axis.
+  //
+  // The two below stay, and neither is a rendering gap — both are inert on
+  // BOTH sides, which is why wiring a renderer would have been theatre:
+  //
+  //   `groupBoxStyle`  SwiftUI ships exactly one GroupBoxStyle, `.automatic`,
+  //                    so GROUP_BOX_STYLES has a single option and the
+  //                    emitter elides it at that value. The field can never
+  //                    hold anything else and never reaches the file. The
+  //                    honest fix is to drop the one-option picker from the
+  //                    inspector, not to invent a second treatment.
+  //
+  //   headerProminence `.headerProminence` styles SECTION headers, and the
+  //                    list panel does not model sections — so the emitted
+  //                    modifier lands on a `List` with no `Section` in it and
+  //                    does nothing on device either. It belongs on the
+  //                    `section` stack type, which has a real header, rather
+  //                    than on `list`.
+  groupBoxStyle: ex('neither: one-case vocabulary, elided at its only value - see the note above'),
+  headerProminence: ex('neither: styles Section headers and the list panel has no sections - see the note above'),
 
   // -- presentation metrics -------------------------------------------------
   presentationCornerRadius: debt('export-only: canvas uses the panel corner radius'),
@@ -278,4 +288,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 54
+export const DEBT_CEILING = 41

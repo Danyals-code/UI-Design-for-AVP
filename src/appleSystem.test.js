@@ -17,7 +17,9 @@ import {
   TEXT_STYLES, TEXT_STYLE_ORDER, textStyleDefaultWeight,
   computeButtonFramePt, segmentedFrame,
   controlFraction, valueFromFraction, mixHex, applyAspectRatio,
-  outlineVisibleRows
+  outlineVisibleRows,
+  PICKER_STYLES, MENU_STYLES,
+  PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts
 } from './appleSystem'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
@@ -488,5 +490,82 @@ describe('outlineVisibleRows', () => {
     expect(outlineVisibleRows(undefined)).toEqual([])
     expect(outlineVisibleRows([])).toEqual([])
     expect(outlineVisibleRows([{}]).map((r) => r.level)).toEqual([0])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-type style vocabularies (AUDIT #19)
+//
+// Thirteen style fields exported correctly and changed nothing on screen. The
+// renderer branches on style names as string literals, which is the shape
+// that rots quietly: a misspelled case never matches, the canvas keeps its
+// default treatment, and nothing fails — the defect reappears in the same
+// form it was fixed from. These pin every name the canvas branches on to a
+// real case of its own picker.
+// ---------------------------------------------------------------------------
+describe('style names the canvas branches on are real cases', () => {
+  const values = (vocab) => vocab.map((v) => v.value)
+
+  it('every picker style that shows options is a real PickerStyle', () => {
+    for (const style of PICKER_STYLES_SHOWING_OPTIONS) {
+      expect(values(PICKER_STYLES), `'${style}' is not a picker style`).toContain(style)
+    }
+  })
+
+  it('leaves the menu-ish picker styles to draw a value and a chevron', () => {
+    // A still canvas cannot open a menu, so those styles must NOT be in the
+    // set — listing them would draw options the device keeps hidden.
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('menu')
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('automatic')
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('navigationLink')
+  })
+
+  it('every menu style that collapses to a button is a real MenuStyle', () => {
+    for (const style of MENU_STYLES_AS_BUTTON) {
+      expect(values(MENU_STYLES), `'${style}' is not a menu style`).toContain(style)
+    }
+    // `.automatic` is the open list, so it must not collapse.
+    expect(MENU_STYLES_AS_BUTTON).not.toContain('automatic')
+  })
+
+  it('accounts for every menu style one way or the other', () => {
+    // Nothing in the vocabulary should fall through unconsidered: a style is
+    // either the open list or the collapsed button.
+    for (const style of values(MENU_STYLES)) {
+      const collapses = MENU_STYLES_AS_BUTTON.includes(style)
+      expect(typeof collapses, `'${style}' unaccounted for`).toBe('boolean')
+    }
+    expect(MENU_STYLES_AS_BUTTON.length).toBeGreaterThan(0)
+    expect(MENU_STYLES_AS_BUTTON.length).toBeLessThan(values(MENU_STYLES).length)
+  })
+})
+
+describe('dateComponentsParts', () => {
+  it('shows only what each value asks for', () => {
+    expect(dateComponentsParts('date')).toEqual({ date: true, time: false, seconds: false })
+    expect(dateComponentsParts('hourAndMinute')).toEqual({ date: false, time: true, seconds: false })
+    expect(dateComponentsParts('hourMinuteAndSecond')).toEqual({ date: false, time: true, seconds: true })
+    expect(dateComponentsParts('dateAndTime')).toEqual({ date: true, time: true, seconds: false })
+  })
+
+  it('falls back to the SwiftUI default for anything unrecognised', () => {
+    // `displayedComponents:` defaults to `[.date, .hourAndMinute]`.
+    for (const v of [undefined, null, '', 'nonsense']) {
+      expect(dateComponentsParts(v)).toEqual({ date: true, time: true, seconds: false })
+    }
+  })
+
+  it('never asks for seconds without a time', () => {
+    for (const v of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const p = dateComponentsParts(v)
+      if (p.seconds) expect(p.time, `${v} wants seconds without a time`).toBe(true)
+    }
+  })
+
+  it('always shows something', () => {
+    for (const v of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const p = dateComponentsParts(v)
+      expect(p.date || p.time, `${v} shows nothing at all`).toBe(true)
+    }
   })
 })

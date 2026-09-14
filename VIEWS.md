@@ -126,6 +126,20 @@ turns a 640pt box with inset content into a 688pt box.
    `.monospacedDigit` need a rounded / serif / monospaced face and the app
    bundles Inter alone, so there is nothing honest to draw.
 
+Per-type **Style** pickers are part of the contract too: where a style changes
+what a view looks like, the canvas switches on it as well as the exporter. The
+names the renderer branches on live in `appleSystem.js`
+(`PICKER_STYLES_SHOWING_OPTIONS`, `MENU_STYLES_AS_BUTTON`,
+`dateComponentsParts`) rather than as string literals in the renderer, because
+a misspelled case never matches and the canvas silently keeps its default -
+which is the defect, reappearing in the form it was fixed from.
+
+Two style fields are deliberately inert on **both** sides, and say so in the
+ledger: `groupBoxStyle` (SwiftUI ships one `GroupBoxStyle`, so the picker has
+one option and the emitter elides it) and `headerProminence` (it styles
+`Section` headers and the list panel has no sections, so the emitted modifier
+does nothing on device either).
+
 Two modifiers change geometry rather than paint, so they live in the layout
 engine and not the renderer: `.aspectRatio` reshapes a frame (applied once, in
 `computeSize`) and `.layoutPriority` decides which flexible child receives a

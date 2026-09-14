@@ -2070,3 +2070,37 @@ export function outlineVisibleRows(rows) {
   }
   return out
 }
+
+// ---------------------------------------------------------------------------
+// Per-type style vocabularies the canvas branches on (AUDIT #19)
+//
+// These name style cases in string literals, which is exactly the shape that
+// rots quietly: a misspelled case never matches and the canvas silently keeps
+// its default treatment — the very defect #19 was about. They live here, next
+// to the vocabularies they draw from, so a test can check each name is a real
+// case of its own picker.
+// ---------------------------------------------------------------------------
+
+// Picker styles that lay their options out on screen. The menu-ish styles
+// keep them behind a tap, which a still canvas cannot open, so those draw the
+// selected value and a chevron instead.
+export const PICKER_STYLES_SHOWING_OPTIONS = ['segmented', 'wheel', 'inline', 'palette']
+
+// Menu styles that collapse the menu to its label, revealing the items only
+// once opened.
+export const MENU_STYLES_AS_BUTTON = ['button', 'borderlessButton']
+
+// Which parts of a date a `displayedComponents` value asks for. The exporter
+// maps the same four values onto `.date` / `.hourAndMinute` /
+// `[.date, .hourAndMinute]` / `.hourMinuteAndSecond`, so this is the canvas
+// half of one decision: show the parts the generated picker will show, and no
+// others. Before phase 1.8 the canvas printed the raw stored ISO date
+// whatever was chosen, so a time-only picker still previewed a date.
+export function dateComponentsParts(components) {
+  switch (components) {
+    case 'date':                return { date: true,  time: false, seconds: false }
+    case 'hourAndMinute':       return { date: false, time: true,  seconds: false }
+    case 'hourMinuteAndSecond': return { date: false, time: true,  seconds: true  }
+    default:                    return { date: true,  time: true,  seconds: false }
+  }
+}

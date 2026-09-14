@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3, 1.2 and 1.6
-have landed since; each is marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3, 1.2, 1.6 and
+1.8 have landed since; each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -28,14 +28,14 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
-now 54**.
+divergences**; **Stage 2 is complete, Stage 1 is nearly through, and the
+count is now 41**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 34 |
-| Neither side reads a field the inspector writes | 7 fields | 4 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 23 |
+| Neither side reads a field the inspector writes | 7 fields | 2 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
 
@@ -97,10 +97,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 536 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 547 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
-  1.3, +14 from 1.2 and +10 from 1.6 — the first tests the behaviour runtime
-  has had).
+  1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
+  had — and +11 from 1.8).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -716,13 +716,53 @@ the old clamp fails 8 of them. Confirmed in the running app — setting a
 slider's Max to 100 moves the thumb from the midpoint to the far left, which
 is where `Slider(value: .constant(0.5), in: 0...100)` puts it.
 
-**1.8 — Per-type style pickers (#19)** *(1–2 days)* · **1.9 — Canvas-only
-visuals the export drops (#20)** *(1 day)*
-The remaining two filed groups, 23 divergences between them. Both were left
-unscheduled by the original plan. 1.7 already took `gaugeStyle` and
-`progressViewStyle` off #19's list, so what is left there is `menuStyle`,
-`tableStyle`, `groupBoxStyle`, `formStyle`, the list-row family,
-`headerProminence`, `dateStyle` and `displayedComponents`.
+**1.8 — Per-type style pickers (#19)** ✅ **done**
+
+Thirteen style fields exported correctly and changed nothing on screen.
+Eleven now draw; the other two turned out not to be rendering gaps at all.
+Parity debt 54 → 41.
+
+Wired: the **list** row family (`listRowSeparator` hides the hairlines,
+`listRowSeparatorTint` recolours them, `listItemTint` is the row's accent,
+`listRowSpacing` adds to the style preset's gap); **menu** (`menuStyle`
+collapses `.button` / `.borderlessButton` to a label, `menuIndicator` decides
+whether that carries a chevron); **table** (`.inset` drops the grid rules for
+alternating row fills); **picker** (`pickerOptions` are laid out by the styles
+that lay them out); **date picker** (`.graphical` is a month grid, `.wheel` is
+drum columns, and `displayedComponents` decides which halves of the value
+show); and the **text field**'s `axis`, where `.vertical` grows the field down
+to `lineLimit` instead of clipping one line.
+
+**Two are inert on BOTH sides, so wiring a renderer would have been theatre:**
+
+- `groupBoxStyle` — SwiftUI ships exactly one `GroupBoxStyle`, `.automatic`.
+  `GROUP_BOX_STYLES` has a single option and the emitter elides it at that
+  value, so the field can never hold anything else and never reaches the
+  file. The honest fix is to drop the one-option picker from the inspector,
+  not to invent a second treatment.
+- `headerProminence` — it styles **Section** headers, and the list panel does
+  not model sections, so the emitted modifier lands on a `List` with no
+  `Section` in it and does nothing on device either. It belongs on the
+  `section` stack type, which has a real header.
+
+Both are recorded as EXEMPT with those reasons rather than counted as closed
+work.
+
+*Acceptance:* 11 new tests. The renderer branches on style names as string
+literals, which is the shape that rots quietly — a misspelled case never
+matches, the canvas keeps its default, and nothing fails — so the sets it
+branches on live in `appleSystem.js` and are pinned against the real
+vocabularies. The date components are checked against the **emitted**
+`displayedComponents:` argument, value by value, so the two halves of that one
+decision cannot drift. Verified by perturbation: typo a style name or let a
+time-only picker show a date and three fail. Confirmed in the running app with
+one of each type seeded at a non-default style.
+
+**1.9 — Canvas-only visuals the export drops (#20)** *(1 day)*
+The last filed group: `symbolVariant`, `imageUrl`, `fieldShape`, `dotCount`,
+`lineCount` and the label icon-tile fields, 10 divergences. These run the
+other way from most of Stage 1 — the canvas draws them and the *export* drops
+them.
 
 ---
 
@@ -936,7 +976,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
 Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5
-Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
+Week 4   1.8 style pickers (#19) ✅ · 1.9 canvas-only visuals (#20)
 ```
 
 *Revised after 1.4.* Stage 2's phases are done. **1.7 moved ahead of 1.1**: it
@@ -979,7 +1019,7 @@ Found by the parity harness after the first pass, so not in the narrative above:
 | - | ------ | ----- | --- |
 | 17 | ~~**Control ranges are ignored by the canvas.**~~ — **fixed in 1.7.** Original text: Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `appleSystem.js` (`controlFraction`), `Panel3D.jsx` | — |
 | 18 | **The whole `environment` section is dead.** Font, Foreground, Locale and LTR/RTL are editable on every stack and window, and read by neither side — five more controls in the same class as #13. | `StackProps.jsx:574–582` | Medium |
-| 19 | **Per-type style pickers do not reach the canvas.** `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
+| 19 | ~~**Per-type style pickers do not reach the canvas.**~~ — **fixed in 1.8**; 11 wired, 2 shown to be inert on both sides. Original text: `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
 | 20 | **Canvas-only visuals dropped on export.** `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |
 | 21 | ~~`fontSize` is a canvas-side mirror of the exported `textStyle`~~ — **fixed in 2.3**; nothing writes it any more and `textStyle` is the single source. | `store/panels.js` | — |
 

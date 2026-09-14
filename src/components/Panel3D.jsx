@@ -18,6 +18,9 @@ import {
   buttonRadiusPt,
   applyAspectRatio,
   outlineVisibleRows,
+  PICKER_STYLES_SHOWING_OPTIONS,
+  MENU_STYLES_AS_BUTTON,
+  dateComponentsParts,
   controlFraction,
   valueFromFraction,
   mixHex,
@@ -1507,12 +1510,32 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const padY = ptToUnits(style.pad)
     const inset = ptToUnits(style.inset)
     const rowH = ptToUnits(style.rowH)
-    const gap = ptToUnits(style.gap)
+    // `.listRowSpacing(n)` adds to whatever gap the style preset already
+    // carries, the way SwiftUI stacks it on top of the list's own metrics.
+    const gap = ptToUnits(style.gap) + ptToUnits(Number(panel.listRowSpacing) || 0)
     const innerW = size[0] - inset * 2
     const startY = size[1] / 2 - padY
     const primary = resolveSemantic('primary', scene)
     const secondary = resolveSemantic('secondary', scene)
-    const separator = resolveSemantic('tertiary', scene)
+    // `.listRowSeparator(.hidden)` takes the hairlines away, and
+    // `.listRowSeparatorTint(_:)` recolours them. Both reached the export
+    // only — the canvas drew whatever the style preset said and nothing
+    // else. AUDIT #19.
+    const separatorMode = panel.listRowSeparator || 'automatic'
+    const showSeparators = style.showSeparators && separatorMode !== 'hidden'
+    const separator = panel.listRowSeparatorTint
+      ? (panel.listRowSeparatorTint.startsWith('#')
+          ? panel.listRowSeparatorTint
+          : resolveSemantic(panel.listRowSeparatorTint, scene))
+      : resolveSemantic('tertiary', scene)
+    // `.listItemTint(_:)` is the accent a row's content takes — the icon and
+    // the chevron, not the label. A per-row `tint` still wins over it, the
+    // way a row-level modifier beats a list-level one.
+    const itemTint = panel.listItemTint
+      ? (panel.listItemTint.startsWith('#')
+          ? panel.listItemTint
+          : resolveSemantic(panel.listItemTint, scene))
+      : null
     const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
     const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
 
@@ -1575,7 +1598,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           // conventions in Shortcuts / News / Settings.
           const iconTint = r.tint
             ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scene))
-            : (accentColor)
+            : (itemTint || accentColor)
           const hasIcon = !!r.systemImage
           const textStartX = -innerW / 2 + (hasIcon ? ptToUnits(42) : ptToUnits(12))
           // Optional row highlight pill (`.listRowBackground(...)` in SwiftUI).
@@ -1668,13 +1691,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
                 <Text
                   position={[innerW / 2 - ptToUnits(8), 0, 0]}
                   fontSize={ptToUnits(14)}
-                  color={secondary}
+                  color={itemTint || secondary}
                   anchorX="right"
                   anchorY="middle"
                 >›</Text>
               )}
               {/* Separator line (plain/inset/insetGrouped/grouped/bordered) */}
-              {style.showSeparators && i < rows.length - 1 && (
+              {showSeparators && i < rows.length - 1 && (
                 <mesh
                   position={[
                     // Separator has a small leading inset on plain/inset so it
@@ -1843,10 +1866,15 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
+  // `.tableStyle(.inset)` insets the table inside its container and drops the
+  // grid rules for alternating row fills — Apple's "inset" look. `.automatic`
+  // keeps the ruled grid. Exported correctly, drew the same grid either way.
+  // AUDIT #19.
   const tableOverlay = panelType === 'table' && (() => {
     const cols = panel.columns || []
     const rows = panel.rows || []
-    const pad = ptToUnits(14)
+    const inset = (panel.tableStyle || 'automatic') === 'inset'
+    const pad = ptToUnits(inset ? 22 : 14)
     const innerW = size[0] - pad * 2
     const innerH = size[1] - pad * 2
     const headerH = ptToUnits(30)
@@ -1882,8 +1910,9 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           <planeGeometry args={[innerW, 0.003]} />
           <meshBasicMaterial color={sep} />
         </mesh>
-        {/* Vertical dividers */}
-        {cols.slice(1).map((_, i) => (
+        {/* Vertical dividers — the ruled grid belongs to `.automatic`; the
+            inset style separates columns by spacing alone. */}
+        {!inset && cols.slice(1).map((_, i) => (
           <mesh key={`v${i}`} position={[startX + colW * (i + 1), startY - headerH / 2 - (rows.length * rowH) / 2, 0]}>
             <planeGeometry args={[0.003, headerH + rows.length * rowH]} />
             <meshBasicMaterial color={sep} />
@@ -1892,6 +1921,14 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         {/* Data rows */}
         {rows.map((row, r) => (
           <group key={`r${r}`} position={[0, startY - headerH - rowH * (r + 0.5), 0]}>
+            {/* Alternating row fill — what the inset style uses in place of
+                the rules it drops. */}
+            {inset && r % 2 === 1 && (
+              <mesh position={[0, 0, -0.001]}>
+                <planeGeometry args={[innerW, rowH]} />
+                <meshBasicMaterial color={resolveSemantic('systemFill', scene)} transparent opacity={0.5} />
+              </mesh>
+            )}
             {row.slice(0, cols.length).map((cell, i) => (
               <Text
                 key={`cell${i}`}
@@ -1916,13 +1953,46 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Menu ----
+  // `.menuStyle` decides whether a Menu shows as an open list or as a button
+  // that reveals one, and `.menuIndicator` whether that button carries a
+  // chevron. Both exported correctly and drew the same open list either way.
+  // AUDIT #19.
   const menuOverlay = panelType === 'menu' && (() => {
     const items = panel.menuItems || []
     const pad = ptToUnits(8)
-    const rowH = (size[1] - pad * 2) / Math.max(1, items.length)
     const innerW = size[0] - pad * 2
     const primary = resolveSemantic('primary', scene)
     const sep = resolveSemantic('tertiary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const menuStyle = panel.menuStyle || 'automatic'
+    // `.button` and `.borderlessButton` collapse the menu to its label; the
+    // items only appear once it is opened, which a still canvas cannot show.
+    const asButton = MENU_STYLES_AS_BUTTON.includes(menuStyle)
+    const indicator = panel.menuIndicator || 'automatic'
+    const showIndicator = indicator !== 'hidden'
+
+    if (asButton) {
+      return (
+        <>
+          <Text
+            position={[-innerW / 2 + ptToUnits(10), 0, 0.005]}
+            font={fontUrl} fontSize={ptToUnits(15)}
+            color={menuStyle === 'borderlessButton' ? accentColor : primary}
+            anchorX="left" anchorY="middle"
+            maxWidth={innerW * 0.8}
+          >{panel.text || 'Menu'}</Text>
+          {showIndicator && (
+            <Text
+              position={[innerW / 2 - ptToUnits(4), 0, 0.005]}
+              fontSize={ptToUnits(10)} color={secondary}
+              anchorX="right" anchorY="middle"
+            >▾</Text>
+          )}
+        </>
+      )
+    }
+
+    const rowH = (size[1] - pad * 2) / Math.max(1, items.length)
     const startY = size[1] / 2 - pad
     return (
       <>
@@ -2345,9 +2415,25 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const textColor = showPlaceholder
       ? (panel.textColor || '#545454')
       : resolveSemantic('primary', scene)
+    // `TextField(..., axis: .vertical)` grows down instead of scrolling
+    // sideways, up to `lineLimit`. The canvas drew one clipped line whichever
+    // axis the designer picked, so a field authored to wrap previewed as a
+    // single-line field and grew on device. AUDIT #19.
+    const vertical = panel.axis === 'vertical'
+    const cap = Math.max(1, Number(panel.lineLimit) || 1)
     return (
       <>
-        <Text position={[-size[0] / 2 + ptToUnits(14), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={textColor} anchorX="left" anchorY="middle" maxWidth={size[0] - ptToUnits(28)}>
+        <Text
+          position={[
+            -size[0] / 2 + ptToUnits(14),
+            vertical ? size[1] / 2 - ptToUnits(12) : 0,
+            0.005
+          ]}
+          font={fontUrl} fontSize={finalFontSize} color={textColor}
+          anchorX="left" anchorY={vertical ? 'top' : 'middle'}
+          maxWidth={size[0] - ptToUnits(28)}
+          {...(vertical ? { maxLines: cap } : {})}
+        >
           {displayText}
         </Text>
       </>
@@ -2372,8 +2458,62 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
+  // A Picker only shows its options in the styles that lay them out — the
+  // menu styles keep them behind a tap, which a still canvas cannot open. So
+  // `.segmented`, `.wheel`, `.inline` and `.palette` draw `pickerOptions` and
+  // the rest draw the selected value with a chevron, which is what the canvas
+  // did for every style. AUDIT #19.
   const pickerOverlay = panelType === 'picker' && (() => {
     const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const opts = panel.pickerOptions || []
+    const style = panel.pickerStyle || 'automatic'
+    const laysOutOptions = PICKER_STYLES_SHOWING_OPTIONS.includes(style)
+
+    if (laysOutOptions && opts.length) {
+      const selected = panel.pickerValue
+      if (style === 'segmented' || style === 'palette') {
+        // A row of segments across the frame, the selected one raised.
+        const segW = size[0] / opts.length
+        return (
+          <>
+            {opts.map((o, i) => (
+              <group key={i} position={[-size[0] / 2 + segW * (i + 0.5), 0, 0.005]}>
+                {o === selected && (
+                  <mesh position={[0, 0, -0.001]}>
+                    <shapeGeometry args={[roundedRectShape(segW - ptToUnits(4), size[1] - ptToUnits(6), ptToUnits(7))]} />
+                    <meshBasicMaterial color={resolveSemantic('systemBackground', scene)} transparent opacity={0.95} />
+                  </mesh>
+                )}
+                <Text
+                  font={fontUrl} fontSize={ptToUnits(13)}
+                  color={o === selected ? primary : secondary}
+                  anchorX="center" anchorY="middle" maxWidth={segW * 0.9}
+                >{o}</Text>
+              </group>
+            ))}
+          </>
+        )
+      }
+      // `.wheel` and `.inline` stack the options vertically; the wheel dims
+      // everything but the selection, the way a spinning drum does.
+      const rowH = size[1] / Math.max(1, opts.length)
+      return (
+        <>
+          {opts.map((o, i) => (
+            <Text
+              key={i}
+              position={[0, size[1] / 2 - rowH * (i + 0.5), 0.005]}
+              font={fontUrl} fontSize={ptToUnits(14)}
+              color={o === selected ? primary : secondary}
+              fillOpacity={style === 'wheel' && o !== selected ? 0.45 : 1}
+              anchorX="center" anchorY="middle" maxWidth={size[0] * 0.9}
+            >{o}</Text>
+          ))}
+        </>
+      )
+    }
+
     return (
       <>
         <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.45}>
@@ -2389,16 +2529,94 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
-  const datepickerOverlay = panelType === 'datepicker' && (
-    <>
-      <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.4}>
-        {panel.text || 'Date'}
-      </Text>
-      <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={accentColor} anchorX="right" anchorY="middle">
-        {panel.dateValue || '2026-04-16'}
-      </Text>
-    </>
-  )
+  // `.datePickerStyle` and `displayedComponents` both reached the export
+  // only: the canvas drew the compact row with the raw ISO value whatever
+  // the designer picked, so a graphical picker previewed as a text field and
+  // a date-only picker still showed a time. AUDIT #19.
+  const datepickerOverlay = panelType === 'datepicker' && (() => {
+    const iso = panel.dateValue || '2026-04-16'
+    const comps = panel.displayedComponents || 'dateAndTime'
+    const style = panel.dateStyle || 'automatic'
+    const secondary = resolveSemantic('secondary', scene)
+    const primary = resolveSemantic('primary', scene)
+    // Show the parts `displayedComponents` asks for and no others. The stored
+    // value is a date; the time half is a fixed sample, since the canvas has
+    // no clock to read and the exported `Date()` has no literal either.
+    const datePart = (() => {
+      const d = new Date(`${iso}T00:00:00`)
+      if (Number.isNaN(d.getTime())) return iso
+      return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+    })()
+    const parts = dateComponentsParts(comps)
+    const timePart = parts.seconds ? '9:41:07 AM' : '9:41 AM'
+    const shown = [parts.date ? datePart : null, parts.time ? timePart : null]
+      .filter(Boolean).join(', ')
+
+    if (style === 'graphical') {
+      // A month grid — six columns of day cells with the selected one marked.
+      const cols = 7, rowsN = 5
+      const gw = size[0] * 0.86, gh = size[1] * 0.66
+      const cw = gw / cols, ch = gh / rowsN
+      const day = Number(iso.slice(8, 10)) || 1
+      return (
+        <>
+          <Text position={[0, size[1] / 2 - ptToUnits(14), 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(13)} color={primary} anchorX="center" anchorY="middle">
+            {datePart}
+          </Text>
+          {Array.from({ length: cols * rowsN }, (_, i) => {
+            const r = Math.floor(i / cols), c = i % cols
+            const n = i + 1
+            const on = n === day
+            return (
+              <group key={i} position={[-gw / 2 + cw * (c + 0.5), gh / 2 - ch * (r + 0.5) - ptToUnits(8), 0.005]}>
+                {on && (
+                  <mesh position={[0, 0, -0.001]}>
+                    <circleGeometry args={[Math.min(cw, ch) * 0.42, 20]} />
+                    <meshBasicMaterial color={accentColor} />
+                  </mesh>
+                )}
+                <Text fontSize={ptToUnits(9)} color={on ? '#ffffff' : secondary} anchorX="center" anchorY="middle">
+                  {n <= 31 ? String(n) : ''}
+                </Text>
+              </group>
+            )
+          })}
+        </>
+      )
+    }
+
+    if (style === 'wheel') {
+      // Three drum columns, the middle band selected.
+      const parts = shown.split(/[,\s]+/).filter(Boolean).slice(0, 3)
+      const cw = size[0] / Math.max(1, parts.length)
+      return (
+        <>
+          <mesh position={[0, 0, 0.004]}>
+            <planeGeometry args={[size[0] * 0.94, ptToUnits(28)]} />
+            <meshBasicMaterial color={resolveSemantic('systemFill', scene)} transparent opacity={0.6} />
+          </mesh>
+          {parts.map((p, i) => (
+            <Text key={i} position={[-size[0] / 2 + cw * (i + 0.5), 0, 0.005]} font={fontUrl} fontSize={ptToUnits(14)} color={primary} anchorX="center" anchorY="middle" maxWidth={cw * 0.9}>
+              {p}
+            </Text>
+          ))}
+        </>
+      )
+    }
+
+    // `.automatic` resolves to `.compact` on visionOS: label leading, the
+    // value in a tinted capsule trailing.
+    return (
+      <>
+        <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.4}>
+          {panel.text || 'Date'}
+        </Text>
+        <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={accentColor} anchorX="right" anchorY="middle" maxWidth={size[0] * 0.55}>
+          {shown}
+        </Text>
+      </>
+    )
+  })()
 
   const colorpickerOverlay = panelType === 'colorpicker' && (
     <>

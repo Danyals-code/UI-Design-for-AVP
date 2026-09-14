@@ -23,7 +23,8 @@ import { panelTypes } from '../panels/registry'
 import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
 import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
-  isPresentationPanel, inspectorColumnWidth, outlineVisibleRows } from '../appleSystem'
+  isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
+  dateComponentsParts } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1243,5 +1244,56 @@ describe('form and outlinegroup row metrics', () => {
     expect(swift).toContain('OutlineNode(title: "Kid")')
     const walked = outlineVisibleRows(rows)
     expect(walked.map((r) => [r.title, r.isParent])).toEqual([['Root', true], ['Kid', false]])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Date-picker components (AUDIT #19)
+//
+// `displayedComponents` is one decision read twice: the exporter maps it onto
+// a SwiftUI `displayedComponents:` argument, and the canvas decides which
+// parts of the value to print. The canvas used to print the raw stored ISO
+// date whatever was chosen, so a time-only picker still previewed a date.
+// These check the two halves agree, against the real emitted argument.
+// ---------------------------------------------------------------------------
+describe('the date picker shows the components it emits', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel('datepicker', { parentId: win.id, name: 'D', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('agrees about every value in the vocabulary', () => {
+    for (const comps of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const swift = emit({ displayedComponents: comps })
+      const line = swift.split('\n').find((l) => l.includes('DatePicker('))
+      expect(line, `no DatePicker emitted for ${comps}`).toBeTruthy()
+      const parts = dateComponentsParts(comps)
+      // `dateAndTime` is the SwiftUI default, so its argument is elided —
+      // which is itself the claim that both halves are shown.
+      const arg = /displayedComponents: (.+?)\)$/.exec(line)?.[1] ?? '[.date, .hourAndMinute]'
+      expect(arg.includes('.date'), `${comps}: date`).toBe(parts.date)
+      expect(
+        arg.includes('.hourAndMinute') || arg.includes('.hourMinuteAndSecond'),
+        `${comps}: time`
+      ).toBe(parts.time)
+      expect(arg.includes('.hourMinuteAndSecond'), `${comps}: seconds`).toBe(parts.seconds)
+    }
+  })
+
+  it('elides the argument at the SwiftUI default and emits it otherwise', () => {
+    expect(emit({ displayedComponents: 'dateAndTime' })).not.toContain('displayedComponents:')
+    expect(emit({ displayedComponents: 'date' })).toContain('displayedComponents: .date')
+  })
+
+  it('emits the picker style the canvas switches its layout on', () => {
+    // `.graphical` draws a month grid and `.wheel` draws drum columns, so a
+    // style the exporter can emit and the canvas cannot see would put the two
+    // back out of step.
+    for (const style of ['compact', 'graphical', 'wheel']) {
+      expect(emit({ dateStyle: style })).toContain(`.datePickerStyle(.${style})`)
+    }
+    expect(emit({ dateStyle: 'automatic' })).not.toContain('.datePickerStyle(')
   })
 })
