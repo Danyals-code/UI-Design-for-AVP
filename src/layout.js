@@ -3,7 +3,8 @@
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
 import {
-  ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight
+  ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight,
+  applyAspectRatio
 } from './appleSystem'
 import { summarizeModifiers } from './modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from './text'
@@ -71,6 +72,34 @@ export function resolvePadding(item) {
   }
   const p = ptToUnits(item.padding ?? 0)
   return { top: p, bottom: p, leading: p, trailing: p }
+}
+
+// ---- layout priority (AUDIT #15) ------------------------------------------
+//
+// SwiftUI: "a view with a higher layout priority is allocated space before
+// views with lower priority". Among the children that want to grow — Spacers
+// and fill-axis stacks — the highest priority present takes the slack and the
+// rest fall back to their intrinsic size. That is what happens on device when
+// one of two Spacers carries `.layoutPriority(1)`: it absorbs the gap and the
+// other collapses.
+//
+// `.layoutPriority` wrote nothing into the modifier summary until phase 1.1,
+// so it emitted real Swift and changed neither side's layout — a no-op on
+// BOTH. This is the one consumer, shared by `layoutStack` and
+// `resolvedChildSizes` so the space one reserves is the space the other draws.
+function layoutPriorityOf(item) {
+  const mod = summarizeModifiers(item?.modifiers)
+  return mod.layoutPriority ?? 0
+}
+
+// Who receives the slack on this axis, and how much each gets.
+function resolveFlex(children, isFlex, remaining) {
+  const flex = children.filter(isFlex)
+  if (flex.length === 0) return { share: 0, takesSlack: () => false }
+  const top = Math.max(...flex.map(layoutPriorityOf))
+  const winners = flex.filter((c) => layoutPriorityOf(c) === top)
+  const ids = new Set(winners.map((c) => c.id))
+  return { share: remaining / winners.length, takesSlack: (c) => ids.has(c.id) }
 }
 
 function padW(pad) { return pad.leading + pad.trailing }
@@ -188,7 +217,10 @@ function textIntrinsicSize(item, wrapBound = null) {
   return [Math.min(intrinsicW, wrapBound), r.height]
 }
 
-export function computeSize(item, items) {
+// Intrinsic size, before `.aspectRatio` reshapes it. Not exported: every
+// caller goes through `computeSize` so the ratio is applied exactly once and
+// in exactly one place.
+function computeIntrinsicSize(item, items) {
   if (!item) return [0, 0]
 
   // Spacer: minimal size (layout engine expands it later).
@@ -383,6 +415,18 @@ export function computeSize(item, items) {
   return [fixedW ?? w, fixedH ?? h]
 }
 
+// The size every caller should use: intrinsic, reshaped by `.aspectRatio`.
+//
+// SwiftUI applies the ratio to whatever frame the view would otherwise have,
+// so it belongs after the type-specific measurement rather than inside it.
+// Both the layout engine and the renderer run this — a box the stack reserves
+// and a box the panel paints have to be the same box, which is the agreement
+// `layout.test.js` exists to pin.
+export function computeSize(item, items) {
+  const mod = summarizeModifiers(item?.modifiers)
+  return applyAspectRatio(computeIntrinsicSize(item, items), mod.aspectRatio)
+}
+
 // Returns a Map<childId, [width, height]> of the *resolved* child sizes this
 // stack hands out — i.e. after `widthMode: 'fill'` is expanded to the parent's
 // inner width. Used by Panel3D so it can render the text at the width the
@@ -449,22 +493,27 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
   const isTextLikeItem = (c) =>
     c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
   let flexShareW = 0, flexShareH = 0
+  // A flex child that loses the priority contest keeps its intrinsic size —
+  // a Spacer collapses to nothing, which is what SwiftUI does to the loser.
+  let takesSlackW = () => true, takesSlackH = () => true
   if (isHStack) {
     const isFlex = (c) => c.isSpacer ||
       ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedW = intrinsicSizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
-    flexShareW = flexCount > 0 ? remaining / flexCount : 0
+    const flex = resolveFlex(children, isFlex, remaining)
+    flexShareW = flex.share
+    takesSlackW = flex.takesSlack
   }
   if (isVStack) {
     const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedH = intrinsicSizes.reduce((s, [, ch], i) => s + (isFlex(children[i]) ? 0 : ch), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerH - fixedH - totalGap)
-    flexShareH = flexCount > 0 ? remaining / flexCount : 0
+    const flex = resolveFlex(children, isFlex, remaining)
+    flexShareH = flex.share
+    takesSlackH = flex.takesSlack
   }
 
   for (let i = 0; i < children.length; i++) {
@@ -477,15 +526,15 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
     if (isTextLike && c.widthMode === 'fill') {
       // Cross-axis fill (a VStack column) stretches to the full inner width;
       // main-axis fill (an HStack row) takes only its share of the leftover.
-      rw = isHStack ? flexShareW : innerW
+      rw = isHStack ? (takesSlackW(c) ? flexShareW : cw) : innerW
     }
     if (isStack) {
       // Main-axis fill gets the flex share; cross-axis fill stretches fully.
       if (c.widthMode === 'fill') {
-        rw = isHStack ? flexShareW : innerW
+        rw = isHStack ? (takesSlackW(c) ? flexShareW : cw) : innerW
       }
       if (c.heightMode === 'fill') {
-        rh = isVStack ? flexShareH : innerH
+        rh = isVStack ? (takesSlackH(c) ? flexShareH : ch) : innerH
       }
     }
     // Text height honours the wrap bound once it's known. Without this,
@@ -754,15 +803,16 @@ export function layoutStack(stack, items, outerSize = null) {
     // spacer on this axis, sharing what is left rather than claiming it all.
     const isFlex = (c) => c.isSpacer ||
       ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedW = sizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
-    const flexW = flexCount > 0 ? remaining / flexCount : 0
+    // Same split `resolvedChildSizes` makes, from the same helper: the slack
+    // goes to the highest layout priority among the flexible children.
+    const { share: flexW, takesSlack } = resolveFlex(children, isFlex, remaining)
 
     const effectiveSizes = sizes.map(([cw, ch], i) => {
       const c = children[i]
-      if (!isFlex(c)) return [cw, ch]
+      if (!isFlex(c) || !takesSlack(c)) return [cw, ch]
       // A Text narrowed to its flex share may wrap to more lines, so its
       // height has to be re-measured at the width it actually gets — the same
       // bound `resolvedChildSizes` hands the renderer.
@@ -810,15 +860,14 @@ export function layoutStack(stack, items, outerSize = null) {
 
   // Spacer expansion — fill-height stack children expand like spacers.
   const isFlexV = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
-  const flexCount = children.filter(isFlexV).length
   const fixedH = sizes.reduce((s, [, ch], i) => s + (isFlexV(children[i]) ? 0 : ch), 0)
   const totalGap = gap * Math.max(0, children.length - 1)
   const available = innerH - headerH - footerH
   const remaining = Math.max(0, available - fixedH - totalGap)
-  const flexH = flexCount > 0 ? remaining / flexCount : 0
+  const { share: flexH, takesSlack: takesSlackV } = resolveFlex(children, isFlexV, remaining)
 
   const effectiveSizes = sizes.map(([cw, ch], i) =>
-    isFlexV(children[i]) ? [cw, flexH] : [cw, ch]
+    (isFlexV(children[i]) && takesSlackV(children[i])) ? [cw, flexH] : [cw, ch]
   )
   const totalH = effectiveSizes.reduce((s, [, ch]) => s + ch, 0) + totalGap
   // A vertical scroller lays its content out from the TOP of the viewport

@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
 import { summarizeModifiers } from '../modifiers/registry'
-import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
+import { roundedRectShape, unevenRoundedRectShape, rimRingShape, ellipseShape } from '../shapes'
 import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
@@ -526,12 +526,59 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
   const showScrollIndicators = stack.scrollShowsIndicators !== false &&
                                indicatorMod !== 'hidden' && indicatorMod !== 'never'
 
+  // ---- Container modifiers (AUDIT #5) -------------------------------------
+  // `.containerBackground`, `.navigationTitle` and `.toolbarBackground` all
+  // emitted correct Swift and drew nothing. The first two are read here; the
+  // toolbar one is consulted where the toolbar plate is drawn.
+  //
+  // `.navigationTitle` is the sharp one: the canvas read `stack.navTitle`
+  // instead, so the same concept had two sources and they disagreed the
+  // moment the designer used the modifier stack. The modifier is the SwiftUI
+  // spelling, so it wins.
+  const navTitle = modSummary.navigationTitle || stack.navTitle
+  const containerBg = modSummary.containerBg || null
+  // `.background(...)` and `.overlay(...)` on a container, painted behind and
+  // in front of its children — the same pair Panel3D draws for a view.
+  const stackModBg = (() => {
+    const bg = modSummary.background
+    if (typeof bg !== 'string' || !bg) return null
+    if (bg.startsWith('#')) return { color: bg, opacity: 1 }
+    const mat = resolveAnyMaterial(bg, scene)
+    return { color: mat?.color || resolveSemantic(bg, scene), opacity: mat?.opacity ?? 1 }
+  })()
+  const stackModOverlay = modSummary.overlay?.color ? modSummary.overlay : null
+  const stackClip = modSummary.clipShape && modSummary.clipShape !== 'none'
+    ? modSummary.clipShape : null
+  const stackOpacity = modSummary.opacity ?? 1
+  // `.toolbarBackground(.hidden, ...)` takes the toolbar's plate away; every
+  // other visibility leaves it. Only meaningful on the toolbar stack types.
+  const toolbarBgHidden = modSummary.toolbarBackground?.visibility === 'hidden'
+  const isToolbarStack = stack.stackType === 'toolbar' ||
+                         stack.stackType === 'toolbarItem' ||
+                         stack.stackType === 'toolbarItemGroup' ||
+                         stack.ornament != null
+
   const hasBackground = stack.ornament != null || stack.background != null
   // Allow a stack to override its background corner radius (e.g. the
   // separated NavigationSplitView sidebar uses a 30pt dialogue radius).
   const bgRadius = stack.ornament
     ? Math.min(w, h) / 2
     : (stack.cornerRadius != null ? stack.cornerRadius : ptToUnits(12))
+
+  // The outline the container's modifier layers paint into: `.clipShape`
+  // when the designer set one, otherwise the stack's own background shape.
+  // Shared by `.containerBackground`, `.background` and `.overlay` so all
+  // three agree about the edge.
+  const stackPaintShape = useMemo(() => {
+    if (stackClip === 'circle') {
+      const r = Math.min(w, h) / 2
+      return ellipseShape(r * 2, r * 2)
+    }
+    if (stackClip === 'capsule') return roundedRectShape(w, h, Math.min(w, h) / 2)
+    return roundedRectShape(w, h, stackClip === 'roundedRect'
+      ? (stack.cornerRadius ?? ptToUnits(12))
+      : bgRadius)
+  }, [stackClip, w, h, bgRadius, stack.cornerRadius])
 
   // Same hair-thin selection ring metric as windows — keeps the
   // indicator readable on small stacks without the previous fat halo.
@@ -674,7 +721,35 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         </mesh>
       )}
 
-      {hasBackground && (
+      {/* Modifier: .containerBackground — a container-only backdrop that
+          sits behind everything the stack draws, including its own plate.
+          `.window` placement covers the whole box; the narrower placements
+          all reduce to the same rectangle on a flat canvas. */}
+      {containerBg && (
+        <mesh position={[0, 0, -0.006]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={containerBg.color}
+            transparent
+            opacity={0.9 * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Modifier: .background on the container itself. */}
+      {stackModBg && (
+        <mesh position={[0, 0, -0.004]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={stackModBg.color}
+            transparent
+            opacity={stackModBg.opacity * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+
+      {hasBackground && !(isToolbarStack && toolbarBgHidden) && (
         <LiquidGlass
           size={[w, h]}
           cornerRadius={bgRadius}
@@ -801,7 +876,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       )}
 
       {/* NavStack title */}
-      {stack.stackType === 'navigationStack' && stack.navTitle && (
+      {stack.stackType === 'navigationStack' && navTitle && (
         <Text
           position={[0, h / 2 - ptToUnits(24), 0.003]}
           font={getInterFont('bold')}
@@ -811,7 +886,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           anchorY="middle"
           maxWidth={w * 0.85}
         >
-          {stack.navTitle}
+          {navTitle}
         </Text>
       )}
 
@@ -840,6 +915,20 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       })}
       </group>
       </group>
+
+      {/* Modifier: .overlay on the container — in front of every child, the
+          mirror of `.background` behind them. */}
+      {stackModOverlay && (
+        <mesh position={[0, 0, 0.05]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={stackModOverlay.color}
+            transparent
+            opacity={(stackModOverlay.opacity ?? 0.2) * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
     </group>
   )
 }

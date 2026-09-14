@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4 and 1.7 have landed since; each is
-marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7 and 1.1 have landed since;
+each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -29,12 +29,12 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
-now 79**.
+now 65**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 57 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 43 |
 | Neither side reads a field the inspector writes | 7 fields | 6 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
@@ -48,11 +48,13 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) has started** — phases
-1.4 and 1.7 have landed, so scrollable stacks scroll and every control honours
-its declared range — and it is where the remaining 79 sit, dominated by defect
-#5 (17 modifiers that emit correct Swift and draw nothing) and #7 (8
-presentation fields with no canvas equivalent).
+compile-clean enum surface. **Stage 1 (code → visual) is most of the way
+through its filed work** — 1.4, 1.7 and 1.1 have landed, so scrollable stacks
+scroll, every control honours its declared range, and the modifier stack draws
+what it emits. Of the remaining 65, **47 carry no defect number at all**: #19
+(13) and #20 (10) plus the ornament / volume / presentation-metric tail. The
+filed remainder is #7 (8 presentation fields), #5 (4, all blocked on font
+assets — see 1.1), #13 (3), #6 (2) and #14 (1).
 
 **A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
 originally written retire exactly the 35 divergences that carry a defect
@@ -76,10 +78,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | Subsystem | Size | Status | Notes |
 | --------- | ---- | ------ | ----- |
 | **Store** (`src/store/`) | 2,400 ln | ✅ Solid | 8 slices over one flat `items` array. Undo/redo, clipboard, persistence all covered by tests (51 assertions). |
-| **Layout engine** (`layout.js`) | 807 ln → 850 | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template. 34 tests since 1.4 added scroll anchoring. |
+| **Layout engine** (`layout.js`) | 807 ln → 900 | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template. 44 tests, covering scroll anchoring (1.4) and the two geometry modifiers (1.1). |
 | **Text pipeline** (`text.js`, `textMeasure.js`) | 410 ln | ✅ Solid | Full tighten → scale → wrap → truncate, on real Inter advance widths. 41 tests. Best-tested part of the app. |
 | **Panel registry** (`panels/registry.js`) | 1,840 ln | ✅ Solid | 56 view types, every one with `defaults` + `emit()`. No gaps. |
-| **Modifier registry** (`modifiers/registry.js`) | 887 ln | 🟡 Half-wired | 43 modifiers, all 43 emit Swift, **25 reach the canvas** (23 before 1.4). See §4.1. |
+| **Modifier registry** (`modifiers/registry.js`) | 887 ln | ✅ Wired *(was: half-wired)* | 43 modifiers, all 43 emit Swift, **39 reach the canvas** (23 before 1.4). The 4 that don't are `contentShape` and `customModifier`, which correctly draw nothing, plus `fontDesign` and `monospacedDigit`, blocked on font assets. See §4.1. |
 | **SwiftUI exporter** (`export/swiftui.js`) | 1,081 ln → 1,400 | ✅ Solid *(was: good, lossy)* | Idiomatic output — real `ZStack` / `.toolbar` / `.ornament` / `.sheet`. Since Stage 2 it also carries frames, per-edge padding, ScrollViews and free placement. See §5. |
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
@@ -93,8 +95,8 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 483 passing, 10 files (365 at the audit; +89 from the harness and
-  the Stage 2 phases, +9 from phase 1.4, +20 from phase 1.7).
+- **Tests:** 500 passing, 10 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, +9 from 1.4, +20 from 1.7, +17 from 1.1).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -128,38 +130,48 @@ exhaustive rather than sampled. Each was then confirmed by running the code.
 
 *Can everything the system can express be drawn?*
 
-### 4.1 Twenty modifiers export Swift but change nothing on the canvas
+### 4.1 Twenty modifiers export Swift but change nothing on the canvas ✅ **mostly fixed in 1.1**
 
-`summarizeModifiers()` reduces the ordered modifier stack to a flat struct the
-renderer reads. All 43 modifiers write into that struct; the renderer only ever
-reads **23** of the fields. The other 20 are silently inert:
+*Original finding.* `summarizeModifiers()` reduces the ordered modifier stack
+to a flat struct the renderer reads. All 43 modifiers write into that struct;
+the renderer only ever reads **23** of the fields. The other 20 are silently
+inert:
 
 | Modifier | Should it be visible? | Why it matters |
 | -------- | --------------------- | -------------- |
-| `background` | **Yes** | A user adds `.background(.blue)` and the canvas stays unchanged. Most-reached-for modifier in the list. |
-| `overlay` | **Yes** | Same. |
-| `foregroundStyle` | **Yes** | Canvas colours text from `panel.textColor` instead; the modifier is ignored, so the two disagree the moment the user uses the stack. |
-| `clipShape` | **Yes** | Corner/circle clipping is invisible until export. |
-| `glassBackgroundEffect` | **Yes** | The app's signature material — inert as a modifier. |
-| `containerBackground` | **Yes** | |
-| `tint` | **Yes** | Control accent colour. |
-| `aspectRatio` | **Yes** | Changes the frame; the canvas keeps the old one. |
-| `zIndex` | **Yes** | Draw order — currently tree order only. |
-| `fontDesign` | **Yes** | `.rounded` / `.serif` / `.monospaced` never swap the rendered face. |
-| `monospacedDigit` | Minor | Tabular figures. |
-| `navigationTitle` | **Yes** | Canvas reads `stack.navTitle` instead — two sources for one thing. |
-| `toolbarBackground` | **Yes** | |
+| ~~`background`~~ | **Wired in 1.1** | A user adds `.background(.blue)` and the canvas stays unchanged. Most-reached-for modifier in the list. |
+| ~~`overlay`~~ | **Wired in 1.1** | Same. |
+| ~~`foregroundStyle`~~ | **Wired in 1.1** | Canvas colours text from `panel.textColor` instead; the modifier is ignored, so the two disagree the moment the user uses the stack. |
+| ~~`clipShape`~~ | **Wired in 1.1** | Corner/circle clipping is invisible until export. |
+| ~~`glassBackgroundEffect`~~ | **Wired in 1.1** | The app's signature material — inert as a modifier. |
+| ~~`containerBackground`~~ | **Wired in 1.1** | |
+| ~~`tint`~~ | **Wired in 1.1** | Control accent colour. |
+| ~~`aspectRatio`~~ | **Wired in 1.1** | Changes the frame; the canvas keeps the old one. |
+| ~~`zIndex`~~ | **Wired in 1.1** | Draw order — currently tree order only. |
+| `fontDesign` | **Yes**, but blocked | `.rounded` / `.serif` / `.monospaced` never swap the rendered face - and cannot until the app ships those faces. |
+| `monospacedDigit` | Minor, blocked | Tabular figures, same blocker. |
+| ~~`navigationTitle`~~ | **Wired in 1.1** | Canvas reads `stack.navTitle` instead — two sources for one thing. |
+| ~~`toolbarBackground`~~ | **Wired in 1.1** | |
 | ~~`scrollIndicators`~~ | **Wired in 1.4** | Was meaningless until stack scrolling worked; now hides the scroll thumb. |
 | ~~`scrollDisabled`~~ | **Wired in 1.4** | Now refuses the wheel, as it does on device. |
-| `layoutPriority` | **Yes** (layout) | Writes nothing to the summary at all — affects neither side's layout. |
-| `hoverEffect` | Partial | Canvas has its own hover path off `panel.hoverEffect`; the modifier is a second, ignored source. |
-| `hoverEffectDisabled` | Partial | Same. |
+| ~~`layoutPriority`~~ | **Wired in 1.1** | Writes nothing to the summary at all — affects neither side's layout. |
+| ~~`hoverEffect`~~ | **Wired in 1.1** | Canvas has its own hover path off `panel.hoverEffect`; the modifier is a second, ignored source. |
+| ~~`hoverEffectDisabled`~~ | **Wired in 1.1** | Same. |
 | `contentShape` | No | Hit-testing only — correctly invisible. |
 | `customModifier` | No | Raw Swift, uninterpretable by design. |
 
-So **17 of 20 are real gaps** (15 of them still open after 1.4 wired the two
-scroll modifiers); `contentShape` and `customModifier` are correct
-as-is, and `layoutPriority` is a distinct bug (it is a no-op on both sides).
+So **17 of 20 were real gaps**; `contentShape` and `customModifier` are correct
+as-is, and `layoutPriority` was a distinct bug (a no-op on both sides).
+
+**Where it stands.** 1.4 wired the two scroll modifiers and 1.1 wired thirteen
+more plus `layoutPriority`. **Two remain, and the blocker is assets rather
+than wiring:** `fontDesign` and `monospacedDigit` need a rounded, serif or
+monospaced face, and the app bundles Inter alone — troika needs a real font
+file to shape 3D text. Nudging the weight or faking advance widths would put a
+guess on the canvas, and drawing a *different* wrong thing from the device is
+worse than drawing nothing, so they stay declared. Closing them means shipping
+the faces (an `@fontsource` mono + serif) and mapping `.rounded` / `.serif` /
+`.monospaced` onto them; tabular figures then follow.
 
 > `src/modifiers/registry.js:867` — `summarizeModifiers`
 > `src/components/Panel3D.jsx:467` — the only consumer
@@ -418,13 +430,58 @@ it. The other three checks run the real code and are exact.
 
 ### Stage 1 — Code → Visual *(~4–6 days)*
 
-**1.1 — Wire the 17 inert modifiers into the renderer** *(2 days)*
-Order of value: `background`, `overlay`, `foregroundStyle`, `clipShape`,
-`tint`, `glassBackgroundEffect`, `containerBackground`, then `aspectRatio`,
-`zIndex`, `fontDesign`, and the chrome ones. Fix `layoutPriority` to write into
-the summary and be honoured by `layout.js`.
-*Acceptance:* parity test 2 passes with only `contentShape` and
-`customModifier` exempt.
+**1.1 — Wire the inert modifiers into the renderer** ✅ **done**
+
+Fourteen of them now draw: `background`, `overlay`, `foregroundStyle`,
+`clipShape`, `glassBackgroundEffect`, `containerBackground`, `tint`,
+`aspectRatio`, `zIndex`, `navigationTitle`, `toolbarBackground`,
+`hoverEffect`, `hoverEffectDisabled` and `layoutPriority`. Parity debt
+79 → 65, closing defect #15 outright and all of #5 except the two below.
+
+Three of them wrote **nothing at all** into the summary — `navigationTitle`,
+`toolbarBackground` and `layoutPriority` had an empty `summarize()`, so there
+was no value for any renderer to read even in principle. The rest were the
+easier shape: the accumulator already carried them and nobody looked.
+
+Four are worth knowing about:
+
+- **`layoutPriority` was a no-op on BOTH sides (#15).** It now decides who
+  receives a stack's slack: among the children that want to grow, the highest
+  priority present takes it and the rest fall back to intrinsic — which is
+  what happens on device when one of two Spacers carries
+  `.layoutPriority(1)`. One helper, called from `layoutStack` and
+  `resolvedChildSizes` alike, so the space one reserves is the space the
+  other draws into.
+- **`aspectRatio` reshapes a frame, so it belongs to the layout engine.**
+  `computeSize` is now a thin wrapper that applies it once, after the
+  type-specific measurement, and the renderer runs the same helper on the
+  free-placed path. Putting it in only one of them would have been a new
+  instance of exactly the divergence this audit is about.
+- **`navigationTitle` was the "two sources for one thing" case.** The canvas
+  read `stack.navTitle`; the modifier is the SwiftUI spelling, so it wins and
+  the stored field remains the fallback.
+- **`tint` needed nine call sites, not one.** Every control that fills with an
+  accent read `scene.tintColor` unconditionally. They route through one
+  `accentColor` now — while the selection halos and gizmo wireframes keep
+  reading the scene tint, because those are editor chrome and a designer's
+  `.tint(.red)` should not repaint them.
+
+**Two are deliberately left.** `fontDesign` and `monospacedDigit` are blocked
+on assets, not wiring — see §4.1.
+
+*Acceptance:* 17 new tests — `applyAspectRatio` in isolation, the ratio
+reaching `computeSize`, and the priority allocation measured by where a row
+lands between two Spacers. Verified by perturbation: making either modifier a
+no-op again fails 9. The renderer half is covered by the harness, which runs
+the real `summarize` functions and checks a renderer reads what they write.
+Confirmed in the running app: `.background` paints a plate behind a Text that
+was previously unchanged, and `.foregroundStyle` recolours it over the top.
+
+*One bug the tests could not have caught.* Hoisting the tint resolution next
+to the modifier summary put it above the component's `scene` binding, and the
+canvas went blank on a temporal-dead-zone error. The suite has no React
+renderer, so nothing failed — only running the app did. Worth remembering
+before the next renderer-side phase.
 
 **1.2 — Give `form` and `outlinegroup` real row rendering** *(1 day)*
 Both already carry `rows` and a `rowHeight`; `list` and `table` have working
@@ -744,7 +801,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
-Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers
+Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
 Week 3   1.2 form/outlinegroup · 1.3 presentations · 1.5 · 1.6
 Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
@@ -770,7 +827,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 2 | ~~Explicit sizing never exported~~ — **fixed in 2.1**, 171 items now framed | `export/swiftui.js` | — |
 | 3 | ~~`stack.scrollable` exports a comment, not a `ScrollView`~~ — **fixed in 2.2** | `export/swiftui.js` | — |
 | 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
-| 5 | 17 modifiers emit Swift but draw nothing | `modifiers/registry.js:867` | **High** |
+| 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4. The last 2 (`fontDesign`, `monospacedDigit`) are blocked on font assets, not wiring — see §4.1. | `modifiers/registry.js`, `Panel3D.jsx`, `SceneTree.jsx` | Low |
 | 6 | `form` / `outlinegroup` rows invisible on canvas | `Panel3D.jsx` (no branch) | **High** |
 | 7 | `confirmationdialog` / `inspector` inline on canvas, modal in code | `SceneTree.jsx:784` | **High** |
 | 8 | ~~Window `.frame` / `.padding` order inverts the inset~~ — **fixed in 2.1** | `export/swiftui.js` | — |
@@ -780,7 +837,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 12 | `rotateGesture` dead in preview | `behaviors/runtime.js:901` | Medium |
 | 13 | `spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides | `WindowProps.jsx:139` | Low |
 | 14 | `blur` / `blurAmount` / `ornamentOffset` canvas-only or unread | `store/factories.js` | Low |
-| 15 | `layoutPriority` is a no-op on both sides | `modifiers/registry.js` | Low |
+| 15 | ~~`layoutPriority` is a no-op on both sides~~ — **fixed in 1.1.** It wrote nothing into the summary, so it emitted real Swift and moved neither the canvas nor the layout engine. It now allocates a stack's slack to the highest priority among the children that want to grow, which is what SwiftUI does. | `modifiers/registry.js`, `layout.js` | — |
 | 16 | ~~README counts stale (55→56, 42→43)~~ — **fixed** alongside the harness | `README.md` | — |
 
 Found by the parity harness after the first pass, so not in the narrative above:

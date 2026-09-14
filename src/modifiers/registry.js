@@ -591,7 +591,11 @@ export const MODIFIERS = {
     group: 'Layout',
     defaults: { ratio: null, contentMode: 'fit' },
     appliesTo: has2DBox,
-    summarize(args, acc) { if (args.ratio) acc.aspectRatio = args.ratio },
+    // Carries the content mode as well: `.fit` shrinks the frame inside the
+    // proposal, `.fill` grows it to cover, and the canvas has to know which.
+    summarize(args, acc) {
+      if (args.ratio) acc.aspectRatio = { ratio: args.ratio, contentMode: args.contentMode || 'fit' }
+    },
     emit(args) {
       const r = args.ratio ? `${args.ratio}, ` : ''
       return `.aspectRatio(${r}contentMode: .${args.contentMode || 'fit'})`
@@ -638,7 +642,14 @@ export const MODIFIERS = {
     group: 'Layout',
     defaults: { value: 1 },
     appliesTo: has2DBox,
-    summarize() {},
+    // Read by `layout.js` when a stack shares out its slack. This wrote
+    // nothing at all until phase 1.1, which made it a no-op on BOTH sides —
+    // it emitted real Swift and changed neither the canvas nor the layout
+    // engine. AUDIT #15.
+    summarize(args, acc) {
+      const v = Number(args.value)
+      if (Number.isFinite(v)) acc.layoutPriority = v
+    },
     emit(args) {
       if (!args.value) return null
       return `.layoutPriority(${args.value})`
@@ -706,7 +717,11 @@ export const MODIFIERS = {
     group: 'Navigation',
     defaults: { title: '' },
     appliesTo: has2DBox,
-    summarize() {},
+    // Read by Stack3D, which prefers this over `stack.navTitle`. Two sources
+    // for one concept is the shape 2.3 spent a phase removing elsewhere; here
+    // the modifier is the SwiftUI spelling, so it wins when present and the
+    // stored field remains the default.
+    summarize(args, acc) { acc.navigationTitle = args.title || null },
     emit(args) {
       if (!args.title) return null
       return `.navigationTitle("${args.title.replace(/"/g, '\\"')}")`
@@ -720,7 +735,11 @@ export const MODIFIERS = {
     group: 'Navigation',
     defaults: { visibility: 'automatic', placement: 'automatic' },
     appliesTo: has2DBox,
-    summarize() {},
+    // Read by Stack3D to hide the toolbar's own plate when the designer
+    // sets `.hidden`.
+    summarize(args, acc) {
+      acc.toolbarBackground = { visibility: args.visibility, placement: args.placement }
+    },
     emit(args) {
       const vis = args.visibility || 'automatic'
       if (vis === 'automatic') return null

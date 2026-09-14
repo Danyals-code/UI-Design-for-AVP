@@ -467,6 +467,18 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   `allowsTightening`, `multilineTextAlignment`, `fontDesign`,
   `monospacedDigit`, …) for textual views and the `frame` /
   `fixedSize` entries the width picker manages.
+  **The stack draws what it exports.** `.background`, `.overlay`,
+  `.foregroundStyle`, `.clipShape`, `.glassBackgroundEffect`,
+  `.containerBackground`, `.tint`, `.aspectRatio`, `.zIndex`,
+  `.navigationTitle`, `.toolbarBackground`, `.hoverEffect`,
+  `.hoverEffectDisabled` and `.layoutPriority` all change the canvas,
+  not just the generated Swift. Where a modifier and a stored field
+  describe the same thing — `.foregroundStyle` vs the Color well,
+  `.navigationTitle` vs the NavStack's Title, `.hoverEffect` vs the
+  Hover section, `.tint` vs the scene tint — the modifier wins, because
+  it is the SwiftUI spelling. Two exceptions draw nothing and say so:
+  `.fontDesign` and `.monospacedDigit` need a rounded / serif /
+  monospaced face, and the app bundles Inter alone.
 - **Styles:** control-size + per-control style picker (toggleStyle,
   pickerStyle, …). Hidden for buttons and toggles whose own inspector
   already includes Size + Style.

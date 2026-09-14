@@ -182,8 +182,10 @@ export const PANEL = {
   inspectorMaxWidth: debt('export-only: inspector has no canvas presentation', 7),
 
   // -- typography and 3D ----------------------------------------------------
-  fontDesign: debt('export-only: canvas never swaps the rendered face', 5),
-  monospacedDigit: debt('export-only: canvas does not use tabular figures', 5),
+  // Same blocker as their modifier twins in MODIFIER_VISIBILITY — see the
+  // note there. Closing these means shipping a rounded / serif / mono face.
+  fontDesign: debt('export-only: only Inter is bundled, so there is no face to swap to', 5),
+  monospacedDigit: debt('export-only: tabular figures need a face the app does not ship', 5),
   boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges'),
   depth: debt('export-only: canvas ignores .frame(depth:)'),
   iconName: debt('export-only: contentUnavailable icon is not drawn'),
@@ -213,26 +215,28 @@ export const MODIFIER_VISIBILITY = {
   contentShape: ex('hit-testing only — correctly invisible'),
   customModifier: ex('raw Swift, uninterpretable by design'),
 
-  background: debt('the most reached-for modifier in the list draws nothing', 5),
-  overlay: debt('draws nothing', 5),
-  foregroundStyle: debt('canvas colours text from panel.textColor and ignores the modifier', 5),
-  clipShape: debt('clipping is invisible until export', 5),
-  glassBackgroundEffect: debt('the signature material is inert as a modifier', 5),
-  containerBackground: debt('draws nothing', 5),
-  tint: debt('control accent colour is ignored', 5),
-  aspectRatio: debt('changes the frame in Swift, not on the canvas', 5),
-  zIndex: debt('draw order follows tree order only', 5),
-  fontDesign: debt('never swaps the rendered face', 5),
-  monospacedDigit: debt('no tabular figures', 5),
-  navigationTitle: debt('canvas reads stack.navTitle instead — two sources for one thing', 5),
-  toolbarBackground: debt('draws nothing', 5),
+  // Phase 1.1 emptied most of this table. `background`, `overlay`,
+  // `foregroundStyle`, `clipShape`, `glassBackgroundEffect`,
+  // `containerBackground`, `tint`, `aspectRatio`, `zIndex`,
+  // `toolbarBackground`, `navigationTitle`, `hoverEffect`,
+  // `hoverEffectDisabled` and `layoutPriority` all draw now.
+  //
+  // The two below are the exception, and the blocker is assets rather than
+  // wiring: the app bundles Inter alone (upright + italic per weight, see
+  // `fonts.js`), troika needs a real font file to shape 3D text, and there is
+  // no rounded, serif or monospaced face to point it at. Anything the canvas
+  // did here — nudging weight, faking advances — would be a guess dressed as
+  // a preview, and the canvas drawing a *different* wrong thing from the
+  // device is worse than drawing nothing. Closing these means shipping the
+  // faces (e.g. an `@fontsource` mono + serif) and mapping `.rounded` /
+  // `.serif` / `.monospaced` onto them; `monospacedDigit` then follows as
+  // tabular figures. Deliberate, and signposted rather than faked.
+  fontDesign: debt('blocked on font assets: only Inter is bundled, so there is no face to swap to', 5),
+  monospacedDigit: debt('blocked on font assets: tabular figures need a face the app does not ship', 5),
   // `scrollIndicators` and `scrollDisabled` left this table in phase 1.4.
   // Both had an empty `summarize()` and so wrote nothing for any renderer to
   // read; both now write, and Stack3D reads them to hide the scroll thumb
   // and to refuse the wheel respectively.
-  hoverEffect: debt('canvas has its own hover path off panel.hoverEffect', 5),
-  hoverEffectDisabled: debt('canvas has its own hover path off panel.hoverEffect', 5),
-  layoutPriority: debt('writes nothing to the summary at all — a no-op on BOTH sides', 15)
 }
 
 // ---------------------------------------------------------------------------
@@ -272,4 +276,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 79
+export const DEBT_CEILING = 65

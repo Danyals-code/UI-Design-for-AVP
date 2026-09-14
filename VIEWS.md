@@ -105,6 +105,33 @@ Modifier order is part of the contract too. The canvas composes a container as
 `.padding()` before `.frame()` before `.background()`. Reversing the first two
 turns a 640pt box with inset content into a 688pt box.
 
+3. **A modifier beats a stored field for the same concept.** Where both exist
+   — `.foregroundStyle` vs `textColor`, `.navigationTitle` vs `navTitle`,
+   `.hoverEffect` vs `panel.hoverEffect`, `.tint` vs the scene tint — the
+   modifier wins on the canvas, because it is the spelling the exporter
+   emits. This is rule 1 in the cases where collapsing to one field was not
+   an option: the modifier stack and the inspector well are both legitimate
+   ways to say it, so the canvas resolves the precedence rather than letting
+   the two disagree.
+
+   Every modifier that reaches the canvas does so through
+   `summarizeModifiers()`, which reduces the ordered stack to a flat
+   last-write-wins struct. A modifier whose `summarize()` writes nothing is
+   invisible by construction — that was how `navigationTitle`,
+   `toolbarBackground` and `layoutPriority` stayed inert while emitting
+   correct Swift. `parity.test.js` runs every `summarize()` against a
+   recording proxy and fails when nothing a renderer reads comes out.
+
+   Two modifiers are declared invisible on purpose: `.fontDesign` and
+   `.monospacedDigit` need a rounded / serif / monospaced face and the app
+   bundles Inter alone, so there is nothing honest to draw.
+
+Two modifiers change geometry rather than paint, so they live in the layout
+engine and not the renderer: `.aspectRatio` reshapes a frame (applied once, in
+`computeSize`) and `.layoutPriority` decides which flexible child receives a
+stack's slack (applied by `layoutStack` and `resolvedChildSizes` from one
+shared helper, so the two cannot disagree).
+
 `AUDIT.md` tracks what still diverges, and `npm test` prints the open count.
 
 ---

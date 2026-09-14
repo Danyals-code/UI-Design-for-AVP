@@ -16,6 +16,7 @@ import {
   computeButtonFramePt,
   buttonSizePreset,
   buttonRadiusPt,
+  applyAspectRatio,
   controlFraction,
   valueFromFraction,
   mixHex,
@@ -240,6 +241,7 @@ function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
 // the user can see the panel's bounds when editing.
 function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
   const scene = useStore((s) => s.scene)
+
   const items = useStore((s) => s.items)
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
@@ -475,7 +477,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   //   2. For text/link with widthMode 'fit' and no explicit size — intrinsic.
   //   3. panel.size — explicit user-set frame.
   //   4. auto-estimate from text content (legacy fallback).
-  const size = (() => {
+  const rawSize = (() => {
     // Button: height locked to the Size preset, width grows with the label
     // so a longer string still fits on one line with 12pt side padding.
     // Runs BEFORE the resolvedSize check so the parent stack's auto-layout
@@ -550,6 +552,11 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       fontSize * 1.5
     ]
   })()
+  // `.aspectRatio` reshapes whatever frame the branches above produced. A
+  // panel inside a stack already had it applied by `computeSize`, so this
+  // matters for the free-placed case — and running the same helper on both
+  // paths means a ratio can never mean one box here and another there.
+  const size = applyAspectRatio(rawSize, modSummary.aspectRatio)
   // Input fields (text / secure / search) render a pill (capsule) by
   // default — the radius tracks the field height so it stays a true pill
   // at any size. The Edge toggle sets `fieldShape: 'rounded'` to fall back
@@ -574,6 +581,17 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const strokeWidth = strokeColor ? Math.max(0, ptToUnits(panel.strokeWidth || 0)) : 0
   const hasStroke   = !!strokeColor && strokeWidth > 0
   const scene = useStore((s) => s.scene)
+  // `.tint` is the control accent — the colour sliders, toggles, progress
+  // bars and gauges fill with. Every one of them read `scene.tintColor`
+  // unconditionally before, so the modifier emitted correct Swift and the
+  // canvas ignored it. Resolved here because the fill / text resolution
+  // below needs it too. AUDIT #5.
+  const accentColor = modSummary.tint || scene.tintColor || '#007aff'
+  // `.foregroundStyle` is SwiftUI's own spelling for the content colour, so
+  // it wins over the stored `textColor` the inspector's colour well writes.
+  // The canvas read only the latter, which meant the two disagreed the moment
+  // the designer reached for the modifier stack.
+  const modForeground = modSummary.foregroundStyle || null
   const selectedId = useStore((s) => s.selectedId)
   const editingId = useStore((s) => s.editingId)
   const select = useStore((s) => s.select)
@@ -874,17 +892,20 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       if (!hasExplicitFill) {
         resolvedFillOpacity = 0.0
         if (panel.textColorToken == null && panel.textColor == null) {
-          resolvedTextColor = scene.tintColor || textColor
+          resolvedTextColor = accentColor
         }
       }
     } else if (buttonStyle === 'borderedProminent') {
-      resolvedFill = scene.tintColor || '#007aff'
+      resolvedFill = accentColor
       resolvedTextColor = '#ffffff'
     } else if (buttonStyle === 'destructive') {
       resolvedFill = resolveSemantic('systemRed', scene)
       resolvedTextColor = '#ffffff'
     }
   }
+  // `.foregroundStyle` is the last word on content colour, as it is in
+  // SwiftUI — it overrides the per-type defaults resolved above.
+  if (modForeground) resolvedTextColor = modForeground
 
   // Segmented control — the base pill is the raised *rim* that catches
   // light; the overlay paints a darker inset well inside it (the recess)
@@ -1204,7 +1225,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         {btns.map((label, i) => {
           const x = -size[0] / 2 + ptToUnits(16) + btnW * (i + 0.5)
           return (
-            <Text key={i} position={[x, btnY, 0.005]} font={fontUrl} fontSize={ptToUnits(15)} color={i === btns.length - 1 ? (scene.tintColor || '#007aff') : primary} anchorX="center" anchorY="middle" fontWeight={i === btns.length - 1 ? 'bold' : 'regular'}>
+            <Text key={i} position={[x, btnY, 0.005]} font={fontUrl} fontSize={ptToUnits(15)} color={i === btns.length - 1 ? (accentColor) : primary} anchorX="center" anchorY="middle" fontWeight={i === btns.length - 1 ? 'bold' : 'regular'}>
               {label}
             </Text>
           )
@@ -1525,7 +1546,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           // conventions in Shortcuts / News / Settings.
           const iconTint = r.tint
             ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scene))
-            : (scene.tintColor || '#007aff')
+            : (accentColor)
           const hasIcon = !!r.systemImage
           const textStartX = -innerW / 2 + (hasIcon ? ptToUnits(42) : ptToUnits(12))
           // Optional row highlight pill (`.listRowBackground(...)` in SwiftUI).
@@ -1758,7 +1779,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // `.circular` is a ring rather than a bar.
   const progressOverlay = panelType === 'progress' && (() => {
     const value = controlFraction(panel.value ?? 0.5, 0, panel.total ?? 1)
-    const tint = scene.tintColor || '#007aff'
+    const tint = accentColor
     const circular = panel.progressViewStyle === 'circular'
 
     if (panel.indeterminate) {
@@ -1862,7 +1883,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         </mesh>
         <mesh position={[trackX0 + fillW / 2, 0, 0.004]}>
           <planeGeometry args={[fillW, trackH]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+          <meshBasicMaterial color={accentColor} />
         </mesh>
         <mesh position={[trackX0 + fillW, 0, 0.006]}>
           <circleGeometry args={[thumbR, 32]} />
@@ -1965,7 +1986,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     // eye lands on.
     const tint = (panel.gaugeTintFrom && panel.gaugeTintTo)
       ? mixHex(panel.gaugeTintFrom, panel.gaugeTintTo, value)
-      : (scene.tintColor || '#007aff')
+      : (accentColor)
     const minLabel = panel.gaugeMinLabel || ''
     const maxLabel = panel.gaugeMaxLabel || ''
     const labelPt = ptToUnits(11)
@@ -2057,7 +2078,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           <mesh key={i} position={[x, 0, 0.001]}>
             <circleGeometry args={[dotSize / 2, 16]} />
             <meshBasicMaterial
-              color={active ? (scene.tintColor || '#007aff') : resolveSemantic('tertiary', scene)}
+              color={active ? (accentColor) : resolveSemantic('tertiary', scene)}
             />
           </mesh>
         )
@@ -2197,7 +2218,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.4}>
         {panel.text || 'Date'}
       </Text>
-      <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={scene.tintColor || '#007aff'} anchorX="right" anchorY="middle">
+      <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={accentColor} anchorX="right" anchorY="middle">
         {panel.dateValue || '2026-04-16'}
       </Text>
     </>
@@ -2347,6 +2368,58 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const hasShadow = !!shadowSummary
   const hasBorder = !!borderSummary
 
+  // ---- Decoration modifiers (AUDIT #5) ------------------------------------
+  // These all emitted correct Swift and drew nothing: the summary carried the
+  // values and no renderer read them, so `.background(.blue)` left the canvas
+  // untouched until export. They are read here, in the order SwiftUI composes
+  // them — background behind, then the view, then overlay in front.
+  //
+  // `.clipShape` decides the outline every one of them is painted into, which
+  // is why it is resolved first.
+  const modClipShape = modSummary.clipShape && modSummary.clipShape !== 'none'
+    ? modSummary.clipShape
+    : null
+  const decorShape = useMemo(() => {
+    const [w, h] = size
+    if (modClipShape === 'circle') {
+      const r = Math.min(w, h) / 2
+      return ellipseShape(r * 2, r * 2)
+    }
+    if (modClipShape === 'capsule') return roundedRectShape(w, h, Math.min(w, h) / 2)
+    if (modClipShape === 'roundedRect') return roundedRectShape(w, h, cornerRadius || ptToUnits(12))
+    return null
+  }, [modClipShape, size[0], size[1], cornerRadius])
+  // The shape the decoration layers use: the clip outline when one is set,
+  // otherwise the panel's own fill outline.
+  const paintShape = decorShape || fillShape
+
+  // `.background` takes a colour or a material tier; the summary stores
+  // whichever the designer picked, so a leading '#' is the discriminator.
+  const modBackground = (() => {
+    const bg = modSummary.background
+    if (!bg) return null
+    if (typeof bg !== 'string') return null
+    if (bg.startsWith('#')) return { color: bg, opacity: 1 }
+    const mat = resolveAnyMaterial(bg, scene)
+    return { color: mat?.color || resolveSemantic(bg, scene), opacity: mat?.opacity ?? 1 }
+  })()
+
+  // `.glassBackgroundEffect` is the app's signature material and was inert as
+  // a modifier. `displayMode: 'never'` is the one case that draws nothing.
+  const modGlass = (modSummary.glass && modSummary.glass.displayMode !== 'never')
+    ? resolveAnyMaterial('glass', scene)
+    : null
+
+  const modOverlay = modSummary.overlay && modSummary.overlay.color
+    ? modSummary.overlay
+    : null
+
+  // `.zIndex` is draw order. three.js sorts transparent meshes by depth, so a
+  // small z nudge plus `renderOrder` gives the same front-to-back control
+  // SwiftUI gets from the number, without disturbing the layout.
+  const modZIndex = Number(modSummary.zIndex)
+  const hasZIndex = Number.isFinite(modZIndex) && modZIndex !== 0
+
   // ---- Hover effect (visionOS .hoverEffect) ----
   // Resolved per-panel (own > inherit-from-window > automatic). When the
   // panel is being dragged we suppress hover so the lift doesn't fight the
@@ -2357,7 +2430,14 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // designer's mouse moving across the canvas isn't a gaze event — it's
   // a layout cursor — so we suppress the hover lift/highlight outside
   // Preview. Inside Preview, hover *is* the gaze proxy and re-engages.
-  const effectiveHover = resolveHoverEffect(panel, items)
+  // The modifier stack is the SwiftUI spelling, so `.hoverEffect(...)` wins
+  // over the stored `panel.hoverEffect` the inspector writes, and
+  // `.hoverEffectDisabled(true)` turns it off outright. Both used to be a
+  // second, ignored source for a thing the canvas already had its own path
+  // for — the pair diverged the moment the designer used the stack. AUDIT #5.
+  const effectiveHover = modSummary.hoverEffectDisabled
+    ? 'none'
+    : (modSummary.hoverEffect || resolveHoverEffect(panel, items))
   const hoverActive = hovered
                    && !dragData.current?.dragging
                    && effectiveHover !== 'none'
@@ -2563,8 +2643,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       position={[
         (localPosition?.[0] || 0) + modOffX,
         (localPosition?.[1] || 0) + modOffY,
-        (localPosition?.[2] || 0) + hoverLift
+        // `.zIndex` lifts the view toward the viewer. A millimetre per unit
+        // is enough to win the depth test against siblings without reading
+        // as a physical offset, and `renderOrder` settles the transparent
+        // meshes that three sorts by distance rather than by depth buffer.
+        (localPosition?.[2] || 0) + hoverLift + (hasZIndex ? modZIndex * 0.001 : 0)
       ]}
+      renderOrder={hasZIndex ? modZIndex : undefined}
       scale={[modScaleX * hoverScale, modScaleY * hoverScale, 1]}
       rotation={[0, 0, modRot]}
     >
@@ -2584,6 +2669,34 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         <mesh position={[0, -0.004, -0.012]}>
           <shapeGeometry args={[fillShape]} />
           <meshBasicMaterial color="#000000" transparent opacity={0.12} />
+        </mesh>
+      )}
+      {/* Modifier: .glassBackgroundEffect — the app's signature material,
+          inert as a modifier until phase 1.1. Sits behind `.background` the
+          way SwiftUI stacks them, and behind the view's own fill. */}
+      {modGlass && (
+        <mesh position={[0, 0, -0.0016]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modGlass.color}
+            transparent
+            opacity={(modGlass.opacity ?? 0.5) * modOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Modifier: .background — the most reached-for modifier in the list,
+          and it drew nothing. Painted behind the view's own fill, clipped to
+          `.clipShape` when one is set. */}
+      {modBackground && (
+        <mesh position={[0, 0, -0.0008]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modBackground.color}
+            transparent
+            opacity={modBackground.opacity * modOpacity}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       )}
       {/* Modifier: shadow — rect shadow only for panels with a visible fill.
@@ -3054,6 +3167,21 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
             }}
           />
         </Html>
+      )}
+
+      {/* Modifier: .overlay — painted in FRONT of everything the view draws,
+          which is the half of the pair `.background` does behind. Clipped to
+          `.clipShape` when one is set, so the two agree about the outline. */}
+      {modOverlay && (
+        <mesh position={[0, 0, 0.03]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modOverlay.color}
+            transparent
+            opacity={(modOverlay.opacity ?? 0.2) * modOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
       )}
     </group>
   )

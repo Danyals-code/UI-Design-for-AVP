@@ -516,3 +516,128 @@ describe('scrolling', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Modifiers that move the layout (AUDIT #5, #15)
+//
+// Most of the seventeen inert modifiers were renderer-only work — a mesh that
+// was never drawn. Two of them change the geometry itself, so they land in the
+// layout engine and have to be pinned here: `.aspectRatio` reshapes a frame,
+// and `.layoutPriority` decides who gets a stack's slack.
+//
+// `.layoutPriority` is the sharper of the two. It wrote nothing into the
+// modifier summary at all, which made it a no-op on BOTH sides — it emitted
+// real Swift and changed neither the canvas nor the layout engine.
+// ---------------------------------------------------------------------------
+describe('aspectRatio reshapes the frame', () => {
+  const boxWith = (mods) => {
+    const p = makePanel('rectangle', { size: [ptToUnits(200), ptToUnits(100)], modifiers: mods })
+    return computeSize(p, [p])
+  }
+  const mod = (args) => [{ id: 'm1', type: 'aspectRatio', ...args }]
+
+  it('leaves a box alone when no ratio is set', () => {
+    expect(boxWith([])).toEqual([ptToUnits(200), ptToUnits(100)])
+    expect(boxWith(mod({ ratio: null, contentMode: 'fit' }))).toEqual([ptToUnits(200), ptToUnits(100)])
+  })
+
+  it('fit shrinks the box inside its proposal', () => {
+    // 200x100 is 2:1. Asking for 1:1 with .fit keeps the height and narrows
+    // the width — the result fits inside the original.
+    const [w, h] = boxWith(mod({ ratio: 1, contentMode: 'fit' }))
+    expect(w).toBeCloseTo(ptToUnits(100), 9)
+    expect(h).toBeCloseTo(ptToUnits(100), 9)
+    expect(w).toBeLessThanOrEqual(ptToUnits(200))
+  })
+
+  it('fill grows the box to cover its proposal', () => {
+    const [w, h] = boxWith(mod({ ratio: 1, contentMode: 'fill' }))
+    expect(w).toBeCloseTo(ptToUnits(200), 9)
+    expect(h).toBeCloseTo(ptToUnits(200), 9)
+    expect(h).toBeGreaterThanOrEqual(ptToUnits(100))
+  })
+
+  it('produces a frame at the ratio it was given', () => {
+    for (const ratio of [0.5, 1, 16 / 9, 3]) {
+      for (const contentMode of ['fit', 'fill']) {
+        const [w, h] = boxWith(mod({ ratio, contentMode }))
+        expect(w / h, `${ratio} ${contentMode}`).toBeCloseTo(ratio, 6)
+      }
+    }
+  })
+
+  it('ignores a ratio that is not a usable number', () => {
+    for (const ratio of [0, -2, NaN]) {
+      expect(boxWith(mod({ ratio, contentMode: 'fit' }))).toEqual([ptToUnits(200), ptToUnits(100)])
+    }
+  })
+})
+
+describe('layoutPriority decides who gets the slack', () => {
+  // A fixed-height column of [Spacer, row, Spacer]. Where the row ends up is
+  // the observable consequence of who absorbed the slack: if the top Spacer
+  // takes it all, the row is pushed to the bottom, and vice versa.
+  //
+  // Measured through `layoutStack` rather than `resolvedChildSizes` because a
+  // Spacer has no size of its own — the expansion shows up as position.
+  const column = (priorities) => {
+    const col = makeStack({
+      stackType: 'vstack', padding: 0, spacing: 0,
+      heightMode: 'fixed', fixedHeight: 300, widthMode: 'fixed', fixedWidth: 100
+    })
+    const spacer = (v, i) => makePanel('spacer', {
+      parentId: col.id,
+      isSpacer: true,
+      modifiers: v == null ? [] : [{ id: `lp${i}`, type: 'layoutPriority', value: v }]
+    })
+    const top = spacer(priorities[0], 0)
+    const row = makePanel('rectangle', { parentId: col.id, size: [ptToUnits(100), ptToUnits(100)] })
+    const bottom = spacer(priorities[1], 1)
+    return { col, row, items: [col, top, row, bottom] }
+  }
+  const rowY = (priorities) => {
+    const { col, row, items } = column(priorities)
+    return layoutStack(col, items, computeSize(col, items)).get(row.id)[1]
+  }
+
+  it('splits it evenly when nobody asks for more', () => {
+    // 300pt box, 100pt row, 200pt of slack halved: the row lands centred.
+    expect(rowY([null, null])).toBeCloseTo(0, 9)
+  })
+
+  it('gives it all to the higher priority, and collapses the loser', () => {
+    // The top Spacer absorbs all 200pt, so the row is pushed to the bottom.
+    expect(rowY([1, null])).toBeCloseTo(-ptToUnits(100), 9)
+    // ...and the mirror.
+    expect(rowY([null, 1])).toBeCloseTo(ptToUnits(100), 9)
+  })
+
+  it('splits evenly again between equals, whatever the level', () => {
+    expect(rowY([2, 2])).toBeCloseTo(0, 9)
+    expect(rowY([-1, -1])).toBeCloseTo(0, 9)
+  })
+
+  it('treats a higher number as higher priority, as SwiftUI does', () => {
+    expect(rowY([2, 1])).toBeCloseTo(-ptToUnits(100), 9)
+    expect(rowY([1, 2])).toBeCloseTo(ptToUnits(100), 9)
+  })
+
+  it('keeps every child inside the box it was given', () => {
+    // The allocation runs in `layoutStack` and `resolvedChildSizes` alike, so
+    // the space one reserves is the space the other draws into. The suite's
+    // agreement tests cover that across every template; this pins the
+    // priority path specifically.
+    const { col, items } = column([1, null])
+    const outer = computeSize(col, items)
+    const pos = layoutStack(col, items, outer)
+    const sizes = resolvedChildSizes(col, items, outer)
+    for (const kid of childrenOf(col, items)) {
+      const p = pos.get(kid.id)
+      const sz = sizes.get(kid.id)
+      expect(p, `${kid.name} positioned`).toBeTruthy()
+      expect(sz, `${kid.name} sized`).toBeTruthy()
+      expect(p[1] + sz[1] / 2).toBeLessThanOrEqual(outer[1] / 2 + EPS)
+      expect(p[1] - sz[1] / 2).toBeGreaterThanOrEqual(-outer[1] / 2 - EPS)
+    }
+  })
+})

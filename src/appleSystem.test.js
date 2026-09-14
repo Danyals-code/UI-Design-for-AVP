@@ -16,7 +16,7 @@ import {
   ptToUnits, unitsToPt, metersToPt, ptToMeters,
   TEXT_STYLES, TEXT_STYLE_ORDER, textStyleDefaultWeight,
   computeButtonFramePt, segmentedFrame,
-  controlFraction, valueFromFraction, mixHex
+  controlFraction, valueFromFraction, mixHex, applyAspectRatio
 } from './appleSystem'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
@@ -352,5 +352,59 @@ describe('two-stop tint mixing', () => {
   it('falls back rather than emitting a broken colour', () => {
     expect(mixHex('not-a-colour', '#ffffff', 0.5)).toBe('not-a-colour')
     expect(mixHex(null, null, 0.5)).toBe('#007aff')
+  })
+})
+
+describe('applyAspectRatio', () => {
+  const box = [200, 100]   // 2:1
+
+  it('returns the box untouched when there is no ratio to apply', () => {
+    expect(applyAspectRatio(box, null)).toEqual(box)
+    expect(applyAspectRatio(box, { ratio: null })).toEqual(box)
+    expect(applyAspectRatio(box, { ratio: 2 })).toEqual(box)   // already 2:1
+  })
+
+  it('fits inside the box, fills to cover it', () => {
+    expect(applyAspectRatio(box, { ratio: 1, contentMode: 'fit' })).toEqual([100, 100])
+    expect(applyAspectRatio(box, { ratio: 1, contentMode: 'fill' })).toEqual([200, 200])
+  })
+
+  it('handles a box that is too TALL for the ratio, not just too wide', () => {
+    const tall = [100, 200]  // 1:2
+    expect(applyAspectRatio(tall, { ratio: 1, contentMode: 'fit' })).toEqual([100, 100])
+    expect(applyAspectRatio(tall, { ratio: 1, contentMode: 'fill' })).toEqual([200, 200])
+  })
+
+  it('defaults to fit, as SwiftUI does', () => {
+    expect(applyAspectRatio(box, { ratio: 1 })).toEqual([100, 100])
+  })
+
+  it('always produces the ratio it was asked for', () => {
+    for (const b of [[200, 100], [100, 200], [137, 41]]) {
+      for (const ratio of [0.25, 1, 16 / 9, 4]) {
+        for (const contentMode of ['fit', 'fill']) {
+          const [w, h] = applyAspectRatio(b, { ratio, contentMode })
+          expect(w / h, `${b} -> ${ratio} ${contentMode}`).toBeCloseTo(ratio, 9)
+        }
+      }
+    }
+  })
+
+  it('never grows when fitting, never shrinks when filling', () => {
+    for (const ratio of [0.5, 1, 3]) {
+      const [fw, fh] = applyAspectRatio(box, { ratio, contentMode: 'fit' })
+      expect(fw).toBeLessThanOrEqual(box[0] + 1e-9)
+      expect(fh).toBeLessThanOrEqual(box[1] + 1e-9)
+      const [gw, gh] = applyAspectRatio(box, { ratio, contentMode: 'fill' })
+      expect(gw).toBeGreaterThanOrEqual(box[0] - 1e-9)
+      expect(gh).toBeGreaterThanOrEqual(box[1] - 1e-9)
+    }
+  })
+
+  it('refuses a ratio that has no geometry behind it', () => {
+    for (const ratio of [0, -1, NaN, Infinity]) {
+      expect(applyAspectRatio(box, { ratio })).toEqual(box)
+    }
+    expect(applyAspectRatio([0, 0], { ratio: 1 })).toEqual([0, 0])
   })
 })

@@ -1977,3 +1977,22 @@ export function valueFromFraction(t, min, max, step) {
   if (Number.isFinite(s) && s > 0) v = lo + Math.round((v - lo) / s) * s
   return Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), v))
 }
+
+// SwiftUI `.aspectRatio(_:contentMode:)` reshapes the frame to a width/height
+// ratio. `.fit` shrinks the box so it fits inside the proposal; `.fill` grows
+// it so it covers. Both the layout engine and the renderer run this, because
+// a frame the stack reserves and a frame the panel paints have to be the same
+// box — that agreement is what `layout.test.js` exists to pin.
+export function applyAspectRatio(size, aspect) {
+  if (!aspect) return size
+  const [w, h] = size
+  const r = Number(aspect.ratio ?? aspect)
+  if (!Number.isFinite(r) || r <= 0 || !(w > 0) || !(h > 0)) return size
+  const fill = aspect.contentMode === 'fill'
+  const current = w / h
+  if (Math.abs(current - r) < 1e-9) return size
+  // Too wide for the target ratio: fitting narrows the width, filling raises
+  // the height. Too tall is the mirror of that.
+  if (current > r) return fill ? [w, w / r] : [h * r, h]
+  return fill ? [h * r, h] : [w, w / r]
+}
