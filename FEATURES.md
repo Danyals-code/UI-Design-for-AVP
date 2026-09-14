@@ -323,6 +323,11 @@ defaults in [VIEWS.md](VIEWS.md), source in
   placeholder fill, so the canvas matches the device. `cornerRadius`
   is only exposed for Rectangle (single radius) and
   UnevenRoundedRectangle (four per-corner radii).
+- **Collections:** list, form, groupbox, outlinegroup, table
+  - **Form and Outline Group draw their rows**, not just a plate: a
+    Form is the grouped card with separators (or the two-column
+    layout under `.columns`), an Outline Group is the indented
+    disclosure tree, and a collapsed row hides its whole subtree.
 - **Presentation:** sheet, popover, alert, confirmationdialog,
   inspector, navigationlink, contentUnavailable
   - **These present over the window rather than flowing inside it**,

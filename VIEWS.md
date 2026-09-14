@@ -555,7 +555,8 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 #### `form`
 - **Default:** 360×300, color `secondarySystemBackground`, rows `[3]`, `formStyle: 'automatic'`.
 - **Inspector:** Style picker (variant switch with list / form / groupbox).
-- **Emit:** `Form { Text(...) } .formStyle(...)`.
+- **Emit:** `Form { Text(...).frame(minHeight: rowHeight) } .formStyle(...)`.
+- **Canvas:** `.automatic` / `.grouped` draw the inset card with hairline separators, title leading and value (`subtitle`) trailing; `.columns` draws the two-column layout, labels trailing-aligned in a leading gutter. Rows are laid out at `rowHeight`, which the export carries as `minHeight` — a Form row grows for its content, so the authored number is a floor.
 
 #### `groupbox`
 - **Default:** 300×160, text `'Settings'`, textStyle `headline`, `groupBoxStyle: 'automatic'`.
@@ -565,7 +566,8 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 #### `outlinegroup`
 - **Default:** 320×240, rows = nested tree with `indent` + `expanded`.
 - **Inspector:** Title + rows tree.
-- **Emit:** Generates an `OutlineNode` struct + `OutlineGroup` with recursive children.
+- **Emit:** Generates an `OutlineNode` struct + `OutlineGroup` with recursive children, each row carrying `.frame(minHeight: rowHeight)`.
+- **Canvas:** the disclosure tree, indented by `indent`, with a chevron on rows that have children. A collapsed row hides its whole subtree, not just its immediate children - see `outlineVisibleRows()` in `appleSystem.js`, which reads `indent` by the same rule the emitter uses to rebuild the tree. `expanded` is a preview affordance rather than a document property: SwiftUI's OutlineGroup owns its expansion state at runtime, so the export carries the tree and not which parts of it happen to be open.
 
 ### Media
 

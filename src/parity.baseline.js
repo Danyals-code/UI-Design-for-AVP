@@ -150,8 +150,11 @@ export const PANEL = {
   // and stops at its ends. 18 entries, all closed.
 
   // -- style pickers the canvas does not act on -----------------------------
-  formStyle: debt('export-only: form has no canvas rendering at all', 6),
-  rowHeight: debt('neither: form and outlinegroup row height is read by no one', 6),
+  // AUDIT #6 emptied in phase 1.2. `form` and `outlinegroup` draw their rows
+  // now, so `formStyle` picks between the grouped card and the two-column
+  // layout, and `rowHeight` — which reached NEITHER side — lays the rows out
+  // on the canvas and rides along as `.frame(minHeight:)` on each generated
+  // row.
   groupBoxStyle: debt('export-only: canvas draws one groupbox treatment'),
   listItemTint: debt('export-only: canvas ignores per-row tint'),
   listRowSeparator: debt('export-only: canvas always draws separators'),
@@ -275,4 +278,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 56
+export const DEBT_CEILING = 54

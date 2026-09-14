@@ -16,7 +16,8 @@ import {
   ptToUnits, unitsToPt, metersToPt, ptToMeters,
   TEXT_STYLES, TEXT_STYLE_ORDER, textStyleDefaultWeight,
   computeButtonFramePt, segmentedFrame,
-  controlFraction, valueFromFraction, mixHex, applyAspectRatio
+  controlFraction, valueFromFraction, mixHex, applyAspectRatio,
+  outlineVisibleRows
 } from './appleSystem'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
@@ -406,5 +407,86 @@ describe('applyAspectRatio', () => {
       expect(applyAspectRatio(box, { ratio })).toEqual(box)
     }
     expect(applyAspectRatio([0, 0], { ratio: 1 })).toEqual([0, 0])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Form and OutlineGroup rows (AUDIT #6)
+//
+// Both types exported their row data faithfully — a real `Form { … }` with
+// every row, and a generated recursive `OutlineNode` model — while the canvas
+// drew an empty plate. So the rows a designer typed into the inspector were
+// invisible until export. The row data itself was never the problem; nothing
+// read it on the canvas side.
+//
+// `outlineVisibleRows` is the piece with real logic in it: a collapsed row
+// hides everything beneath it, which is easy to get subtly wrong.
+// ---------------------------------------------------------------------------
+describe('outlineVisibleRows', () => {
+  const rows = (...spec) => spec.map(([title, indent, expanded]) => ({ title, indent, expanded }))
+
+  it('shows a flat list whole', () => {
+    const out = outlineVisibleRows(rows(['A', 0], ['B', 0], ['C', 0]))
+    expect(out.map((r) => r.title)).toEqual(['A', 'B', 'C'])
+    expect(out.every((r) => r.isParent === false)).toBe(true)
+  })
+
+  it('marks a row as a parent when the next row sits deeper', () => {
+    const out = outlineVisibleRows(rows(['A', 0, true], ['A1', 1]))
+    expect(out.map((r) => [r.title, r.isParent])).toEqual([['A', true], ['A1', false]])
+  })
+
+  it('hides the descendants of a collapsed row', () => {
+    const out = outlineVisibleRows(rows(
+      ['Documents', 0, false],
+      ['Images', 1],
+      ['Videos', 1],
+      ['Downloads', 0, true],
+      ['Recent', 1]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Documents', 'Downloads', 'Recent'])
+  })
+
+  it('shows them again when it is expanded', () => {
+    const out = outlineVisibleRows(rows(
+      ['Documents', 0, true],
+      ['Images', 1],
+      ['Videos', 1]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Documents', 'Images', 'Videos'])
+  })
+
+  it('hides a whole subtree, not just the first level', () => {
+    // The bug this guards: stopping at the immediate children and letting
+    // grandchildren reappear underneath a collapsed ancestor.
+    const out = outlineVisibleRows(rows(
+      ['Root', 0, false],
+      ['Child', 1, true],
+      ['Grandchild', 2],
+      ['Sibling', 0]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Root', 'Sibling'])
+  })
+
+  it('resumes at the first row back at or above the collapsed level', () => {
+    const out = outlineVisibleRows(rows(
+      ['A', 0, true],
+      ['A1', 1, false],
+      ['A1a', 2],
+      ['A2', 1],
+      ['B', 0]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['A', 'A1', 'A2', 'B'])
+  })
+
+  it('tags each visible row with its nesting level', () => {
+    const out = outlineVisibleRows(rows(['A', 0, true], ['A1', 1, true], ['A1a', 2]))
+    expect(out.map((r) => r.level)).toEqual([0, 1, 2])
+  })
+
+  it('survives rows with nothing on them', () => {
+    expect(outlineVisibleRows(undefined)).toEqual([])
+    expect(outlineVisibleRows([])).toEqual([])
+    expect(outlineVisibleRows([{}]).map((r) => r.level)).toEqual([0])
   })
 })

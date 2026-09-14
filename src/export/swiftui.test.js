@@ -23,7 +23,7 @@ import { panelTypes } from '../panels/registry'
 import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
 import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
-  isPresentationPanel, inspectorColumnWidth } from '../appleSystem'
+  isPresentationPanel, inspectorColumnWidth, outlineVisibleRows } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1181,5 +1181,67 @@ describe('inspectorColumnWidth precedence', () => {
     expect(inspectorColumnWidth({ exact: 5000 }, narrow)).toBeLessThanOrEqual(narrow)
     // ...and never collapses to nothing.
     expect(inspectorColumnWidth({ ideal: 0 }, W)).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Form and OutlineGroup carry their row metrics (AUDIT #6)
+//
+// `rowHeight` reached NEITHER side: the canvas had no row rendering to apply
+// it to and the generated rows did not mention it. Now the canvas lays each
+// row out at that height and the generated row carries it as a floor, so the
+// two describe the same row.
+// ---------------------------------------------------------------------------
+describe('form and outlinegroup row metrics', () => {
+  const emit = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits a Form row per authored row', () => {
+    const swift = emit('form', {
+      rows: [{ title: 'Alpha' }, { title: 'Beta' }, { title: 'Gamma' }]
+    })
+    expect(swift).toContain('Form {')
+    for (const t of ['Alpha', 'Beta', 'Gamma']) expect(swift).toContain(`Text("${t}")`)
+  })
+
+  it('carries rowHeight onto each generated row', () => {
+    const swift = emit('form', { rows: [{ title: 'Alpha' }], rowHeight: 64 })
+    // A Form row grows for its content, so the authored height is a floor.
+    expect(swift).toContain('Text("Alpha").frame(minHeight: 64)')
+  })
+
+  it('carries rowHeight onto the outline row too', () => {
+    const swift = emit('outlinegroup', { rows: [{ title: 'Root', indent: 0 }], rowHeight: 52 })
+    expect(swift).toContain('Text(node.title).frame(minHeight: 52)')
+  })
+
+  it('omits the height when there is none to carry', () => {
+    expect(emit('form', { rows: [{ title: 'A' }], rowHeight: null })).not.toContain('minHeight')
+    expect(emit('form', { rows: [{ title: 'A' }], rowHeight: 0 })).not.toContain('minHeight')
+  })
+
+  it('emits formStyle only when it is not the default', () => {
+    expect(emit('form', { formStyle: 'columns' })).toContain('.formStyle(.columns)')
+    expect(emit('form', { formStyle: 'grouped' })).toContain('.formStyle(.grouped)')
+    // `.automatic` resolves to grouped on visionOS and is implicit.
+    expect(emit('form', { formStyle: 'automatic' })).not.toContain('.formStyle(')
+  })
+
+  it('builds the outline tree from the same indents the canvas walks', () => {
+    // The export nests by `indent`; `outlineVisibleRows` flattens by the same
+    // field. Both have to read a two-level tree as a parent with children.
+    const rows = [
+      { title: 'Root', indent: 0, expanded: true },
+      { title: 'Kid', indent: 1 }
+    ]
+    const swift = emit('outlinegroup', { rows })
+    expect(swift).toContain('OutlineNode(title: "Root", children: [')
+    expect(swift).toContain('OutlineNode(title: "Kid")')
+    const walked = outlineVisibleRows(rows)
+    expect(walked.map((r) => [r.title, r.isParent])).toEqual([['Root', true], ['Kid', false]])
   })
 })

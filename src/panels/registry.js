@@ -1296,8 +1296,14 @@ export const PANELS = {
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
+      // `rowHeight` is the height the canvas lays each row out at, so the
+      // generated rows carry it too — as `minHeight`, because a Form row
+      // grows for its content and the authored number is a floor rather
+      // than a cap. It reached NEITHER side before phase 1.2. AUDIT #6.
+      const rh = typeof panel.rowHeight === 'number' && panel.rowHeight > 0
+        ? `.frame(minHeight: ${panel.rowHeight})` : ''
       push(`Form {`)
-      ;(panel.rows || []).forEach((r) => push(`    Text("${escapeString(r.title || '')}")`))
+      ;(panel.rows || []).forEach((r) => push(`    Text("${escapeString(r.title || '')}")${rh}`))
       const fs = panel.formStyle && panel.formStyle !== 'automatic'
         ? `.formStyle(.${panel.formStyle})` : ''
       push(`}${fs}`)
@@ -1390,9 +1396,13 @@ export const PANELS = {
       push(`    var children: [OutlineNode]? = nil`)
       push(`}`)
       push(`let outlineSeed: [OutlineNode] = ${seedLiteral}`)
+      // Same row-height contract as `form`: the canvas lays each row out at
+      // `rowHeight`, so the generated row carries it as a floor.
+      const rh = typeof panel.rowHeight === 'number' && panel.rowHeight > 0
+        ? `.frame(minHeight: ${panel.rowHeight})` : ''
       push(`List {`)
       push(`    OutlineGroup(outlineSeed, children: \\.children) { node in`)
-      push(`        Text(node.title)`)
+      push(`        Text(node.title)${rh}`)
       push(`    }`)
       push(`}`)
     }
@@ -1818,6 +1828,7 @@ const INTERACTIVE_PANEL_TYPES = new Set([
 ])
 
 export const isInteractivePanel = (panelType) => INTERACTIVE_PANEL_TYPES.has(panelType)
+
 
 // ---- public helpers ----
 

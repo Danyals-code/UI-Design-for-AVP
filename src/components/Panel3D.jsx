@@ -17,6 +17,7 @@ import {
   buttonSizePreset,
   buttonRadiusPt,
   applyAspectRatio,
+  outlineVisibleRows,
   controlFraction,
   valueFromFraction,
   mixHex,
@@ -1695,6 +1696,153 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Table ----
+
+  // ---- Form ----
+  // SwiftUI's `Form` is a grouped list of labelled rows. It exported every row
+  // faithfully and drew an empty plate, so data the designer typed into the
+  // inspector was invisible on the canvas until export. AUDIT #6.
+  const formOverlay = panelType === 'form' && (() => {
+    const rows = panel.rows || []
+    const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const separator = resolveSemantic('tertiary', scene)
+    // `.formStyle(.columns)` is a two-column layout — labels trailing-aligned
+    // in a leading column, content leading-aligned in a trailing one.
+    // `.grouped` (and `.automatic`, which resolves to grouped on visionOS) is
+    // the inset card with hairline separators between rows.
+    const columns = (panel.formStyle || 'automatic') === 'columns'
+    const rowH = ptToUnits(panel.rowHeight ?? 48)
+    const inset = ptToUnits(columns ? 0 : 12)
+    const innerW = size[0] - inset * 2
+    const padY = ptToUnits(columns ? 8 : 12)
+    const startY = size[1] / 2 - padY
+    // Apple's columns form puts the label gutter at ~40% of the width.
+    const labelW = innerW * 0.4
+    const gutter = ptToUnits(12)
+    const cardShape = !columns && rows.length
+      ? roundedRectShape(innerW, Math.min(rows.length * rowH, size[1] - padY * 2), ptToUnits(12))
+      : null
+    const visibleRows = Math.max(0, Math.floor((size[1] - padY * 2) / Math.max(rowH, 1e-6)))
+    const shown = rows.slice(0, visibleRows)
+    return (
+      <group position={[0, 0, 0.004]}>
+        {cardShape && (
+          <mesh position={[0, startY - (shown.length * rowH) / 2, -0.001]}>
+            <shapeGeometry args={[cardShape]} />
+            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scene)} transparent opacity={0.95} />
+          </mesh>
+        )}
+        {shown.map((r, i) => {
+          const cy = startY - rowH / 2 - i * rowH
+          const label = r.title || ''
+          const value = r.subtitle || r.value || ''
+          return (
+            <group key={i} position={[0, cy, 0]}>
+              {columns ? (
+                <>
+                  <Text
+                    position={[-innerW / 2 + labelW, 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={secondary}
+                    anchorX="right" anchorY="middle" maxWidth={labelW}
+                  >{label}</Text>
+                  <Text
+                    position={[-innerW / 2 + labelW + gutter, 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={primary}
+                    anchorX="left" anchorY="middle" maxWidth={innerW - labelW - gutter}
+                  >{value}</Text>
+                </>
+              ) : (
+                <>
+                  <Text
+                    position={[-innerW / 2 + ptToUnits(14), 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={primary}
+                    anchorX="left" anchorY="middle" maxWidth={innerW * 0.6}
+                  >{label}</Text>
+                  {value && (
+                    <Text
+                      position={[innerW / 2 - ptToUnits(14), 0, 0.002]}
+                      font={fontUrl} fontSize={ptToUnits(14)} color={secondary}
+                      anchorX="right" anchorY="middle" maxWidth={innerW * 0.35}
+                    >{value}</Text>
+                  )}
+                  {/* Hairline between rows, inset from the leading edge the
+                      way a grouped list insets its separators. */}
+                  {i < shown.length - 1 && (
+                    <mesh position={[ptToUnits(7), -rowH / 2, 0.001]}>
+                      <planeGeometry args={[innerW - ptToUnits(14), ptToUnits(0.5)]} />
+                      <meshBasicMaterial color={separator} />
+                    </mesh>
+                  )}
+                </>
+              )}
+            </group>
+          )
+        })}
+      </group>
+    )
+  })()
+
+  // ---- OutlineGroup ----
+  // A disclosure tree, flattened in the inspector to (title, indent,
+  // expanded) rows. Same finding as `form`: the export built a whole
+  // recursive `OutlineNode` model from this data while the canvas drew a bare
+  // plate. AUDIT #6.
+  //
+  // `expanded` is honoured, so a collapsed row hides everything beneath it
+  // until the next row at its own depth or shallower — which is what the
+  // designer sees the tree doing. It is a preview affordance rather than a
+  // document property: SwiftUI's OutlineGroup owns its own expansion state at
+  // runtime, so the export carries the shape of the tree and not which parts
+  // of it happen to be open.
+  const outlineOverlay = panelType === 'outlinegroup' && (() => {
+    const rows = panel.rows || []
+    const primary = resolveSemantic('primary', scene)
+    const separator = resolveSemantic('tertiary', scene)
+    const rowH = ptToUnits(panel.rowHeight ?? 44)
+    const inset = ptToUnits(12)
+    const innerW = size[0] - inset * 2
+    const padY = ptToUnits(10)
+    const startY = size[1] / 2 - padY
+    const indentStep = ptToUnits(18)
+
+    const visible = outlineVisibleRows(rows)
+    const maxRows = Math.max(0, Math.floor((size[1] - padY * 2) / Math.max(rowH, 1e-6)))
+    const shown = visible.slice(0, maxRows)
+    return (
+      <group position={[0, 0, 0.004]}>
+        {shown.map((r, i) => {
+          const cy = startY - rowH / 2 - i * rowH
+          const x0 = -innerW / 2 + r.level * indentStep
+          return (
+            <group key={i} position={[0, cy, 0]}>
+              {/* Disclosure chevron — only on rows that have children, and
+                  pointing down when open, as a DisclosureGroup draws it. */}
+              {r.isParent && (
+                <Text
+                  position={[x0 + ptToUnits(6), 0, 0.002]}
+                  fontSize={ptToUnits(11)} color={primary}
+                  anchorX="center" anchorY="middle"
+                >{r.expanded ? '▾' : '▸'}</Text>
+              )}
+              <Text
+                position={[x0 + ptToUnits(18), 0, 0.002]}
+                font={fontUrl} fontSize={ptToUnits(14)} color={primary}
+                anchorX="left" anchorY="middle"
+                maxWidth={innerW - r.level * indentStep - ptToUnits(18)}
+              >{r.title || ''}</Text>
+              {i < shown.length - 1 && (
+                <mesh position={[ptToUnits(6), -rowH / 2, 0.001]}>
+                  <planeGeometry args={[innerW - ptToUnits(12), ptToUnits(0.5)]} />
+                  <meshBasicMaterial color={separator} transparent opacity={0.6} />
+                </mesh>
+              )}
+            </group>
+          )
+        })}
+      </group>
+    )
+  })()
+
   const tableOverlay = panelType === 'table' && (() => {
     const cols = panel.columns || []
     const rows = panel.rows || []
@@ -3077,6 +3225,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       {navbarOverlay}
       {listOverlay}
       {tableOverlay}
+      {formOverlay}
+      {outlineOverlay}
       {menuOverlay}
       {progressOverlay}
       {sliderOverlay}

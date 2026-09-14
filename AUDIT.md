@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1 and 1.3 have landed
-since; each is marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3 and 1.2 have
+landed since; each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -29,13 +29,13 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
-now 56**.
+now 54**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 35 |
-| Neither side reads a field the inspector writes | 7 fields | 5 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 34 |
+| Neither side reads a field the inspector writes | 7 fields | 4 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
 
@@ -48,13 +48,15 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) has closed most of its
-filed work** — 1.4, 1.7, 1.1 and 1.3 have landed, so scrollable stacks scroll,
-every control honours its declared range, the modifier stack draws what it
-emits, and presentations are presented rather than laid out inline. Of the
-remaining 56, **46 carry no defect number at all**: #19 (13) and #20 (10) plus
-the ornament / volume / presentation-metric tail. The filed remainder is #5
-(4, all blocked on font assets — see 1.1), #13 (3), #6 (2) and #14 (1).
+compile-clean enum surface. **Stage 1 (code → visual) has closed its filed
+work bar two blocked entries** — 1.4, 1.7, 1.1, 1.3 and 1.2 have landed, so
+scrollable stacks scroll, every control honours its declared range, the
+modifier stack draws what it emits, presentations are presented rather than
+laid out inline, and Form and OutlineGroup draw their rows. Of the remaining
+54, **46 carry no defect number at all**: #19 (13) and #20 (10) plus the
+ornament / volume / presentation-metric tail. The filed remainder is just #5
+(4, all blocked on font assets — see 1.1), #13 (3) and #14 (1), and #13 is
+a question about dead controls rather than a rendering gap.
 
 **A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
 originally written retire exactly the 35 divergences that carry a defect
@@ -86,7 +88,7 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
 | **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln | 🟡 Near-complete | 15/15 actions, 11/12 triggers. `rotateGesture` is missing. See §4.4. |
-| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln → 5,900 | 🟡 Good, uneven | 51/56 view types have a dedicated renderer (48 before 1.3, which gave `confirmationdialog` and `inspector` real presentations). `form` and `outlinegroup` still fall back to a generic plate — see §4.2. |
+| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln → 6,100 | ✅ Solid *(was: good, uneven)* | 55/56 view types have a dedicated renderer, up from 48: 1.3 gave `confirmationdialog` and `inspector` real presentations and 1.2 gave `form` and `outlinegroup` their rows. Only `canvas` falls back to a plate, and the exporter draws a placeholder `Rectangle()` for it too — the two agree. See §4.2. |
 | **Templates** (`templates/index.js`) | 3,102 ln | ✅ Re-seeded in 2.3 *(was: stale)* | 6 window + 6 volume + 2 blanks + 6 legacy. The two that overflow are scrollable and now export a real ScrollView. See §5.3. |
 
 ### Quality gates — all green
@@ -95,8 +97,9 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 512 passing, 10 files (365 at the audit; +89 from the harness and
-  the Stage 2 phases, +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from 1.3).
+- **Tests:** 526 passing, 10 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
+  1.3 and +14 from 1.2).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -183,8 +186,8 @@ plain rounded rectangle with a text label:
 
 | Type | Exports | Canvas draws | Severity |
 | ---- | ------- | ------------ | -------- |
-| `form` | A real `Form { … }` with every row | Empty plate — **no rows** | **High** — the row data is authored in the inspector and invisible |
-| `outlinegroup` | A generated `OutlineNode` tree with every row | Empty plate — **no rows** | **High** — same |
+| ~~`form`~~ | A real `Form { … }` with every row | **Fixed in 1.2** — draws its rows | — |
+| ~~`outlinegroup`~~ | A generated `OutlineNode` tree with every row | **Fixed in 1.2** — draws its rows, collapsed subtrees hidden | — |
 | ~~`confirmationdialog`~~ | `.confirmationDialog(…)` modifier on the parent | **Fixed in 1.3** — presents as a modal dialog | — |
 | ~~`inspector`~~ | `.inspector(…)` modifier on the parent | **Fixed in 1.3** — presents as a trailing column | — |
 | `navigationlink` | `NavigationLink(…)` | Plain text, no chevron / link affordance | Medium |
@@ -199,7 +202,9 @@ ordinary children on screen and emitted as modal modifiers in the code.
 
 **Fixed in 1.3**, and the list is now one set in `appleSystem.js` that all
 three readers — canvas, exporter and modifier registry — import, so it cannot
-drift again. `form` and `outlinegroup` remain, and are phase 1.2's job.
+drift again. `form` and `outlinegroup` followed in **1.2**. Of the eight, only
+`canvas` still falls through — and the exporter emits a placeholder
+`Rectangle()` for it, so the two sides agree about drawing nothing much.
 
 ### 4.3 Scrollable stacks draw a scrollbar that does not scroll ✅ **fixed in 1.4**
 
@@ -487,9 +492,50 @@ canvas went blank on a temporal-dead-zone error. The suite has no React
 renderer, so nothing failed — only running the app did. Worth remembering
 before the next renderer-side phase.
 
-**1.2 — Give `form` and `outlinegroup` real row rendering** *(1 day)*
-Both already carry `rows` and a `rowHeight`; `list` and `table` have working
-row overlays to copy from (`Panel3D.jsx:1444`, `:1639`).
+**1.2 — Give `form` and `outlinegroup` real row rendering** ✅ **done**
+
+Both exported their row data faithfully — a real `Form { … }` with every row,
+and a generated recursive `OutlineNode` model — while the canvas drew an empty
+plate. So rows the designer typed into the inspector were invisible until
+export. Parity debt 56 → 54, closing defect #6.
+
+- **`form`** draws the grouped card with hairline separators, title leading
+  and value trailing. `formStyle` picks between that and `.columns`, which is
+  the two-column layout with trailing-aligned labels in a leading gutter.
+- **`outlinegroup`** draws the disclosure tree, indented by `indent`, with a
+  chevron on rows that have children. A collapsed row hides its whole
+  subtree, not just its immediate children.
+- **`rowHeight` reached NEITHER side.** It lays the rows out on the canvas now
+  and rides along as `.frame(minHeight:)` on each generated row — `minHeight`
+  rather than `height` because a Form row grows for its content, so the
+  authored number is a floor.
+
+**Two near-misses worth recording, because they are the same mistake.** The
+parity scan asks whether a side's source text contains `.someField`, and both
+times a *local* name collided with a real field:
+
+- the outline walk called its nesting level `depth`, which is also
+  `.frame(depth:)` on a 3D view — so the canvas looked like it had started
+  reading that field;
+- extracting the walk into `panels/registry.js` put `r.expanded` into the
+  **export** side's source, which made `STACK.expanded` — a live,
+  export-side-only divergence about DisclosureGroup seeding — look closed.
+
+Both would have quietly retired a real entry, which is worse than a false
+alarm: the harness would have been *lying* rather than nagging. The level is
+called `level` now and the helper lives in `appleSystem.js`, which sits in
+neither side's file set precisely so shared code cannot vote in this scan.
+Anyone adding renderer code should expect this and check what a new local name
+shadows.
+
+*Acceptance:* 14 new tests. Eight pin `outlineVisibleRows` — the piece with
+real logic in it — including that a collapsed row hides grandchildren and not
+just children, and that the walk resumes at the first row back at or above the
+collapsed level. Six check the export carries `rowHeight` and `formStyle`, and
+that the tree the exporter nests by `indent` is the tree the canvas walks.
+Verified by perturbation: stop hiding descendants and three fail. Confirmed in
+the running app with both types seeded into a scene — rows, values and
+separators all draw, where the plate was blank before.
 
 **1.3 — Route `confirmationdialog` and `inspector` as presentations** ✅ **done**
 
@@ -852,7 +898,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
-Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup · 1.5 · 1.6
+Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.5 · 1.6
 Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
 
@@ -878,7 +924,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 3 | ~~`stack.scrollable` exports a comment, not a `ScrollView`~~ — **fixed in 2.2** | `export/swiftui.js` | — |
 | 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
 | 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4. The last 2 (`fontDesign`, `monospacedDigit`) are blocked on font assets, not wiring — see §4.1. | `modifiers/registry.js`, `Panel3D.jsx`, `SceneTree.jsx` | Low |
-| 6 | `form` / `outlinegroup` rows invisible on canvas | `Panel3D.jsx` (no branch) | **High** |
+| 6 | ~~`form` / `outlinegroup` rows invisible on canvas~~ — **fixed in 1.2.** Both draw their rows; `rowHeight`, which reached neither side, now lays them out and rides along as `.frame(minHeight:)`. | `Panel3D.jsx`, `panels/registry.js` | — |
 | 7 | ~~`confirmationdialog` / `inspector` inline on canvas, modal in code~~ — **fixed in 1.3.** One presentation set, imported by all three readers. | `appleSystem.js`, `SceneTree.jsx` | — |
 | 8 | ~~Window `.frame` / `.padding` order inverts the inset~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 9 | ~~`paddingEdges` canvas-only~~ — **fixed in 2.1** | `export/swiftui.js` | — |

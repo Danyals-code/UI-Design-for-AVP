@@ -2039,3 +2039,34 @@ export function inspectorColumnWidth({ exact, ideal, min, max, stored }, windowW
   // However wide it asks to be, it still has to fit the window it splits.
   return Math.max(ptToUnits(40), Math.min(width, windowW * 0.8))
 }
+
+// Which `outlinegroup` rows are on screen, given that a collapsed row hides
+// everything beneath it. The inspector stores the tree flattened to
+// (title, indent, expanded), and `indent` is the row's depth — the same rule
+// the `outlinegroup` emitter above uses to rebuild the recursive
+// `OutlineNode` model, so the shape the canvas walks and the shape the export
+// writes are read from the field the same way.
+//
+// Returns the visible rows, each tagged with its nesting `level` and whether
+// it `isParent` (the next row sits deeper). `expanded` is a preview
+// affordance rather than a document property: SwiftUI's OutlineGroup owns its
+// expansion state at runtime, so the export carries the tree and not which
+// parts of it happen to be open.
+export function outlineVisibleRows(rows) {
+  const out = []
+  if (!Array.isArray(rows)) return out
+  let hiddenBelow = null          // level of the collapsed ancestor, if any
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || {}
+    const level = r.indent ?? 0
+    if (hiddenBelow != null) {
+      if (level > hiddenBelow) continue
+      hiddenBelow = null
+    }
+    const next = rows[i + 1]
+    const isParent = !!next && (next.indent ?? 0) > level
+    out.push({ ...r, level, isParent })
+    if (isParent && !r.expanded) hiddenBelow = level
+  }
+  return out
+}
