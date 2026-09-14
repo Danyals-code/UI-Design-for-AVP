@@ -614,6 +614,13 @@ trigger + ordered actions. Implementation lives in
 `tap`, `hover`, `drag`, `pinch`, `rotateGesture`, `sceneStart`, `timer`,
 `proximity`, `collision`, `inView`, `animationFinished`, `eventReceived`.
 
+All twelve fire in Preview. The two **device-only** gestures have no mouse
+equivalent, so the wheel stands in for both: **scroll wheel** magnifies
+(`pinch`) and **shift + scroll wheel** twists (`rotateGesture`). The Behaviors
+inspector names which one it is on the trigger you picked. Both carry
+Begins / Changes / Ends, and a wheel burst produces all three — the first tick
+opens the gesture, later ticks change it, and a pause closes it.
+
 ### Actions (15)
 `scaleTo`, `moveTo`, `rotateTo`, `lookAt`, `follow`, `orbit`, `showHide`,
 `setMaterial`, `shaderEffect`, `spawn`, `destroy`, `playAnimation`, `wait`,

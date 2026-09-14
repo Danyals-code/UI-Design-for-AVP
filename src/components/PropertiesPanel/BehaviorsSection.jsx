@@ -196,6 +196,16 @@ function ExportNote({ generates, what }) {
   )
 }
 
+// A mouse has neither of the two-handed gestures, so the preview borrows the
+// wheel for both and tells the designer which is which. Naming the actual
+// gesture matters more than it looks: this note used to say "preview maps it
+// to a pointer fallback" for `rotateGesture`, which had no fallback at all —
+// the runtime matched only drag and pinch. AUDIT #12.
+const PREVIEW_STAND_IN = {
+  pinch: 'the scroll wheel',
+  rotateGesture: 'shift + scroll wheel'
+}
+
 function TriggerEditor({ trigger, onChange, items }) {
   const schema = getTriggerSchema(trigger?.type)
   const setType = (type) => {
@@ -230,7 +240,7 @@ function TriggerEditor({ trigger, onChange, items }) {
       })}
       {schema?.deviceOnly && (
         <div className="text-[9px] text-amber-400/80 leading-snug pl-14">
-          Device-only gesture — preview maps it to a pointer fallback.
+          Device-only gesture — in preview, {PREVIEW_STAND_IN[trigger?.type] || 'a pointer fallback'} stands in for it.
         </div>
       )}
       <ExportNote generates={triggerGeneratesSwift(trigger?.type || 'tap')} what="trigger" />

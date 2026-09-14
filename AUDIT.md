@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3 and 1.2 have
-landed since; each is marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1, 1.3, 1.2 and 1.6
+have landed since; each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -87,7 +87,7 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | **SwiftUI exporter** (`export/swiftui.js`) | 1,081 ln → 1,400 | ✅ Solid *(was: good, lossy)* | Idiomatic output — real `ZStack` / `.toolbar` / `.ornament` / `.sheet`. Since Stage 2 it also carries frames, per-edge padding, ScrollViews and free placement. See §5. |
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
-| **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln | 🟡 Near-complete | 15/15 actions, 11/12 triggers. `rotateGesture` is missing. See §4.4. |
+| **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln → 1,020 | ✅ Complete *(was: near-complete)* | 15/15 actions, **12/12 triggers** since 1.6 gave `rotateGesture` a stand-in. 10 tests. See §4.4. |
 | **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln → 6,100 | ✅ Solid *(was: good, uneven)* | 55/56 view types have a dedicated renderer, up from 48: 1.3 gave `confirmationdialog` and `inspector` real presentations and 1.2 gave `form` and `outlinegroup` their rows. Only `canvas` falls back to a plate, and the exporter draws a placeholder `Rectangle()` for it too — the two agree. See §4.2. |
 | **Templates** (`templates/index.js`) | 3,102 ln | ✅ Re-seeded in 2.3 *(was: stale)* | 6 window + 6 volume + 2 blanks + 6 legacy. The two that overflow are scrollable and now export a real ScrollView. See §5.3. |
 
@@ -97,9 +97,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 526 passing, 10 files (365 at the audit; +89 from the harness and
+- **Tests:** 536 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
-  1.3 and +14 from 1.2).
+  1.3, +14 from 1.2 and +10 from 1.6 — the first tests the behaviour runtime
+  has had).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -227,12 +228,15 @@ app. (The exporter does not save it either — §5.2.)
 
 See phase **1.4** below for what shipped.
 
-### 4.4 `rotateGesture` has no preview runtime
+### 4.4 `rotateGesture` has no preview runtime ✅ **fixed in 1.6**
 
-It is in the trigger vocabulary, appears in the inspector, and **generates real
-Swift**, but `behaviors/runtime.js` matches only `'drag'` (line 901) and
-`'pinch'` (line 910) among the pointer triggers. Authoring a rotate behaviour
-produces a preview that does nothing and code that works.
+*Original finding.* It is in the trigger vocabulary, appears in the inspector,
+and **generates real Swift**, but `behaviors/runtime.js` matches only `'drag'`
+(line 901) and `'pinch'` (line 910) among the pointer triggers. Authoring a
+rotate behaviour produces a preview that does nothing and code that works.
+
+See phase **1.6** below for what shipped, including a second dead control the
+fix uncovered.
 
 ### 4.5 Dead inspector controls
 
@@ -360,7 +364,7 @@ user-authored scenes — but the drag gesture invites exactly that.
 
 | | Preview runtime | Swift export |
 | --- | --- | --- |
-| **Triggers (12)** | 11 — missing `rotateGesture` | 8 — `proximity`, `inView`, `animationFinished`, `hover` documented, not generated |
+| **Triggers (12)** | **12** since 1.6 *(was 11 — `rotateGesture` missing)* | 8 — `proximity`, `inView`, `animationFinished`, `hover` documented, not generated |
 | **Actions (15)** | 15 (`playAnimation` approximated as a 0.4 s no-op) | 11 — `follow`, `orbit`, `shaderEffect`, `repeat` documented, not generated |
 
 The undone ones are emitted as a `// MARK: - Behaviors still to wire up` block
@@ -640,8 +644,41 @@ Implement or remove Immersion / Resizability / Gestures. If they are
 export-only concepts, move them under a clearly-labelled “export only” group so
 the inspector stops implying a preview.
 
-**1.6 — Add `rotateGesture` to the preview runtime** *(½ day)*
-Alongside the existing `drag` and `pinch` handling.
+**1.6 — Add `rotateGesture` to the preview runtime** ✅ **done**
+
+A mouse has neither two-handed gesture, so the wheel now carries both: plain
+wheel magnifies, **shift + wheel twists**. Shift is the discriminator because
+the two have to be mutually exclusive — one wheel event must not advance a
+pinch behaviour and a rotate behaviour at once. Closes defect #12. No parity
+debt moves: this is a preview-runtime gap, not a field divergence.
+
+**A second dead control turned up in the same handler.** Both gestures declare
+begin / change / end, all three sit in the inspector's "When" picker, and the
+old handler read:
+
+```js
+const mode = e.deltaY > 0 ? 'change' : 'change'
+```
+
+— a ternary whose branches are identical. So a behaviour wired to *Begins* or
+*Ends* could never run on the canvas. A wheel stream has no phases of its own,
+being discrete where the gestures are continuous, so they are synthesised: the
+first tick of a burst opens the gesture and changes it, later ticks change it,
+and an idle timeout closes it. The timer is cleared on unmount, since a burst
+left open would fire its `end` into a dead action context.
+
+**And the inspector was claiming something untrue.** The device-only note said
+"preview maps it to a pointer fallback" for `rotateGesture`, which had no
+fallback at all. It names the actual gesture per trigger now.
+
+*Acceptance:* 10 tests — the first the behaviour runtime has had. One derives
+the pointer triggers from the registry the inspector renders from and checks
+the runtime matches each, so a trigger the designer can pick and the preview
+ignores fails here rather than shipping. The rest pin the phase pump: the
+burst opens once, closes on idle, restarts after closing, keeps pinch and
+rotate on separate bursts, and stays quiet once the entity is gone. Verified
+by perturbation — removing the rotate matcher and restoring the hard-coded
+`change` fails 5.
 
 **1.7 — Honour control ranges (#17)** ✅ **done** — *added after 1.4; see the
 scoping correction in §1.*
@@ -898,7 +935,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
-Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.5 · 1.6
+Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5
 Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
 
@@ -930,7 +967,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 9 | ~~`paddingEdges` canvas-only~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 10 | ~~`buttonSize`/`buttonShape` vs `controlSize`/`buttonBorderShape`~~ — **fixed in 2.3** | `appleSystem.js`, `inspectors.jsx` | — |
 | 11 | ~~Free panel position not exported~~ — **fixed in 2.4** | `export/swiftui.js` | — |
-| 12 | `rotateGesture` dead in preview | `behaviors/runtime.js:901` | Medium |
+| 12 | ~~`rotateGesture` dead in preview~~ — **fixed in 1.6.** Shift + wheel stands in for the two-handed twist, and the wheel stream now produces all three gesture phases rather than only `change`. | `behaviors/runtime.js` | — |
 | 13 | `spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides | `WindowProps.jsx:139` | Low |
 | 14 | `blur` / `blurAmount` / `ornamentOffset` canvas-only or unread | `store/factories.js` | Low |
 | 15 | ~~`layoutPriority` is a no-op on both sides~~ — **fixed in 1.1.** It wrote nothing into the summary, so it emitted real Swift and moved neither the canvas nor the layout engine. It now allocates a stack's slack to the highest priority among the children that want to grow, which is what SwiftUI does. | `modifiers/registry.js`, `layout.js` | — |

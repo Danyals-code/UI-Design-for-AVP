@@ -132,8 +132,15 @@ because two code paths have to agree with each other:
   the generated file byte-for-byte, and a fragment that would break that
   file is caught while the user can still see it.
 - **`src/store/`** and **`src/appleSystem.js`** - undo/redo and clipboard
-  invariants, project round-trip, and complete material resolution for all
-  24 library entries in both design schemes.
+  invariants, project round-trip, complete material resolution for all
+  24 library entries in both design schemes, and the metric resolvers both
+  renderers share (control ranges, aspect ratio, inspector column width,
+  outline row visibility).
+- **`src/behaviors/runtime.js`** - the preview gesture seam: every pointer
+  trigger the registry offers has a path in the runtime (derived from the
+  registry, so a trigger the designer can pick and the preview ignores fails
+  here), and the wheel bursts that stand in for the two-handed device
+  gestures produce a begin, changes and an end.
 - **`src/parity.test.js`** - the canvas ↔ export contract. The app renders
   one document two ways (three.js and SwiftUI), and this pins that both
   sides read the *same* properties: every field read by only one of them

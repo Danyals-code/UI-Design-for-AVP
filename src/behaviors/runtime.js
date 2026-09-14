@@ -715,6 +715,9 @@ export function useBehaviorRuntime({ entity, scene, items }) {
       disposers: [],
       hovering: false,
       dragging: false, dragStart: null,
+      // Open wheel-driven gesture bursts, keyed by gesture kind. See
+      // `pumpWheelGesture`.
+      wheelBursts: new Map(),
       proxState: new Map(),
       inViewState: new Map(),
       collisionState: new Map(),
@@ -749,6 +752,10 @@ export function useBehaviorRuntime({ entity, scene, items }) {
       if (stateRef.current) {
         stateRef.current.alive = false
         stateRef.current.disposers.forEach((d) => { try { d() } catch {} })
+        // A gesture burst left open would fire its `end` after the entity is
+        // gone, into a dead action context.
+        for (const t of stateRef.current.wheelBursts.values()) clearTimeout(t)
+        stateRef.current.wheelBursts.clear()
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -854,13 +861,24 @@ export function useBehaviorRuntime({ entity, scene, items }) {
         }
       },
       onWheel: (e) => {
-        // Browser fallback for two-handed pinch gesture: scroll wheel
-        // on the entity counts as a magnify event.
+        // Browser stand-ins for the two-handed device gestures. A mouse has
+        // neither, so the wheel carries both: plain wheel magnifies, and
+        // SHIFT + wheel twists. Shift is the discriminator because the two
+        // have to be mutually exclusive — one wheel event must not fire a
+        // pinch behaviour and a rotate behaviour at once.
+        //
+        // `rotateGesture` had no stand-in at all: it is in the vocabulary,
+        // sits in the inspector, and generates real `RotateGesture3D` Swift,
+        // but the runtime matched only 'drag' and 'pinch'. Authoring one gave
+        // a preview that did nothing and code that worked. AUDIT #12.
         const state = stateRef.current
         if (!state) return
         e.stopPropagation()
-        const mode = e.deltaY > 0 ? 'change' : 'change'
-        firePinch(state, mode, entity, scene, items, groupRef, meshRef)
+        const rotating = !!(e.shiftKey || e.nativeEvent?.shiftKey)
+        const fire = rotating ? fireRotate : firePinch
+        pumpWheelGesture(state, rotating ? 'rotate' : 'pinch', (mode) => {
+          fire(state, mode, entity, scene, items, groupRef, meshRef)
+        })
       }
     }
   }, [previewMode, entity.id])
@@ -911,6 +929,40 @@ function firePinch(state, mode, entity, scene, items, groupRef, meshRef) {
     const want = at.params.mode || 'change'
     if (want === mode) runActionList(ctx, at.behavior.actions || [])
   }
+}
+
+function fireRotate(state, mode, entity, scene, items, groupRef, meshRef) {
+  const ctx = { entityId: entity.id, entity, scene, items, groupRef, meshRef, state }
+  for (const at of state.activeTriggers) {
+    if (at.behavior.trigger.type !== 'rotateGesture') continue
+    const want = at.params.mode || 'change'
+    if (want === mode) runActionList(ctx, at.behavior.actions || [])
+  }
+}
+
+// How long a wheel stream may go quiet before its gesture counts as finished.
+// Long enough to bridge the gaps in a trackpad flick, short enough that `end`
+// still reads as part of the same interaction.
+const WHEEL_GESTURE_END_MS = 140
+
+// Turn a stream of discrete wheel ticks into the begin / change / end phases
+// a continuous device gesture has.
+//
+// `MagnifyGesture` and `RotateGesture3D` each carry all three, and all three
+// sit in the inspector's "When" picker — but the old handler hard-coded
+// 'change' (via a ternary whose branches were identical), so a behaviour
+// wired to Begins or Ends could never run on the canvas. The first tick of a
+// burst now opens the gesture and changes it, later ticks change it, and an
+// idle timeout closes it.
+export function pumpWheelGesture(state, kind, fire) {
+  const open = state.wheelBursts.get(kind)
+  if (open) clearTimeout(open)
+  else fire('start')
+  fire('change')
+  state.wheelBursts.set(kind, setTimeout(() => {
+    state.wheelBursts.delete(kind)
+    if (state.alive) fire('end')
+  }, WHEEL_GESTURE_END_MS))
 }
 
 // ---- Tick-based trigger checks ------------------------------------
