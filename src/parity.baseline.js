@@ -214,10 +214,6 @@ export const PANEL = {
   headerProminence: ex('neither: styles Section headers and the list panel has no sections - see the note above'),
 
   // -- presentation metrics -------------------------------------------------
-  presentationCornerRadius: debt('export-only: canvas uses the panel corner radius', 30),
-  presentationDragIndicator: debt('export-only: canvas draws no drag indicator', 30),
-  sheetFraction: debt('export-only: canvas honours sheetDetent only, so a .fraction detent sizes nothing', 30),
-  sheetHeight: debt('export-only: canvas honours sheetDetent only, so a .height detent sizes nothing', 30),
   // AUDIT #7 emptied in phase 1.3. `confirmationdialog` and `inspector` are
   // routed as presentations now rather than laid out as ordinary children, so
   // the fields that describe them finally have something to describe:
@@ -346,4 +342,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 17
+export const DEBT_CEILING = 13

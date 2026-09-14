@@ -2063,6 +2063,49 @@ export const isPresentationPanel = (panelType) => PRESENTATION_PANEL_TYPES.has(p
 // that precedence can be pinned by a test; all four fields reached the export
 // only until phase 1.3, because the canvas had no inspector presentation at
 // all to apply them to. AUDIT #7.
+// ---------------------------------------------------------------------------
+// Sheet detents and sheet chrome (AUDIT #30)
+//
+// `.presentationDetents([…])` names the height a sheet rests at, measured from
+// the bottom of the container it is presented over. The canvas sized every
+// sheet from the panel's own stored `size` and only nudged `.medium` downward,
+// so `.fraction(0.3)` and `.height(200)` — two sheets a device draws at
+// visibly different heights — were the same box on screen. The detent decided
+// nothing except how far down the box sat.
+//
+// The fraction and height defaults are the exporter's own (`?? 0.5`, `?? 320`)
+// so a sheet missing the field resolves to the same number on both sides.
+// `MODAL_INSET` is the 8% margin the canvas already gives every modal; no
+// sheet is drawn taller than the window minus that, because the canvas has
+// nowhere to put the overflow.
+export const MODAL_INSET = 0.08
+
+export function sheetDetentHeight({ detent, fraction, heightPt }, containerH) {
+  const cap = containerH * (1 - MODAL_INSET)
+  const clamp = (x) => Math.min(cap, Math.max(0, x))
+  switch (detent) {
+    case 'medium':
+      return clamp(containerH * 0.5)
+    case 'fraction':
+      return clamp(containerH * (Number.isFinite(fraction) ? fraction : 0.5))
+    case 'height':
+      return clamp(ptToUnits(Number.isFinite(heightPt) ? heightPt : 320))
+    // `.large` and anything unrecognised: as tall as the canvas will draw.
+    default:
+      return cap
+  }
+}
+
+// Whether the canvas draws the grabber at the top of a sheet.
+//
+// `.automatic` lets the system decide, and what it decides from is the number
+// of detents: one detent, nothing to drag to, no grabber. Every sheet here
+// carries exactly one detent, so automatic resolves to hidden — and the
+// exporter says the same thing by emitting nothing for it.
+export function sheetDragIndicatorVisible(presentationDragIndicator) {
+  return presentationDragIndicator === 'visible'
+}
+
 // Takes the four widths rather than the panel, so the caller spells each
 // field at the call site — the same shape `controlFraction` uses, and what
 // keeps the parity scan able to see that the canvas reads them.

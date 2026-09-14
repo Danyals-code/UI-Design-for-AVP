@@ -572,11 +572,20 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // A button's radius is derived from `buttonBorderShape` — the field the
   // exporter emits — rather than from a stored `cornerRadius` the inspector
   // had to keep in sync. `automatic` is visionOS's capsule default.
+  // A sheet's presentation corner radius overrides the system radius on
+  // device, and overrode nothing on the canvas until AUDIT #30 — the plate
+  // kept the panel's own stored radius, so the field changed the generated
+  // file and not the picture. 0 means "no override", which is how the
+  // exporter reads it too. (Written without the leading dot: the parity scan
+  // matches `.fieldName` as text and a comment would pass for the read.)
+  const presentationRadius = panelType === 'sheet' && panel.presentationCornerRadius > 0
+    ? ptToUnits(panel.presentationCornerRadius)
+    : null
   const cornerRadius = ((isInputField && (panel.fieldShape || 'pill') === 'pill') || panelType === 'segmented')
     ? Math.min(size[0], size[1]) / 2
     : panelType === 'button'
       ? ptToUnits(buttonRadiusPt(panel.buttonBorderShape))
-      : (panel.cornerRadius ?? 0)
+      : (presentationRadius ?? panel.cornerRadius ?? 0)
   // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
   // — rendered as a slightly larger copy of the shape in `strokeColor`
   // placed BEHIND the fill. Half the width sits outside the shape's

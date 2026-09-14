@@ -6,7 +6,7 @@ import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
 import { summarizeModifiers } from '../modifiers/registry'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape, ellipseShape } from '../shapes'
-import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth } from '../appleSystem'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth, sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
@@ -1514,16 +1514,27 @@ function Window3D({ window: win, items, previewPosition }) {
               // pinning to the window edges. 8% inset reads as a comfortable
               // frame; the content still lays out at its declared size until
               // that exceeds the window minus insets, then we clamp.
-              const maxW = bodyW * 0.92
-              const maxH = h * 0.92
+              const maxW = bodyW * (1 - MODAL_INSET)
+              const maxH = h * (1 - MODAL_INSET)
               const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
               const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
               let px = -inspectorW / 2
               let py = 0
               if (p.panelType === 'sheet') {
-                // `.presentationDetents(.medium)` pushes the sheet toward the
-                // bottom; otherwise sheets centre inside the window.
-                py = p.sheetDetent === 'medium' ? -(h - clamped[1]) / 2 * 0.9 : 0
+                // A detent IS the sheet's height, measured from the bottom of
+                // the container — so it decides the box, not just where the
+                // box sits. Until AUDIT #30 the canvas sized every sheet from
+                // its own stored height and only nudged `.medium` down, which
+                // drew `.fraction(0.3)` and `.height(200)` as the same sheet.
+                clamped[1] = sheetDetentHeight({
+                  detent: p.sheetDetent,
+                  fraction: p.sheetFraction,
+                  heightPt: p.sheetHeight
+                }, h)
+                // Every sheet rests the same margin above the window's bottom
+                // edge. A `.large` sheet fills the inset box, so this leaves it
+                // centred — exactly where it was drawn before.
+                py = -(h - clamped[1]) / 2 + h * (MODAL_INSET / 2)
               } else if (p.panelType === 'popover') {
                 // A popover is anchored to its source rather than centred, and
                 // `arrowEdge` names the side the arrow comes OUT of — so the
@@ -1552,6 +1563,20 @@ function Window3D({ window: win, items, previewPosition }) {
                       size={clamped}
                       scene={scene}
                     />
+                  )}
+                  {/* The grabber. A sheet asking for a visible drag indicator
+                      got one on the device and nothing here until AUDIT #30.
+                      36x5pt, the metric iOS uses, a little below the sheet's
+                      top edge.
+
+                      Spelled without a leading dot on purpose: the parity scan
+                      matches `.fieldName` as text, so writing the modifier out
+                      in a comment would let it pass for the code below. */}
+                  {p.panelType === 'sheet' && sheetDragIndicatorVisible(p.presentationDragIndicator) && (
+                    <mesh position={[px, py + clamped[1] / 2 - ptToUnits(11), 0.06]}>
+                      <shapeGeometry args={[roundedRectShape(ptToUnits(36), ptToUnits(5), ptToUnits(2.5))]} />
+                      <meshBasicMaterial color={resolveSemantic('separator', scene)} transparent opacity={0.9} />
+                    </mesh>
                   )}
                 </group>
               )

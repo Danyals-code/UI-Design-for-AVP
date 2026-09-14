@@ -704,16 +704,28 @@ ordinary child on screen and presented modally in the code - the wrong
 stops consulting the shared set or starts keeping its own copy.
 
 They are not all presented the same way, so the canvas does not place them the
-same way: **modals** (sheet, alert, confirmationdialog) sit centred over a
-dimmed plate; a **popover** hangs off the edge its `popoverArrowEdge` points
+same way: **modals** (sheet, alert, confirmationdialog) sit over a dimmed
+plate - alerts and dialogues centred, a **sheet** resting at the height its
+detent names, measured up from the bottom edge; a **popover** hangs off the
+edge its `popoverArrowEdge` points
 from, with an arrow drawn there (narrower for a `point` anchor); an
 **inspector** is a trailing column with a divider and no dimming, because it
 is not modal - and it narrows the body the modals centre in, the way a real
 split view does.
 
 #### `sheet`
-- **Default:** 600×400, `sheetDetent: 'large'`, `sheetFraction: 0.7`, material `'regular'`, optional `presentationDragIndicator`, `presentationCornerRadius`, `interactiveDismissDisabled`.
+- **Default:** 600×400, `sheetDetent: 'large'`, `sheetFraction: 0.5`, `sheetHeight: 320`, material `'regular'`, optional `presentationDragIndicator`, `presentationCornerRadius`, `interactiveDismissDisabled`.
 - **Emit:** Attached as `.sheet(isPresented: ...) { … }` on the parent view.
+- **Detents size the sheet on both sides.** The detent is a height measured
+  from the bottom of the container - `.medium` is half of it, `.fraction(f)` is
+  `f` of it, `.height(n)` is `n` points, `.large` is as tall as the canvas
+  draws a modal. The fraction and height fallbacks are the exporter's own
+  (`?? 0.5`, `?? 320`) so a sheet missing the field resolves to the same number
+  either way.
+- **`presentationDragIndicator`** draws the grabber when it is `visible`.
+  `automatic` draws none: the system decides from the number of detents and a
+  sheet here carries one - the same reason the exporter emits nothing for it.
+- **`presentationCornerRadius`** rounds the plate; `0` means no override.
 
 #### `popover`
 - **Default:** 260×180, color `'systemBackground'`, material `'thick'`, `popoverAnchor: 'rectBounds'`, `popoverArrowEdge: 'automatic'`.

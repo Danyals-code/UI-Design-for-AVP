@@ -97,11 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 617 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 633 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33).
+  +32 from #33 and +16 from #30).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1118,6 +1118,40 @@ it. Verified in the running app: a bar authored Done → Library → Cancel draw
 `ViewThatFits` boxed at 260 pt draws its medium branch and only that one,
 swapping to the narrow branch at 120 pt. Parity debt 20 → 17.
 
+**#30 — presentation metrics** ✅ **done**
+Four fields that reached the generated Swift and nothing on screen.
+
+- **`sheetFraction` / `sheetHeight`.** A detent is a *height* — where the sheet
+  rests, measured from the bottom of what it is presented over. The canvas
+  treated it as a nudge: every sheet drew at its own stored size and `.medium`
+  alone was pushed downward, so `.fraction(0.3)` and `.height(200)` were the
+  same box on screen and two different sheets on device. The detent now decides
+  the height, with the exporter's own fallbacks (`?? 0.5`, `?? 320`) so a sheet
+  missing the field resolves to the same number on both sides, and every sheet
+  bottom-anchors at the same margin — which leaves a `.large` sheet exactly
+  where it was drawn before.
+- **`presentationDragIndicator`.** The grabber now draws, at the 36×5pt metric
+  iOS uses. `.automatic` draws none: what the system decides from is the number
+  of detents, and every sheet here carries one — which is also why the exporter
+  emits nothing for it.
+- **`presentationCornerRadius`.** The plate rounds by it. `0` means "no
+  override" on both sides.
+
+*A note on the harness.* The parity scan matches `.fieldName` as plain text, so
+a comment naming a modifier passes for the code that reads it — the first pass
+of this fix could have been deleted whole and the scan would still have called
+the field canvas-side. The two comments involved are now written without the
+leading dot, and say why. This is the second time that trap has cost something
+(see #31), and it is a property of the scan rather than of any one fix.
+
+*Acceptance:* 16 new tests — 11 on the detent and grabber rules, 5 on the seam
+(the number the canvas sizes from is the number in `.presentationDetents`, and
+the two chrome modifiers are emitted exactly when the canvas draws them). The
+canvas wiring was ripped out to confirm the harness flags all five sheet fields
+as undeclared without it. Verified in the app: three sheets at `.large`,
+`.fraction(0.3)` and `.height(200)` draw at three visibly different heights,
+bottom-aligned, each with a grabber and a 44pt corner. Parity debt 17 → 13.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1141,10 +1175,10 @@ not a plan but an ordering of what the triage left, worst first:
 ```
 ✅ #31 the styles bag        — done.
 ✅ #33 container chrome      — done.
-1  #30 presentation metrics  — two different detents look identical. ~1 day.
-2  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
-3  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
-4  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #30 presentation metrics  — done.
+1  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
+2  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
+3  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
@@ -1212,7 +1246,7 @@ six entries were shown not to be work.
 | # | Defect | Where | Sev |
 | - | ------ | ----- | --- |
 | 29 | **Ornament chrome is export-only.** `ornamentAnchorMode`, `ornamentContentAlignment` and `ornamentVisibility` all emit and none reaches the canvas — an ornament marked `.hidden` still draws, and one anchored `.parent()` draws scene-anchored. 3 fields. | `SceneTree.jsx` | Medium |
-| 30 | **Presentation metrics are export-only.** `presentationCornerRadius`, `presentationDragIndicator`, `sheetFraction` and `sheetHeight` all emit; the canvas uses the panel's own radius, draws no grabber, and sizes sheets from `sheetDetent` alone — so a `.fraction(0.3)` detent and a `.height(200)` one look identical on screen and differ on device. 4 fields. | `SceneTree.jsx`, `Panel3D.jsx` | Medium |
+| 30 | ~~**Presentation metrics are export-only.**~~ — **fixed.** A detent is now the sheet's height rather than a nudge, so `.fraction(0.3)` and `.height(200)` draw at the heights they ship at; the grabber draws when `presentationDragIndicator` asks for it, and `presentationCornerRadius` rounds the plate. 4 fields. | `appleSystem.js`, `SceneTree.jsx`, `Panel3D.jsx` | Medium |
 | 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
 | 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |

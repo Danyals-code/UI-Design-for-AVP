@@ -21,9 +21,10 @@ import {
   PICKER_STYLES, MENU_STYLES,
   PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts,
   LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots,
-  TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf
+  TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf,
+  sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET
 } from './appleSystem'
-import { DEFAULT_STYLES, makeStack } from './store/factories'
+import { DEFAULT_STYLES, makeStack, makePanel } from './store/factories'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const scene = (over = {}) => ({ designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {}, ...over })
@@ -697,5 +698,94 @@ describe('TOOLBAR_PLACEMENTS', () => {
 
   it('offers the placement the factory starts an item on', () => {
     expect(Object.keys(TOOLBAR_PLACEMENTS)).toContain(makeStack({ stackType: 'toolbarItem' }).toolbarPlacement)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Sheet detents size the sheet (AUDIT #30)
+//
+// A detent is a height, and the canvas treated it as a nudge: every sheet was
+// drawn at its own stored size and `.medium` alone was pushed downward. So
+// `.fraction(0.3)` and `.height(200)` — two sheets a device draws at visibly
+// different heights — were the same box on screen, and the inspector's
+// Fraction and Height fields changed the generated file and nothing else.
+// ---------------------------------------------------------------------------
+describe('sheetDetentHeight', () => {
+  // A 1000pt-tall container, in the scene units the canvas measures in — so a
+  // point height and a fraction of the container are directly comparable.
+  const H = ptToUnits(1000)
+  const cap = H * (1 - MODAL_INSET)
+
+  it('gives .large the whole box the canvas will draw a modal in', () => {
+    expect(sheetDetentHeight({ detent: 'large' }, H)).toBeCloseTo(cap, 9)
+  })
+
+  it('gives .medium half the container', () => {
+    expect(sheetDetentHeight({ detent: 'medium' }, H)).toBeCloseTo(ptToUnits(500), 9)
+  })
+
+  it('reads a fraction as a fraction of the container', () => {
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H)).toBeCloseTo(ptToUnits(300), 9)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.75 }, H)).toBeCloseTo(ptToUnits(750), 9)
+  })
+
+  it('reads a height in points', () => {
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 200 }, H)).toBeCloseTo(ptToUnits(200), 9)
+  })
+
+  it('draws two different detents at two different heights', () => {
+    // The defect in one line: these were the same box.
+    const frac = sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H)
+    const fixed = sheetDetentHeight({ detent: 'height', heightPt: 200 }, H)
+    expect(frac).not.toBeCloseTo(fixed, 6)
+  })
+
+  it('falls back to the numbers the exporter emits', () => {
+    // `?? 0.5` and `?? 320` in `emitPresentationModifier`.
+    for (const v of [undefined, null, NaN]) {
+      expect(sheetDetentHeight({ detent: 'fraction', fraction: v }, H))
+        .toBeCloseTo(sheetDetentHeight({ detent: 'fraction', fraction: 0.5 }, H), 9)
+      expect(sheetDetentHeight({ detent: 'height', heightPt: v }, H))
+        .toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 320 }, H), 9)
+    }
+  })
+
+  it('never draws a sheet taller than the window leaves room for', () => {
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 1 }, H)).toBeCloseTo(cap, 9)
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 2000 }, H)).toBeCloseTo(cap, 9)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: -1 }, H)).toBe(0)
+  })
+
+  it('treats an unrecognised detent as .large', () => {
+    for (const d of [undefined, null, '', 'nonsense']) {
+      expect(sheetDetentHeight({ detent: d }, H)).toBeCloseTo(cap, 9)
+    }
+  })
+
+  it('scales with the container it is presented over', () => {
+    expect(sheetDetentHeight({ detent: 'medium' }, ptToUnits(400))).toBeCloseTo(ptToUnits(200), 9)
+    // A point height does not — that is the difference between the two.
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 100 }, ptToUnits(400)))
+      .toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 100 }, ptToUnits(1000)), 9)
+  })
+})
+
+describe('sheetDragIndicatorVisible', () => {
+  it('draws the grabber only when the sheet asks for it', () => {
+    expect(sheetDragIndicatorVisible('visible')).toBe(true)
+    expect(sheetDragIndicatorVisible('hidden')).toBe(false)
+  })
+
+  it('draws none for .automatic, which is what one detent resolves to', () => {
+    // And what the exporter says by emitting nothing for it.
+    for (const v of ['automatic', undefined, null, '']) {
+      expect(sheetDragIndicatorVisible(v)).toBe(false)
+    }
+  })
+
+  it('agrees with the value the panel starts on', () => {
+    const sheet = makePanel('sheet', {})
+    expect(sheetDragIndicatorVisible(sheet.presentationDragIndicator)).toBe(false)
   })
 })

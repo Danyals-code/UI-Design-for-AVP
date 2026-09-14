@@ -24,7 +24,7 @@ import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
 import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
   isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
-  dateComponentsParts } from '../appleSystem'
+  dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1546,5 +1546,64 @@ describe('disclosure expansion survives the export', () => {
     expect(decls).toHaveLength(2)
     expect(decls.join(' ')).toContain('= true')
     expect(decls.join(' ')).toContain('= false')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The sheet chrome the canvas now draws is the chrome the file carries (#30)
+//
+// Four fields reached the generated Swift and nothing on screen. These check
+// the seam rather than either side alone: the number the canvas sizes a sheet
+// from is the number that lands in `.presentationDetents`, and the two chrome
+// modifiers are emitted exactly when the canvas draws them.
+// ---------------------------------------------------------------------------
+describe('sheet presentation metrics reach both sides', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const sheet = makePanel('sheet', { parentId: win.id, name: 'S', ...props })
+    return exportSwiftUI([tab, win, sheet], 'App', {}).map((f) => f.content).join('\n')
+  }
+  const H = ptToUnits(1000)
+
+  it('emits the detent the canvas sized the sheet from', () => {
+    for (const [props, detent] of [
+      [{ sheetDetent: 'large' }, '.large'],
+      [{ sheetDetent: 'medium' }, '.medium'],
+      [{ sheetDetent: 'fraction', sheetFraction: 0.3 }, '.fraction(0.3)'],
+      [{ sheetDetent: 'height', sheetHeight: 200 }, '.height(200)']
+    ]) {
+      expect(emit(props)).toContain(`.presentationDetents([${detent}])`)
+      // And the canvas has a height for it that is not just the panel's own.
+      expect(sheetDetentHeight({
+        detent: props.sheetDetent, fraction: props.sheetFraction, heightPt: props.sheetHeight
+      }, H)).toBeGreaterThan(0)
+    }
+  })
+
+  it('sizes .fraction(0.3) and .height(200) differently on both sides', () => {
+    // The user-visible defect: two sheets that ship at different heights and
+    // drew as the same box.
+    const a = emit({ sheetDetent: 'fraction', sheetFraction: 0.3 })
+    const b = emit({ sheetDetent: 'height', sheetHeight: 200 })
+    expect(a).not.toBe(b)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H))
+      .not.toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 200 }, H), 6)
+  })
+
+  it('emits the grabber exactly when the canvas draws one', () => {
+    for (const v of ['visible', 'hidden', 'automatic']) {
+      const swift = emit({ presentationDragIndicator: v })
+      const emitted = swift.includes('.presentationDragIndicator(.visible)')
+      expect(emitted, `${v}: canvas and export disagree about the grabber`)
+        .toBe(sheetDragIndicatorVisible(v))
+    }
+  })
+
+  it('emits the corner radius the canvas rounds the plate by', () => {
+    expect(emit({ presentationCornerRadius: 36 })).toContain('.presentationCornerRadius(36)')
+    // 0 means "no override" on both sides — the plate keeps its own radius.
+    expect(emit({ presentationCornerRadius: 0 })).not.toContain('.presentationCornerRadius(')
   })
 })
