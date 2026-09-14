@@ -339,10 +339,10 @@ superset of all stack-type fields; the inspector and exporter consult
 | `grid` | 2D grid; `columns` + `gridMode` ('fixed' \| 'adaptive'). |
 | `lazyvstack`, `lazyhstack`, `lazyVGrid`, `lazyHGrid` | Lazy variants. |
 | `scrollView` | `scrollAxis`, `scrollShowsIndicators`. |
-| `viewThatFits` | `fitsAxes`: `'both'` \| `'horizontal'` \| `'vertical'`. |
+| `viewThatFits` | `fitsAxes`: `'both'` \| `'horizontal'` \| `'vertical'`. Both sides measure with it: the canvas draws the one branch that fits, as the runtime would. |
 | `section`, `disclosure` | Section header/footer, disclosure expanded state. |
 | `navigationStack`, `tabView`, `tab` | `activeChild` / `activeTab` / `tabLabel` / `tabIcon`. |
-| `toolbar`, `toolbarItem`, `toolbarItemGroup` | `toolbarPlacement` per `TOOLBAR_PLACEMENTS`. |
+| `toolbar`, `toolbarItem`, `toolbarItemGroup` | `toolbarPlacement` per `TOOLBAR_PLACEMENTS`, which also carries the zone the canvas draws the item in. A bar runs leading \| principal \| trailing regardless of tree order. |
 
 ### Defaults (superset)
 
@@ -363,16 +363,16 @@ superset of all stack-type fields; the inspector and exporter consult
 | `minColumnWidth` | `140pt` | Adaptive grid minimum. |
 | `scrollAxis` | `'vertical'` | ScrollView axis. Read literally by both sides — an HStack marked scrollable with the default axis scrolls *vertically*, because that is what it exports. |
 | `scrollShowsIndicators` | `true` | Shows the scroll thumb on the canvas and `showsIndicators:` on export. |
-| `fitsAxes` | `'both'` | ViewThatFits axes. |
+| `fitsAxes` | `'both'` | ViewThatFits axes, measured on the canvas as well as emitted. An axis outside the set is not measured, so everything fits on it. |
 | `sectionHeader`, `sectionFooter` | `''`, `''` | Section text. |
-| `expanded` | `false` | Disclosure default. |
+| `expanded` | `false` | Disclosure default. The canvas lays the group out from it and the export seeds `@State private var isExpanded_…` from it, so an opened group ships open. |
 | `activeChild`, `activeTab` | `0`, `0` | NavStack / TabView active index. |
 | `ornament` | `null` | Anchor edge name when this stack is an ornament. |
 | `ornamentAnchorMode` | `'scene'` | `'scene'` \| `'parent'`. |
 | `ornamentContentAlignment` | `'center'` | |
 | `ornamentVisibility` | `'automatic'` | |
 | `ornamentOffset` | `0` | |
-| `toolbarPlacement` | `'automatic'` | Drives `ToolbarItem(placement: …)`. |
+| `toolbarPlacement` | `'automatic'` | Drives `ToolbarItem(placement: …)` and the bar zone the canvas draws the item in. `.bottomBar` / `.bottomOrnament` / `.keyboard` name a surface the canvas's single bar is not; it draws them in a row beneath it. |
 | `environment` | `DEFAULT_ENVIRONMENT` | Per-stack environment overrides. |
 | `modifiers` | `[]` | |
 

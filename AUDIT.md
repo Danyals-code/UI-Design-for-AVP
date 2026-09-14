@@ -97,10 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 570 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 617 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
-  had — +11 from 1.8, +9 from 1.9 and +14 from 1.5).
+  had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
+  +32 from #33).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1057,6 +1058,66 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 (frames, per-edge padding, real ScrollViews, free placement) and the 8/12 +
 11/15 codegen coverage.
 
+### Post-plan — the defects the triage left
+
+Every numbered phase above has landed, so what follows is the triaged tail
+being worked worst-first. Same rules: no emission that means nothing, and a
+field only leaves the ledger when both sides really carry it.
+
+**#31 — the `styles` bag** ✅ **done**
+`toggleStyle`, `labelStyle` and `textFieldStyle` now draw on the canvas. Four
+more keys in the bag turned out to be duplicates of top-level fields and were
+deleted rather than wired, with a migration lifting any saved value onto the
+field that survived.
+
+*A correction to this audit's own filing.* #31 was recorded as High on the
+strength of a claim that “18 labels across the shipped templates set
+`labelStyle: iconOnly` … every one draws its text on screen and hides it on
+device.” That was wrong. All 25 such labels also have empty text, which the
+canvas's existing `!panel.text` rule already drew icon-only, so **nothing
+shipped diverged**. The field was genuinely unwired; the templates were not
+the evidence.
+
+**#33 — container chrome** ✅ **done**
+Three fields, and the reason this one went first: each was *wrong* on screen or
+in the file rather than merely absent.
+
+- **`expanded`.** `DisclosureGroup(isExpanded:)` was bound to a `@State`
+  seeded `= false` no matter what the designer did, so a group opened on the
+  canvas — children laid out, sized, visible — shipped closed and its whole
+  section was missing from the app's first screen. The state now seeds from
+  the authored value. The fix is three words; the stateBag consumer already
+  understood the typed form, so nothing else had to move.
+- **`toolbarPlacement`.** The canvas had no toolbar layout at all: a `toolbar`
+  stack fell through to the VStack path and drew its items in a **vertical
+  column in creation order**, so a Cancel authored after a Done sat below it
+  here and to its left on device. Placements now name a zone and the bar fills
+  leading | principal | trailing, out of tree order, from one table that the
+  inspector's dropdown is also generated from — a placement cannot be offered
+  without somewhere to draw it. `ToolbarItem` and `ToolbarItemGroup` bodies
+  lay out across the bar too, for the same reason.
+  *Where honesty ran out:* `.bottomBar`, `.bottomOrnament` and `.keyboard`
+  name a surface a single bar is not. The canvas has one bar, so it gives them
+  a row beneath it. That is an approximation, not a match — but it keeps them
+  out of the top bar, which is the part that was plainly wrong.
+- **`fitsAxes`.** *Also a correction:* the defect index said the canvas
+  “picks a branch from the `activeChild` selector”. It did not — it Z-stacked
+  **every** candidate, so a container built to show one of three layouts drew
+  all three on top of each other and answered nothing. `ViewThatFits` now
+  measures: first candidate whose ideal size fits, axes limited to the `in:`
+  set, last one as the fallback when none fit — and its own size is the
+  branch it chose rather than the union of them all.
+
+*Acceptance:* 32 new tests — 12 on the fit rule and what the canvas draws, 10
+on the zone table and the bar, 5 on the disclosure state, plus the two
+cross-side checks that matter (the axis set the canvas measures is the one the
+exporter emits; the placement it zones is the one the generator spells). Each
+of the three fixes was reverted in turn to confirm the new tests fail without
+it. Verified in the running app: a bar authored Done → Library → Cancel draws
+**Cancel | Library | Done** with the ornament item on its own row, and a
+`ViewThatFits` boxed at 260 pt draws its medium branch and only that one,
+swapping to the narrow branch at 120 pt. Parity debt 20 → 17.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1079,16 +1140,16 @@ not a plan but an ordering of what the triage left, worst first:
 
 ```
 ✅ #31 the styles bag        — done.
-1  #33 container chrome      — an opened disclosure exports closed. Half a day.
-2  #30 presentation metrics  — two different detents look identical. ~1 day.
-3  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
-4  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
-5  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #33 container chrome      — done.
+1  #30 presentation metrics  — two different detents look identical. ~1 day.
+2  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
+3  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
+4  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
-#33 leads not because it is large — it is the smallest — but because it is
-*wrong* rather than absent: a disclosure the designer opened exports closed.
+#33 led not because it was large — it was the smallest — but because it was
+*wrong* rather than absent: a disclosure the designer opened exported closed.
 
 Rationale for putting Stage 2's first two phases before most of Stage 1: 2.1
 and 2.2 are where the *credibility* of the export lives — a generated file that
@@ -1154,7 +1215,7 @@ six entries were shown not to be work.
 | 30 | **Presentation metrics are export-only.** `presentationCornerRadius`, `presentationDragIndicator`, `sheetFraction` and `sheetHeight` all emit; the canvas uses the panel's own radius, draws no grabber, and sizes sheets from `sheetDetent` alone — so a `.fraction(0.3)` detent and a `.height(200)` one look identical on screen and differ on device. 4 fields. | `SceneTree.jsx`, `Panel3D.jsx` | Medium |
 | 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
-| 33 | **Container chrome the canvas ignores.** `expanded` — the emitted `@State private var isExpanded_… = false` is hard-coded, so **a disclosure the designer opened exports closed**; `toolbarPlacement` — toolbar items draw in tree order whatever placement says; `fitsAxes` — ViewThatFits picks a branch from the `activeChild` selector rather than measuring. 3 fields. | `export/swiftui.js`, `SceneTree.jsx` | Medium |
+| 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |
 | 34 | **Three canvas gaps with no common cause.** `boxCornerRadius` (the box primitive draws sharp edges; needs a rounded-box geometry), `depth` (2D panels draw flat and ignore `.frame(depth:)`), `iconName` (contentUnavailable draws a generic glyph rather than the named symbol). 3 fields. | `Panel3D.jsx` | Low |
 | 35 | **A stack with blur OFF still exports a frosted Material.** The toggle says the background is not frosted and `.background(.thickMaterial)` is emitted regardless. Fixable by emitting the resolved colour when the toggle is off — the blur *radius* beside it is exempt, since Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |
 
@@ -1222,6 +1283,8 @@ empty intersection are the inert set.
 `{SceneTree, layout, Panel3D}` vs `{swiftui, panels/registry, realitykit}`.
 Today that yields:
 
+When the audit was written that yielded:
+
 ```
 stack   CANVAS ONLY : paddingEdges, fixedWidth, fixedHeight, widthMode,
                       heightMode, blur, blurAmount, expanded, activeChild, activeTab
@@ -1230,6 +1293,16 @@ stack   CANVAS ONLY : paddingEdges, fixedWidth, fixedHeight, widthMode,
 window  CANVAS ONLY : fillOpacity, blur, blurAmount, scrollY
         EXPORT ONLY : volumeDepthMeters, worldScalingBehavior,
                       volumeWorldAlignment, supportedVolumeViewpoints
+```
+
+What is left of those two lists today — the rest either closed or was ruled an
+honest exemption, each one declared with its reason in the ledger:
+
+```
+stack   CANVAS ONLY : blur (#35)
+        EXPORT ONLY : ornamentAnchorMode, ornamentContentAlignment,
+                      ornamentVisibility (#29)
+window  EXPORT ONLY : volumeDepthMeters, supportedVolumeViewpoints (#32)
 ```
 
 This exact computation is what `src/parity.test.js` runs, with the results

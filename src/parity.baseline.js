@@ -59,7 +59,6 @@ export const STACK = {
   blurAmount: ex('canvas-only: SwiftUI Materials are fixed tiers with no radius control, so the tier is the only granularity that round-trips; the canvas exposes a continuous knob because three.js can render one'),
 
   // -- disclosure -----------------------------------------------------------
-  expanded: debt('canvas-only: the emitted `@State private var isExpanded_… = false` is hard-coded, so a disclosure open on the canvas exports closed', 33),
 
   // -- ornaments ------------------------------------------------------------
   ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()', 29),
@@ -75,8 +74,6 @@ export const STACK = {
   // `scrollShowsIndicators` left this table in phase 1.4: a scrollable stack
   // now draws a real scroll thumb, and both sides read the field to decide
   // whether to show it.
-  toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement', 33),
-  fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes', 33),
 
   // -- environment ----------------------------------------------------------
   // The whole section left this table in phase 1.5 (AUDIT #13). Font,
@@ -349,4 +346,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 20
+export const DEBT_CEILING = 17

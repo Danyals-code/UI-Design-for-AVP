@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeSize, layoutStack, resolvedChildSizes, gridColumnCount, SYSTEM_SPACING_PT,
-  scrollAxesOf, mirroredAlignment
+  scrollAxesOf, mirroredAlignment, viewThatFitsIndex
 } from './layout'
 import { ptToUnits } from './appleSystem'
 import { makeStack, makePanel, makeTab, makeWindow, textStyleToFontSize } from './store/factories'
@@ -702,5 +702,220 @@ describe('an RTL stack lays its children out mirrored', () => {
 
   it('leaves a centred child where it was', () => {
     expect(columnAt('center', 'rightToLeft')).toBeCloseTo(columnAt('center', 'leftToRight'), 9)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// ViewThatFits draws the branch that ships (AUDIT #33)
+//
+// The container's whole purpose is to answer "which of these layouts survives
+// at this size". The canvas used to Z-stack every candidate, so it drew all of
+// them at once and answered nothing; `fitsAxes` was read by the exporter alone.
+// ---------------------------------------------------------------------------
+describe('viewThatFitsIndex', () => {
+  const sizes = [[10, 10], [4, 10], [2, 2]]
+
+  it('takes the first candidate that fits both axes', () => {
+    expect(viewThatFitsIndex('both', sizes, 5, 20)).toBe(1)
+    expect(viewThatFitsIndex('both', sizes, 20, 20)).toBe(0)
+  })
+
+  it('ignores the axis the in: set leaves out', () => {
+    // Height 10 blows the 5-unit box, but `in: .horizontal` never measures it.
+    expect(viewThatFitsIndex('horizontal', sizes, 20, 5)).toBe(0)
+    expect(viewThatFitsIndex('vertical', sizes, 1, 20)).toBe(0)
+  })
+
+  it('falls back to the last candidate when none of them fit', () => {
+    // SwiftUI shows the last one anyway rather than drawing nothing.
+    expect(viewThatFitsIndex('both', sizes, 1, 1)).toBe(2)
+  })
+
+  it('treats a missing axis set as both, the way `in:` defaults', () => {
+    expect(viewThatFitsIndex(undefined, sizes, 5, 20)).toBe(viewThatFitsIndex('both', sizes, 5, 20))
+  })
+
+  it('has nothing to pick from an empty container', () => {
+    expect(viewThatFitsIndex('both', [], 10, 10)).toBe(-1)
+  })
+})
+
+describe('a ViewThatFits on the canvas', () => {
+  // Three candidates, widest first — the shape the container is built for.
+  const build = (props = {}) => {
+    const vtf = makeStack({ stackType: 'viewThatFits', padding: 0, spacing: 0, ...props })
+    const wide   = makePanel('rectangle', { parentId: vtf.id, name: 'wide',   size: [ptToUnits(300), ptToUnits(40)] })
+    const medium = makePanel('rectangle', { parentId: vtf.id, name: 'medium', size: [ptToUnits(180), ptToUnits(40)] })
+    const narrow = makePanel('rectangle', { parentId: vtf.id, name: 'narrow', size: [ptToUnits(60),  ptToUnits(40)] })
+    return { vtf, wide, medium, narrow, items: [vtf, wide, medium, narrow] }
+  }
+  const shown = (t, outer) => {
+    const pos = layoutStack(t.vtf, t.items, outer)
+    return t.items.filter((c) => c.parentId === t.vtf.id && pos.has(c.id)).map((c) => c.name)
+  }
+
+  it('draws one branch, not all of them stacked', () => {
+    const t = build()
+    expect(shown(t, computeSize(t.vtf, t.items))).toHaveLength(1)
+  })
+
+  it('measures as the branch it chose, not as the widest one', () => {
+    // Unconstrained, the first candidate wins and the container is its size.
+    const t = build()
+    expect(computeSize(t.vtf, t.items)[0]).toBeCloseTo(ptToUnits(300), 9)
+    // Boxed at 200pt, the 180pt branch is the one that fits, and the box
+    // reports the height of THAT branch rather than the union of all three.
+    const boxed = build({ widthMode: 'fixed', fixedWidth: 200 })
+    expect(shown(boxed, computeSize(boxed.vtf, boxed.items))).toEqual(['medium'])
+  })
+
+  it('swaps branch as the space it is given shrinks', () => {
+    const t = build()
+    expect(shown(t, [ptToUnits(400), ptToUnits(40)])).toEqual(['wide'])
+    expect(shown(t, [ptToUnits(200), ptToUnits(40)])).toEqual(['medium'])
+    expect(shown(t, [ptToUnits(100), ptToUnits(40)])).toEqual(['narrow'])
+  })
+
+  it('keeps the widest branch when only the vertical axis is measured', () => {
+    // `in: .vertical` is the difference between showing `wide` and `narrow`
+    // in a 100pt-wide box — the field the exporter was carrying alone.
+    const t = build({ fitsAxes: 'vertical' })
+    expect(shown(t, [ptToUnits(100), ptToUnits(40)])).toEqual(['wide'])
+  })
+
+  it('shows something even when nothing fits', () => {
+    const t = build()
+    expect(shown(t, [ptToUnits(10), ptToUnits(10)])).toEqual(['narrow'])
+  })
+
+  it('sizes the branch it positioned', () => {
+    // The agreement invariant, for the one child that survives.
+    const t = build()
+    const outer = [ptToUnits(200), ptToUnits(40)]
+    const pos = layoutStack(t.vtf, t.items, outer)
+    const sizes = resolvedChildSizes(t.vtf, t.items, outer)
+    for (const id of pos.keys()) expect(sizes.has(id)).toBe(true)
+  })
+
+  it('agrees with the axis set the exporter emits', () => {
+    for (const [fitsAxes, arg] of [['both', ''], ['horizontal', '(in: .horizontal)'], ['vertical', '(in: .vertical)']]) {
+      const tab = makeTab({ name: 'T' })
+      const win = makeWindow({ name: 'W', parentId: tab.id })
+      const vtf = makeStack({ stackType: 'viewThatFits', parentId: win.id, name: 'V', fitsAxes })
+      const kid = makePanel('rectangle', { parentId: vtf.id, size: [ptToUnits(50), ptToUnits(50)] })
+      const swift = exportSwiftUI([tab, win, vtf, kid], 'App', {}).map((f) => f.content).join('\n')
+      expect(swift, `${fitsAxes} exports the wrong axis set`).toContain(`ViewThatFits${arg} {`)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Toolbar items sit where their placement says (AUDIT #33)
+//
+// `.toolbar` fills the bar leading -> principal -> trailing whatever order the
+// items were written in. The canvas had no toolbar layout: a toolbar stack fell
+// through to the VStack path and drew a vertical column in creation order, so
+// `toolbarPlacement` changed the generated Swift and nothing on screen.
+// ---------------------------------------------------------------------------
+describe('a toolbar lays its items out by placement', () => {
+  const build = (placements, size = [100, 30]) => {
+    const bar = makeStack({ stackType: 'toolbar', padding: 0, spacing: 0, widthMode: 'fixed', fixedWidth: 600 })
+    const items = [bar]
+    for (const [name, toolbarPlacement] of placements) {
+      const item = makeStack({ stackType: 'toolbarItem', parentId: bar.id, name, toolbarPlacement, padding: 0, spacing: 0 })
+      items.push(item, makePanel('rectangle', { parentId: item.id, size: [ptToUnits(size[0]), ptToUnits(size[1])] }))
+    }
+    return { bar, items }
+  }
+  const xs = (t) => {
+    const pos = layoutStack(t.bar, t.items, computeSize(t.bar, t.items))
+    return t.items.filter((c) => c.parentId === t.bar.id).map((c) => [c.name, pos.get(c.id)[0]])
+  }
+
+  it('puts the leading item left of the trailing one, whatever the tree order', () => {
+    // Authored deliberately out of order: the confirm button first, cancel last.
+    const at = Object.fromEntries(xs(build([
+      ['Done', 'confirmationAction'],
+      ['Title', 'principal'],
+      ['Cancel', 'cancellationAction']
+    ])))
+    expect(at.Cancel).toBeLessThan(at.Title)
+    expect(at.Title).toBeLessThan(at.Done)
+  })
+
+  it('anchors each run to the edge its zone names', () => {
+    const t = build([['L', 'topBarLeading'], ['C', 'principal'], ['T', 'topBarTrailing']])
+    const [w] = computeSize(t.bar, t.items)
+    const half = ptToUnits(100) / 2
+    const at = Object.fromEntries(xs(t))
+    expect(at.L).toBeCloseTo(-w / 2 + half, 9)   // flush to the leading edge
+    expect(at.T).toBeCloseTo(w / 2 - half, 9)    // flush to the trailing edge
+    expect(at.C).toBeCloseTo(0, 9)               // centred between them
+  })
+
+  it('keeps two items in the same zone in tree order', () => {
+    const at = Object.fromEntries(xs(build([
+      ['First', 'topBarTrailing'],
+      ['Second', 'topBarTrailing']
+    ])))
+    expect(at.First).toBeLessThan(at.Second)
+  })
+
+  it('draws a bar as one row, not a column', () => {
+    const t = build([['L', 'topBarLeading'], ['T', 'topBarTrailing']])
+    const pos = layoutStack(t.bar, t.items, computeSize(t.bar, t.items))
+    const ys = t.items.filter((c) => c.parentId === t.bar.id).map((c) => pos.get(c.id)[1])
+    expect(new Set(ys.map((y) => y.toFixed(9))).size).toBe(1)
+    // And the bar is one item tall, not the sum of its items.
+    expect(computeSize(t.bar, t.items)[1]).toBeCloseTo(ptToUnits(30), 9)
+  })
+
+  it('takes the off-bar placements out of the bar', () => {
+    // `.bottomBar` / `.bottomOrnament` / `.keyboard` name another surface
+    // entirely; drawing them in the top bar was the part that was wrong.
+    const t = build([['Below', 'bottomBar'], ['Lead', 'topBarLeading'], ['Trail', 'topBarTrailing']])
+    const pos = layoutStack(t.bar, t.items, computeSize(t.bar, t.items))
+    const y = (n) => pos.get(t.items.find((c) => c.name === n).id)[1]
+    // Authored FIRST, and still under both bar items rather than above them.
+    expect(y('Lead')).toBeCloseTo(y('Trail'), 9)
+    expect(y('Below')).toBeLessThan(y('Lead'))
+    // Two rows are reserved and no more, whatever the bar holds.
+    expect(computeSize(t.bar, t.items)[1]).toBeCloseTo(ptToUnits(60), 9)
+  })
+
+  it('lays a ToolbarItemGroup out across the bar, not down it', () => {
+    const group = makeStack({ stackType: 'toolbarItemGroup', padding: 0, spacing: 0 })
+    const kids = ['a', 'b', 'c'].map((n) =>
+      makePanel('rectangle', { parentId: group.id, name: n, size: [ptToUnits(40), ptToUnits(30)] }))
+    const items = [group, ...kids]
+    const pos = layoutStack(group, items, computeSize(group, items))
+    const at = kids.map((k) => pos.get(k.id)[0])
+    expect(at).toEqual([...at].sort((a, b) => a - b))
+    expect(new Set(at).size).toBe(3)
+    expect(computeSize(group, items)[0]).toBeCloseTo(ptToUnits(120), 9)
+    expect(computeSize(group, items)[1]).toBeCloseTo(ptToUnits(30), 9)
+  })
+
+  it('sizes every item it positioned', () => {
+    const t = build([['L', 'topBarLeading'], ['C', 'principal'], ['B', 'keyboard']])
+    const outer = computeSize(t.bar, t.items)
+    const pos = layoutStack(t.bar, t.items, outer)
+    const sizes = resolvedChildSizes(t.bar, t.items, outer)
+    for (const id of pos.keys()) expect(sizes.has(id)).toBe(true)
+  })
+
+  it('zones the placement the exporter actually emits', () => {
+    // The two sides have to be reading the same string: the canvas zones by
+    // `toolbarPlacement` and the generator spells it into `placement:`.
+    for (const placement of ['topBarLeading', 'principal', 'confirmationAction', 'bottomBar']) {
+      const tab = makeTab({ name: 'T' })
+      const win = makeWindow({ name: 'W', parentId: tab.id })
+      const bar = makeStack({ stackType: 'toolbar', parentId: win.id, name: 'Bar' })
+      const item = makeStack({ stackType: 'toolbarItem', parentId: bar.id, name: 'I', toolbarPlacement: placement })
+      const kid = makePanel('button', { parentId: item.id, text: 'Go' })
+      const swift = exportSwiftUI([tab, win, bar, item, kid], 'App', {}).map((f) => f.content).join('\n')
+      expect(swift).toContain(`ToolbarItem(placement: .${placement}) {`)
+    }
   })
 })

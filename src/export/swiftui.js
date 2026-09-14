@@ -824,7 +824,11 @@ function renderStack(stack, items, pad, out, stateBag) {
   if (stack.stackType === 'disclosure') {
     const label = stack.disclosureLabel || 'Section'
     const stateVar = `isExpanded_${String(stack.id).replace(/[^A-Za-z0-9]/g, '_')}`
-    stateBag.push(stateVar)
+    // Seed the state from the authored value. A bare string in the bag
+    // becomes `= false`, so a DisclosureGroup the designer opened on the
+    // canvas used to export closed — the field was canvas-only for want of
+    // three words. AUDIT #33.
+    stateBag.push({ name: stateVar, type: 'Bool', default: String(!!stack.expanded) })
     out.push(`${ind}DisclosureGroup(isExpanded: $${stateVar}) {`)
     const kids = items.filter((c) => c.parentId === stack.id)
     for (const c of kids) {

@@ -1916,14 +1916,53 @@ export const NAVBAR_STYLE_SPECS = {
   backCapsuleTrailingButtons: { leading: 'backCapsule',  trailing: 'buttons', titleAlign: 'center', leadingEditable: false, trailingEditable: true  }
 }
 
-// SwiftUI ToolbarItem placements.
+// ---------------------------------------------------------------------------
+// Toolbar placements and the zones they name (AUDIT #33)
+//
+// `.toolbar { ToolbarItem(placement:) ... }` does not draw its items in the
+// order they were written. Each placement names a zone of a bar, and the bar
+// fills its zones leading -> principal -> trailing regardless of the order the
+// items appear in the closure. The canvas had no toolbar layout at all, so a
+// toolbar stack fell through to the VStack path and drew its items in a
+// vertical column in creation order: a Cancel authored after a Done sat below
+// it on the canvas and to its left on device.
+//
+// `bottom` is the zone for the three placements that name a surface a single
+// bar is not: `.bottomBar` and `.keyboard` sit at the far end of the screen and
+// `.bottomOrnament` floats below the window entirely. The canvas has one bar to
+// draw, so it draws those in a row beneath it rather than inside it - which at
+// least keeps them out of the top bar, where they were plainly wrong.
+//
+// Order here is the order the inspector lists them in; the list and the zone
+// table are the same object so a placement cannot be offered without a zone.
+export const TOOLBAR_ZONES = ['leading', 'principal', 'trailing', 'bottom']
+
 export const TOOLBAR_PLACEMENTS = {
-  topBarLeading:     { label: 'Top Bar Leading' },
-  topBarTrailing:    { label: 'Top Bar Trailing' },
-  principal:         { label: 'Principal (center)' },
-  bottomBar:         { label: 'Bottom Bar' },
-  confirmationAction:{ label: 'Confirmation Action' },
-  cancellationAction:{ label: 'Cancellation Action' }
+  // `.automatic` resolves per context. In a top bar it lands on the trailing
+  // edge, which is where the canvas draws it.
+  automatic:          { label: 'Automatic',           zone: 'trailing'  },
+  principal:          { label: 'Principal (center)',  zone: 'principal' },
+  topBarLeading:      { label: 'Top Bar Leading',     zone: 'leading'   },
+  topBarTrailing:     { label: 'Top Bar Trailing',    zone: 'trailing'  },
+  navigation:         { label: 'Navigation',          zone: 'leading'   },
+  bottomBar:          { label: 'Bottom Bar',          zone: 'bottom'    },
+  bottomOrnament:     { label: 'Bottom Ornament',     zone: 'bottom'    },
+  primaryAction:      { label: 'Primary Action',      zone: 'trailing'  },
+  secondaryAction:    { label: 'Secondary Action',    zone: 'trailing'  },
+  confirmationAction: { label: 'Confirmation Action', zone: 'trailing'  },
+  cancellationAction: { label: 'Cancellation Action', zone: 'leading'   },
+  destructiveAction:  { label: 'Destructive Action',  zone: 'trailing'  },
+  status:             { label: 'Status',              zone: 'principal' },
+  title:              { label: 'Title',               zone: 'principal' },
+  subtitle:           { label: 'Subtitle',            zone: 'principal' },
+  keyboard:           { label: 'Keyboard',            zone: 'bottom'    }
+}
+
+// The zone a placement draws in. An unrecognised placement is treated the way
+// `.automatic` is - the trailing edge is where a bar puts what it was not told
+// where to put.
+export function toolbarZoneOf(placement) {
+  return TOOLBAR_PLACEMENTS[placement]?.zone || 'trailing'
 }
 
 // ---------------------------------------------------------------------------

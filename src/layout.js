@@ -4,7 +4,7 @@
 
 import {
   ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight,
-  applyAspectRatio
+  applyAspectRatio, toolbarZoneOf
 } from './appleSystem'
 import { summarizeModifiers } from './modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from './text'
@@ -389,15 +389,39 @@ function computeIntrinsicSize(item, items) {
 
   let w, h
 
-  if (item.stackType === 'hstack' || item.stackType === 'lazyhstack') {
+  // A ToolbarItem's closure and a ToolbarItemGroup both hand the bar a run of
+  // views, and a bar draws a run side by side. They used to fall through to
+  // the VStack default and stack into a column. AUDIT #33.
+  if (item.stackType === 'hstack' || item.stackType === 'lazyhstack' ||
+      item.stackType === 'toolbarItem' || item.stackType === 'toolbarItemGroup') {
     w = sizes.reduce((s, [cw]) => s + cw, 0) + gap * Math.max(0, fixedChildren.length - 1) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
-  } else if (item.stackType === 'zstack' || item.stackType === 'viewThatFits') {
-    // ViewThatFits behaves like a ZStack at design-time: we lay out the
-    // first child at the parent size. Spec §1.24 — the runtime picks the
-    // first child that fits; on a static canvas all children stack.
+  } else if (item.stackType === 'zstack') {
     w = (sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : 0) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
+  } else if (item.stackType === 'viewThatFits') {
+    // A ViewThatFits is the size of the branch it chose, not the union of
+    // every branch it considered. With no proposal from above, each axis is
+    // unconstrained and everything fits, so the first candidate wins — which
+    // is also what the runtime does with an unconstrained proposal. A fixed
+    // frame on either axis IS the proposal for that axis, so a stack sized
+    // 200pt wide measures (and later draws) the branch that fits in 200pt.
+    const propW = fixedW != null ? fixedW - padW(pad) : Infinity
+    const propH = fixedH != null ? fixedH - padH(pad) : Infinity
+    const pick = viewThatFitsIndex(item.fitsAxes, sizes, propW, propH)
+    const [cw, ch] = sizes[pick] || [0, 0]
+    w = cw + padW(pad)
+    h = ch + padH(pad)
+  } else if (item.stackType === 'toolbar') {
+    // A bar is as wide as its three runs side by side and as tall as the
+    // tallest item in each row it draws. AUDIT #33.
+    const spans = toolbarZoneSpans(fixedChildren, sizes, gap)
+    const { barH, bottomH } = toolbarRowHeights(spans)
+    const runs = [spans.leading, spans.principal, spans.trailing].filter((r) => r.indices.length)
+    const barW = runs.reduce((acc, r) => acc + r.w, 0) + gap * Math.max(0, runs.length - 1)
+    const rows = [barH, bottomH].filter((x) => x > 0)
+    w = Math.max(barW, spans.bottom.w) + padW(pad)
+    h = rows.reduce((acc, x) => acc + x, 0) + gap * Math.max(0, rows.length - 1) + padH(pad)
   } else if (item.stackType === 'scrollView') {
     // ScrollView's intrinsic size mirrors its content along the cross axis
     // and 0 on the scroll axis (the parent decides). For canvas we treat
@@ -429,6 +453,63 @@ function computeIntrinsicSize(item, items) {
   }
 
   return [fixedW ?? w, fixedH ?? h]
+}
+
+// ---------------------------------------------------------------------------
+// ViewThatFits: which branch the runtime would show (AUDIT #33)
+//
+// `ViewThatFits(in:)` proposes the available space to each candidate in turn
+// and takes the FIRST whose ideal size fits along the declared axes; if none
+// fit, the last one is used anyway. The canvas used to Z-stack every candidate
+// so the designer could see them all, which meant a container built to show
+// one of three layouts drew all three on top of each other and nothing on the
+// canvas answered the only question the container exists to ask: which one
+// ships at this size.
+//
+// An axis the `in:` set leaves out is not measured, so everything fits on it —
+// that is what `in: .horizontal` means, and it is why the parameter is worth
+// having at all.
+export function viewThatFitsIndex(fitsAxes, sizes, proposalW, proposalH) {
+  if (sizes.length === 0) return -1
+  const axes = fitsAxes || 'both'
+  const checksW = axes === 'both' || axes === 'horizontal'
+  const checksH = axes === 'both' || axes === 'vertical'
+  for (let i = 0; i < sizes.length; i++) {
+    const [cw, ch] = sizes[i]
+    if (checksW && cw > proposalW + 1e-9) continue
+    if (checksH && ch > proposalH + 1e-9) continue
+    return i
+  }
+  return sizes.length - 1
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar zones: where each item sits in the bar (AUDIT #33)
+//
+// Groups a toolbar's children by the zone their `toolbarPlacement` names and
+// measures each group as a run. The bar draws leading | principal | trailing
+// on one row and the off-bar placements on a second; see `TOOLBAR_PLACEMENTS`
+// for why that second row exists.
+function toolbarZoneSpans(children, sizes, gap) {
+  const of = { leading: [], principal: [], trailing: [], bottom: [] }
+  children.forEach((c, i) => { of[toolbarZoneOf(c.toolbarPlacement)].push(i) })
+  const span = (idx) => ({
+    indices: idx,
+    w: idx.reduce((s, i) => s + sizes[i][0], 0) + gap * Math.max(0, idx.length - 1),
+    h: idx.length ? Math.max(...idx.map((i) => sizes[i][1])) : 0
+  })
+  return {
+    leading: span(of.leading),
+    principal: span(of.principal),
+    trailing: span(of.trailing),
+    bottom: span(of.bottom)
+  }
+}
+
+// The two rows a toolbar reserves: the bar itself, and anything placed off it.
+function toolbarRowHeights(spans) {
+  const barH = Math.max(spans.leading.h, spans.principal.h, spans.trailing.h)
+  return { barH, bottomH: spans.bottom.h }
 }
 
 // The size every caller should use: intrinsic, reshaped by `.aspectRatio`.
@@ -493,7 +574,11 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
     return out
   }
   // ScrollView contributes to fill-resolution along its scroll axis only.
+  // A toolbar is a horizontal bar, so a fill-width item in it takes a share of
+  // the slack rather than the whole width and flattening the other zones.
   const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   stack.stackType === 'toolbar' || stack.stackType === 'toolbarItem' ||
+                   stack.stackType === 'toolbarItemGroup' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
                    stack.stackType === 'section' || stack.stackType === 'disclosure' ||
@@ -728,9 +813,10 @@ export function layoutStack(stack, items, outerSize = null) {
   // remaining space with siblings). We mark main-axis-fill children here
   // and expand them later, the same way spacers are expanded.
   // ScrollView lays out like a VStack/HStack along its scroll axis — so
-  // we treat it as one for child positioning. ViewThatFits collapses to
-  // its first child (we render it ZStack-style on the canvas).
+  // we treat it as one for child positioning. ViewThatFits and toolbar
+  // stacks have branches of their own further down.
   const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   stack.stackType === 'toolbarItem' || stack.stackType === 'toolbarItemGroup' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
                    stack.stackType === 'section' || stack.stackType === 'disclosure' ||
@@ -813,8 +899,9 @@ export function layoutStack(stack, items, outerSize = null) {
     return out
   }
 
-  // ---- HStack / LazyHStack ----
-  if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack') {
+  // ---- HStack / LazyHStack / ToolbarItem / ToolbarItemGroup ----
+  if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+      stack.stackType === 'toolbarItem' || stack.stackType === 'toolbarItemGroup') {
     // Spacer expansion — a fill-width stack OR Text child is flexible like a
     // spacer on this axis, sharing what is left rather than claiming it all.
     const isFlex = (c) => c.isSpacer ||
@@ -855,10 +942,49 @@ export function layoutStack(stack, items, outerSize = null) {
     return out
   }
 
-  // ---- ZStack / ViewThatFits ----
-  // ViewThatFits picks one child at runtime — we Z-stack on canvas so all
-  // candidates remain visible to the designer.
-  if (stack.stackType === 'zstack' || stack.stackType === 'viewThatFits') {
+  // ---- ViewThatFits ----
+  // One branch is drawn, the one the runtime would keep: the first whose ideal
+  // size fits the space this stack was handed, measured only on the axes the
+  // `in:` set names. The rest are not positioned, so they are not rendered.
+  // AUDIT #33.
+  if (stack.stackType === 'viewThatFits') {
+    const ideals = children.map((c) => computeSize(c, items))
+    const pick = viewThatFitsIndex(stack.fitsAxes, ideals, innerW, innerH)
+    const chosen = children[pick]
+    if (chosen) out.set(chosen.id, [0, 0, 0])
+    return out
+  }
+
+  // ---- Toolbar ----
+  // Items go where their placement says, not where the tree put them: the bar
+  // runs leading | principal | trailing, and anything placed off the bar gets
+  // the row underneath. AUDIT #33.
+  if (stack.stackType === 'toolbar') {
+    const spans = toolbarZoneSpans(children, sizes, gap)
+    const { barH, bottomH } = toolbarRowHeights(spans)
+    const rows = [barH, bottomH].filter((x) => x > 0)
+    const totalH = rows.reduce((acc, x) => acc + x, 0) + gap * Math.max(0, rows.length - 1)
+    // The content band centres in the box, so a bar given more height than it
+    // needs sits in the middle of it rather than clinging to the top edge.
+    const barY = totalH / 2 - barH / 2
+    const bottomY = totalH / 2 - barH - gap - bottomH / 2
+    const placeRun = (run, x0, rowY) => {
+      let x = x0
+      for (const i of run.indices) {
+        const cw = sizes[i][0]
+        out.set(children[i].id, [x + cw / 2, rowY, 0])
+        x += cw + gap
+      }
+    }
+    placeRun(spans.leading,   -innerW / 2,                   barY)
+    placeRun(spans.principal, -spans.principal.w / 2,        barY)
+    placeRun(spans.trailing,  innerW / 2 - spans.trailing.w, barY)
+    placeRun(spans.bottom,    -spans.bottom.w / 2,           bottomY)
+    return out
+  }
+
+  // ---- ZStack ----
+  if (stack.stackType === 'zstack') {
     for (let i = 0; i < children.length; i++) {
       const [cw, ch] = sizes[i]
       let x = 0, y = 0

@@ -1490,3 +1490,61 @@ describe('the ornament offset reaches both sides', () => {
     expect(withOffset('bottom', 0)).not.toContain('.offset(')
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// A DisclosureGroup exports in the state it was left in (AUDIT #33)
+//
+// `isExpanded:` was bound to a `@State` seeded `= false` no matter what the
+// designer did, so a group opened on the canvas — contents laid out, sized and
+// visible — shipped closed, and the whole section was missing from the first
+// screen of the running app. The canvas has honoured `expanded` since the
+// beginning; this is the other half arriving.
+// ---------------------------------------------------------------------------
+describe('disclosure expansion survives the export', () => {
+  const emit = (expanded) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const d = makeStack({ parentId: win.id, name: 'D', stackType: 'disclosure', expanded })
+    const kid = makePanel('text', { parentId: d.id, text: 'Inside' })
+    return exportSwiftUI([tab, win, d, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('seeds the state true for a group the designer opened', () => {
+    expect(emit(true)).toMatch(/@State private var isExpanded_\w+: Bool = true/)
+  })
+
+  it('seeds it false for a group the designer closed', () => {
+    expect(emit(false)).toMatch(/@State private var isExpanded_\w+: Bool = false/)
+  })
+
+  it('binds the group to the variable it declared', () => {
+    const swift = emit(true)
+    const name = swift.match(/@State private var (isExpanded_\w+):/)[1]
+    expect(swift).toContain(`DisclosureGroup(isExpanded: $${name})`)
+  })
+
+  it('starts a new group open, the way the canvas draws it', () => {
+    // `makeStack` defaults `expanded`, and the two sides have to agree about
+    // what a group looks like before anyone touches the toggle.
+    const d = makeStack({ stackType: 'disclosure' })
+    expect(emit(d.expanded)).toMatch(
+      new RegExp(`@State private var isExpanded_\\w+: Bool = ${!!d.expanded}`)
+    )
+  })
+
+  it('keeps one variable per group', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const open = makeStack({ parentId: win.id, name: 'Open', stackType: 'disclosure', expanded: true })
+    const shut = makeStack({ parentId: win.id, name: 'Shut', stackType: 'disclosure', expanded: false })
+    const items = [tab, win, open, shut,
+      makePanel('text', { parentId: open.id, text: 'A' }),
+      makePanel('text', { parentId: shut.id, text: 'B' })]
+    const swift = exportSwiftUI(items, 'App', {}).map((f) => f.content).join('\n')
+    const decls = swift.match(/@State private var isExpanded_\w+: Bool = (true|false)/g)
+    expect(decls).toHaveLength(2)
+    expect(decls.join(' ')).toContain('= true')
+    expect(decls.join(' ')).toContain('= false')
+  })
+})

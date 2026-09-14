@@ -20,9 +20,10 @@ import {
   outlineVisibleRows,
   PICKER_STYLES, MENU_STYLES,
   PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts,
-  LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots
+  LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots,
+  TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf
 } from './appleSystem'
-import { DEFAULT_STYLES } from './store/factories'
+import { DEFAULT_STYLES, makeStack } from './store/factories'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const scene = (over = {}) => ({ designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {}, ...over })
@@ -638,5 +639,63 @@ describe('labelSlots', () => {
         expect(s.icon || s.title, `${style}/${hasText} draws nothing`).toBe(true)
       }
     }
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Toolbar placement zones (AUDIT #33)
+//
+// The canvas draws a toolbar item in the zone its placement names. The trap
+// this guards is the one #19 left behind: the zone table is keyed by string
+// literals, so a placement the inspector offers but the table has never heard
+// of would silently land on the trailing edge and nothing would fail. The
+// inspector and the table are now the same object, which is the only way to
+// keep that from happening again.
+// ---------------------------------------------------------------------------
+describe('TOOLBAR_PLACEMENTS', () => {
+  it('gives every placement it offers a zone to draw in', () => {
+    for (const [value, spec] of Object.entries(TOOLBAR_PLACEMENTS)) {
+      expect(TOOLBAR_ZONES, `'${value}' has no zone`).toContain(spec.zone)
+      expect(spec.label, `'${value}' has no label`).toBeTruthy()
+    }
+  })
+
+  it('uses every zone it declares', () => {
+    // A zone nothing maps to is dead geometry in the layout engine.
+    for (const zone of TOOLBAR_ZONES) {
+      const users = Object.values(TOOLBAR_PLACEMENTS).filter((s) => s.zone === zone)
+      expect(users.length, `nothing is placed in the '${zone}' zone`).toBeGreaterThan(0)
+    }
+  })
+
+  it('reads the placements whose names say where they go', () => {
+    expect(toolbarZoneOf('topBarLeading')).toBe('leading')
+    expect(toolbarZoneOf('topBarTrailing')).toBe('trailing')
+    expect(toolbarZoneOf('principal')).toBe('principal')
+  })
+
+  it('puts confirm on the trailing edge and cancel on the leading one', () => {
+    // The pair a designer is most likely to author in the wrong order, and
+    // the one the platform reorders for them.
+    expect(toolbarZoneOf('confirmationAction')).toBe('trailing')
+    expect(toolbarZoneOf('cancellationAction')).toBe('leading')
+  })
+
+  it('keeps the placements that name another surface off the bar', () => {
+    for (const p of ['bottomBar', 'bottomOrnament', 'keyboard']) {
+      expect(toolbarZoneOf(p), `${p} was drawn in the top bar`).toBe('bottom')
+    }
+  })
+
+  it('treats an unknown placement the way it treats .automatic', () => {
+    expect(toolbarZoneOf('automatic')).toBe('trailing')
+    for (const p of [undefined, null, '', 'nonsense']) {
+      expect(toolbarZoneOf(p)).toBe(toolbarZoneOf('automatic'))
+    }
+  })
+
+  it('offers the placement the factory starts an item on', () => {
+    expect(Object.keys(TOOLBAR_PLACEMENTS)).toContain(makeStack({ stackType: 'toolbarItem' }).toolbarPlacement)
   })
 })
