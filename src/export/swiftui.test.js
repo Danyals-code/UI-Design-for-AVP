@@ -26,7 +26,7 @@ import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFractio
   isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
   dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible,
   ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn,
-  resolveSemantic, buildDefaultSceneColors } from '../appleSystem'
+  resolveSemantic, buildDefaultSceneColors, VOLUME_PRESETS } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1762,5 +1762,71 @@ describe('a stack plate exports frosted only when it is frosted', () => {
     // would throw away the system's own light/dark behaviour.
     expect(emit({ background: 'systemBackground', blur: false }))
       .toContain('.background(Color(.systemBackground))')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// A volume is the box that was authored (AUDIT #32)
+//
+// `.defaultSize(width:height:depth:in:.meters)` used to receive the declared
+// depth three times, so a volume authored 0.9 x 0.6 shipped as a cube: the
+// canvas drew the authored box and the file asked for a different one. And
+// `volumeDepthMeters` reached the file alone — the canvas drew a volumetric
+// window's width and height and nothing at all in depth.
+// ---------------------------------------------------------------------------
+describe('a volumetric window exports the box it was drawn as', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id, windowStyle: 'volumetric', ...props })
+    const kid = makePanel('text', { parentId: win.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, kid], 'App', { sceneMode: 'volume' })
+      .map((f) => f.content).join('\n')
+  }
+  const sizeOf = (preset) => [ptToUnits(VOLUME_PRESETS[preset].width), ptToUnits(VOLUME_PRESETS[preset].height)]
+
+  it('carries the authored width and height, not the depth three times', () => {
+    const swift = emit({ size: sizeOf('large'), volumeDepthMeters: 0.4 })
+    expect(swift).toContain('.defaultSize(width: 0.9, height: 0.6, depth: 0.4, in: .meters)')
+  })
+
+  it('keeps the depth independent of the other two', () => {
+    const a = emit({ size: sizeOf('medium'), volumeDepthMeters: 0.3 })
+    const b = emit({ size: sizeOf('medium'), volumeDepthMeters: 1.2 })
+    expect(a).toContain('depth: 0.3,')
+    expect(b).toContain('depth: 1.2,')
+    // Same box otherwise — the depth is the only thing that moved.
+    expect(a.replace('depth: 0.3,', 'X')).toBe(b.replace('depth: 1.2,', 'X'))
+  })
+
+  it('emits a non-cube for a preset that is not a cube', () => {
+    // Every shipped preset is wider than it is tall, so a cube is always wrong.
+    for (const preset of Object.keys(VOLUME_PRESETS)) {
+      const swift = emit({ size: sizeOf(preset), volumeDepthMeters: 0.5 })
+      const m = /\.defaultSize\(width: ([\d.]+), height: ([\d.]+), depth: ([\d.]+),/.exec(swift)
+      expect(m, `${preset} emitted no volumetric defaultSize`).toBeTruthy()
+      expect(Number(m[1]), `${preset} exports square`).not.toBe(Number(m[2]))
+    }
+  })
+
+  it('agrees with the box the canvas measures', () => {
+    // The canvas draws the window's own size; scene units are metres, so the
+    // numbers in the file are the numbers on screen.
+    const [w, h] = sizeOf('large')
+    const swift = emit({ size: [w, h], volumeDepthMeters: 0.4 })
+    expect(swift).toContain(`width: ${Number(w.toFixed(3))}, height: ${Number(h.toFixed(3))}`)
+  })
+
+  it('falls back to a cube only when there is no size to read', () => {
+    const swift = emit({ size: null, volumeDepthMeters: 0.7 })
+    expect(swift).toContain('.defaultSize(width: 0.7, height: 0.7, depth: 0.7, in: .meters)')
+  })
+
+  it('leaves a flat window default size alone', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const kid = makePanel('text', { parentId: win.id, text: 'Hi' })
+    const swift = exportSwiftUI([tab, win, kid], 'App', {}).map((f) => f.content).join('\n')
+    expect(swift).not.toContain('in: .meters')
   })
 })

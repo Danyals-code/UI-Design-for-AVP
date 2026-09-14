@@ -127,15 +127,21 @@ export const WINDOW = {
   blur: shadowed('canvas-only: the shell draws the window surface, so there is no backdrop-blur toggle to emit', 'stack'),
   blurAmount: ex('canvas-only: same, and Materials carry no radius anywhere in SwiftUI'),
 
-  volumeDepthMeters: debt('export-only: the declared depth is a dimension the canvas could draw; it sizes the volume from the window instead', 32),
-  // The two below are runtime behaviours rather than geometry: how a volume
-  // rescales as the wearer walks toward it, and how it re-orients to gravity.
-  // The canvas has a fixed world and a camera the designer drives, so there
-  // is no such behaviour for it to show — it always renders at true scale in
-  // a world that never re-orients.
+  // The three below are runtime behaviours rather than geometry: how a volume
+  // rescales as the wearer walks toward it, how it re-orients to gravity, and
+  // which viewpoints its content is designed to be seen from. The canvas has a
+  // fixed world and a camera the designer drives, so there is no such behaviour
+  // for it to show — it always renders at true scale in a world that never
+  // re-orients, with no wearer whose viewpoint can change.
   worldScalingBehavior: ex('export-only: a runtime rescaling behaviour; the canvas always renders at true scale'),
   volumeWorldAlignment: ex('export-only: a runtime re-orientation; the canvas world never re-orients'),
-  supportedVolumeViewpoints: debt('export-only: which sides the wearer may view from — Preview could bound the orbit, though editor mode must stay free', 32),
+  // This audit's own triage said Preview could bound the orbit for this one.
+  // It could, and it would be wrong: `.supportedVolumeViewpoints` does not
+  // fence the wearer in. It declares which viewpoints the content is built
+  // for, so the system can tell the app when the wearer moves to another and
+  // let it re-face its content. Clamping a camera would model a restriction
+  // the API does not impose. AUDIT #32.
+  supportedVolumeViewpoints: ex('export-only: declares which viewpoints the content supports so the runtime can report a change; a still canvas has no wearer to report'),
 
   // `spatial` and `environment` left this table in phase 1.5 (AUDIT #13).
   //
@@ -358,4 +364,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 6
+export const DEBT_CEILING = 4

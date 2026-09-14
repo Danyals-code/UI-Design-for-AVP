@@ -97,11 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 668 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 674 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35).
+  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35 and +6 from #32).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1246,6 +1246,40 @@ out of symmetry and which nothing emits on either item type.
 *Acceptance:* 6 new exporter tests plus the shadowed-entry check; the fix was
 reverted to confirm three of them fail without it. Parity debt 7 → 6.
 
+**#32 — volume geometry** ✅ **done**
+Two fields, and they landed on opposite sides of the line.
+
+- **`volumeDepthMeters` was two defects, not one.** The canvas drew a
+  volumetric window's width and height and *nothing at all* in depth, so a
+  designer authoring a volume had no way to see the box their entities had to
+  fit inside — a volumetric window hides its plate by default, which left an
+  empty stage with no edges. And the exporter emitted the declared depth three
+  times: `.defaultSize(width: d, height: d, depth: d, in: .meters)`, so a
+  volume authored 0.9 × 0.6 shipped as a cube. Now the canvas draws the bounds
+  — faintly, as editor chrome, because visionOS paints no wall around a volume
+  and that is rather the point of one — and the export carries the window's own
+  width and height beside the depth. Scene units are metres, so the numbers in
+  the file are the numbers on screen with no conversion.
+- **`supportedVolumeViewpoints` is an exemption.** *A third correction to this
+  audit's own triage,* which said Preview could bound the orbit. It could, and
+  it would be wrong: the modifier does not fence the wearer in. It declares
+  which viewpoints the content is built for, so the system can tell the app
+  when the wearer moves to another and let it re-face its content. Clamping a
+  camera would model a restriction the API does not impose — so it joins
+  `worldScalingBehavior` and `volumeWorldAlignment` as a runtime behaviour a
+  still canvas has no wearer for.
+
+*Acceptance:* 6 new exporter tests, including one that asserts no shipped
+volume preset exports square. Both halves were reverted in turn — the export
+one fails four tests, the canvas one puts `volumeDepthMeters` back in front of
+the harness as undeclared. Verified in the app: a volumetric window draws a
+bounds box that recedes visibly further at 1.6 m than at 0.5 m.
+
+**Parity debt is now 4, and all four are #5** — `fontDesign` and
+`monospacedDigit`, on the modifier and on the panel, blocked on shipping a
+rounded / serif / mono face. Everything the triage found that could be closed
+without new assets is closed.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1273,8 +1307,9 @@ not a plan but an ordering of what the triage left, worst first:
 ✅ #29 ornament chrome       — done.
 ✅ #34 three unrelated gaps  — done.
 ✅ #35 unblurred stack exports a Material — done.
-1  #32 volume geometry. Half a day.
-—  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
+✅ #32 volume geometry      — done.
+—  #5  fontDesign / monospacedDigit — blocked on shipping font assets, and the
+       only parity debt left.
 ```
 
 #33 led not because it was large — it was the smallest — but because it was
@@ -1343,7 +1378,7 @@ six entries were shown not to be work.
 | 29 | ~~**Ornament chrome is export-only.**~~ — **fixed, two of three.** A hidden ornament no longer draws and no longer takes a slot on its edge, and `ornamentContentAlignment` slides the ornament along its anchor point instead of nine values drawing one picture. `ornamentAnchorMode` is now an exemption rather than debt: both anchors name the window frame, the only place either side puts an ornament. 3 fields. | `appleSystem.js`, `SceneTree.jsx` | Medium |
 | 30 | ~~**Presentation metrics are export-only.**~~ — **fixed.** A detent is now the sheet's height rather than a nudge, so `.fraction(0.3)` and `.height(200)` draw at the heights they ship at; the grabber draws when `presentationDragIndicator` asks for it, and `presentationCornerRadius` rounds the plate. 4 fields. | `appleSystem.js`, `SceneTree.jsx`, `Panel3D.jsx` | Medium |
 | 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
-| 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
+| 32 | ~~**Volume geometry is export-only.**~~ — **fixed, one of two.** A volumetric window now draws its own bounds, depth included, and the export carries the authored width and height instead of the depth three times. `supportedVolumeViewpoints` becomes an exemption: it declares which viewpoints the content supports so the runtime can report a change, and a still canvas has no wearer to report. 2 fields. | `SceneTree.jsx`, `export/swiftui.js` | Low |
 | 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |
 | 34 | ~~**Three canvas gaps with no common cause.**~~ — **fixed.** `boxCornerRadius` rounds the box on the canvas as `generateBox(cornerRadius:)` does on device; `depth` draws the Z-box `.frame(depth:)` reserves while the object is selected; `iconName` turned out to be a second home for `symbolName` and was deleted, with a migration. 3 fields. | `Panel3D.jsx`, `Entity3D.jsx`, `panels/registry.js` | Low |
 | 35 | ~~**A stack with blur OFF still exports a frosted Material.**~~ — **fixed.** With the toggle off the exporter emits the colour the canvas resolved the token to, because SwiftUI has no unfrosted Material. The blur *radius* stays exempt: Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |

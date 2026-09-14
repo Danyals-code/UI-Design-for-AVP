@@ -1312,8 +1312,15 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
       // when the user provided a depth, plus the world-scaling/baseplate
       // /alignment/viewpoints modifiers.
       sceneLines.push(`        .windowStyle(.volumetric)`)
+      // A volume is the window's own width and height plus the declared
+      // depth. This used to emit the depth three times, so a volume authored
+      // 0.9 x 0.6 shipped as a cube — the canvas drew the authored box and the
+      // file asked for a different one. Scene units are metres already.
+      // AUDIT #32.
       const depth = firstWindow.volumeDepthMeters ?? 1.0
-      sceneLines.push(`        .defaultSize(width: ${depth}, height: ${depth}, depth: ${depth}, in: .meters)`)
+      const [volW, volH] = Array.isArray(firstWindow.size) ? firstWindow.size : [depth, depth]
+      const m = (v) => Number(v.toFixed(3))
+      sceneLines.push(`        .defaultSize(width: ${m(volW)}, height: ${m(volH)}, depth: ${depth}, in: .meters)`)
       if (firstWindow.worldScalingBehavior && firstWindow.worldScalingBehavior !== 'automatic') {
         sceneLines.push(`        .defaultWorldScalingBehavior(.${firstWindow.worldScalingBehavior})`)
       }

@@ -188,7 +188,7 @@ shared helper, so the two cannot disagree).
 | `windowStyle` | `'automatic'` | `'automatic'` \| `'plain'` \| `'volumetric'` - drives `.windowStyle()` on export. |
 | `scrollable` | `false` | When true the canvas wires a wheel handler that drives `scrollY`, and the SwiftUI exporter wraps content in `ScrollView`. |
 | `scrollY` | `0` (units) | Vertical scroll offset of the content sub-group. Only consulted when `scrollable` is true. Bounds-clamped to `[0, contentHeight − innerHeight]`. |
-| `volumeDepthMeters` | `0.6` | `.defaultSize` depth in metres when volumetric. |
+| `volumeDepthMeters` | `0.6` | `.defaultSize` depth in metres when volumetric. The canvas draws the volume's bounds from it — faintly, as editor chrome, since visionOS paints no wall around a volume. The width and height of `.defaultSize` come from the window's own size, not from this. |
 | `worldScalingBehavior` | `'automatic'` | `.defaultWorldScalingBehavior(...)`. |
 | `volumeBaseplateVisibility` | `'automatic'` | `'automatic'` \| `'visible'` \| `'hidden'`. |
 | `volumeWorldAlignment` | `'adaptive'` | visionOS 2+ default; or `'gravityAligned'`. |

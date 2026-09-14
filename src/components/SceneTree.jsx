@@ -1373,6 +1373,25 @@ function Window3D({ window: win, items, previewPosition }) {
         </mesh>
       )}
 
+      {/* The volume's own bounds. `volumeDepthMeters` is the Z half of what
+          `.defaultSize(…, in: .meters)` declares, and until AUDIT #32 the
+          canvas had no idea the field existed — a volumetric window drew its
+          width and height and nothing at all in depth, so a designer authoring
+          a volume had no way to see the box their entities had to fit inside.
+
+          Drawn as editor chrome, faintly: visionOS paints no wall around a
+          volume, which is rather the point of one. Scene units are metres, so
+          the declared depth is the box depth with no conversion. */}
+      {isVolumetric && (win.volumeDepthMeters ?? 0) > 0 && (
+        <mesh position={[0, 0, -(win.volumeDepthMeters ?? 0) / 2]}>
+          <boxGeometry args={[w, h, win.volumeDepthMeters ?? 0]} />
+          <meshBasicMaterial
+            color={resolveSemantic('separator', scene)}
+            transparent opacity={0.35} wireframe
+          />
+        </mesh>
+      )}
+
       {/* Clipped + (optionally) scrollable content layer. The four
           clipping planes anchored to the window's world bounds are
           attached to every descendant material via the useFrame walk
