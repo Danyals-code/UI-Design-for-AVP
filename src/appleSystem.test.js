@@ -23,7 +23,8 @@ import {
   LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots,
   TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf,
   sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET,
-  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn,
+  roundedBoxRadius
 } from './appleSystem'
 import { DEFAULT_STYLES, makeStack, makePanel } from './store/factories'
 
@@ -858,5 +859,38 @@ describe('ornamentIsDrawn', () => {
 
   it('draws an ornament straight out of the factory', () => {
     expect(ornamentIsDrawn(makeStack({ ornament: 'bottom' }).ornamentVisibility)).toBe(true)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Rounded box radius (AUDIT #34)
+// ---------------------------------------------------------------------------
+describe('roundedBoxRadius', () => {
+  it('passes a radius the box has room for straight through', () => {
+    expect(roundedBoxRadius(0.02, [0.2, 0.2, 0.2])).toBe(0.02)
+  })
+
+  it('clamps to half the shortest side', () => {
+    // Past that there is no cube left to round, and three.js does not stop
+    // you asking - it hands back inside-out geometry.
+    expect(roundedBoxRadius(5, [0.2, 0.2, 0.1])).toBeCloseTo(0.05, 9)
+    expect(roundedBoxRadius(0.5, [1, 1, 1])).toBe(0.5)
+  })
+
+  it('reads a missing or useless radius as no rounding', () => {
+    for (const r of [undefined, null, 0, -1, NaN, 'nonsense']) {
+      expect(roundedBoxRadius(r, [1, 1, 1])).toBe(0)
+    }
+  })
+
+  it('never returns more than it was asked for', () => {
+    for (const r of [0.001, 0.01, 0.1, 1, 100]) {
+      expect(roundedBoxRadius(r, [0.3, 0.4, 0.5])).toBeLessThanOrEqual(r)
+    }
+  })
+
+  it('is 0 for a box with no extent at all', () => {
+    expect(roundedBoxRadius(1, [0, 1, 1])).toBe(0)
   })
 })

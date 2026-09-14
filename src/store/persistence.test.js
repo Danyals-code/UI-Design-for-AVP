@@ -273,3 +273,49 @@ describe('the styles bag migration', () => {
     expect(out.styles).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// The Label glyph migration (AUDIT #34)
+//
+// A Label's glyph was stored twice: `symbolName`, which the canvas drew, and
+// `iconName`, which only the exporter read and only as a fallback. The dead
+// one is gone; projects saved before that carry it, so it is lifted onto the
+// field that survived.
+// ---------------------------------------------------------------------------
+describe('the Label glyph migration', () => {
+  const load = (panel) => {
+    const saved = serializeProject(stateFor('welcome'))
+    const tab = saved.items.find((i) => i.type === 'tab')
+    const back = deserializeProject({ ...saved, items: [...saved.items, { ...panel, parentId: tab.id }] })
+    return back.items.find((i) => i.id === panel.id)
+  }
+  const label = (extra) => ({ id: 'l1', type: 'panel', panelType: 'label', name: 'L', ...extra })
+
+  it('lifts a legacy iconName onto symbolName', () => {
+    const out = load(label({ iconName: 'wifi' }))
+    expect(out.symbolName).toBe('wifi')
+    expect(out.iconName).toBeUndefined()
+  })
+
+  it('keeps the glyph the canvas was already drawing when both are set', () => {
+    // `symbolName` is what was on screen, so it wins — the same rule the
+    // controlSize migration follows.
+    const out = load(label({ iconName: 'wifi', symbolName: 'bolt.fill' }))
+    expect(out.symbolName).toBe('bolt.fill')
+    expect(out.iconName).toBeUndefined()
+  })
+
+  it('drops the dead field even when it has nowhere to go', () => {
+    expect(load(label({ iconName: 'star', symbolName: 'star' })).iconName).toBeUndefined()
+  })
+
+  it('leaves a panel that never had one alone', () => {
+    const out = load(label({ symbolName: 'gear' }))
+    expect(out.symbolName).toBe('gear')
+    expect(out.iconName).toBeUndefined()
+  })
+
+  it('does not invent a glyph for a panel with neither', () => {
+    expect(load(label({})).symbolName).toBeUndefined()
+  })
+})

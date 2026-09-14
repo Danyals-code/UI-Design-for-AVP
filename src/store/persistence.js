@@ -88,12 +88,23 @@ function migrateStyles(it) {
   return next
 }
 
+// A Label's glyph used to be stored twice: `symbolName`, which the canvas drew,
+// and `iconName`, which only the exporter read and only when `symbolName` was
+// missing. Projects saved before #34 can carry either, so the dead one is
+// lifted onto the one that survived — and only when `symbolName` is unset, so
+// a project that set both keeps the glyph it was already drawing. AUDIT #34.
+function migrateLabelIcon(it) {
+  if (!it?.iconName) return it
+  const { iconName, ...rest } = it
+  return rest.symbolName ? rest : { ...rest, symbolName: iconName }
+}
+
 function migrate(raw) {
   if (!Array.isArray(raw.items)) return raw
   let changed = false
   const items = raw.items.map((it) => {
     if (!it || it.type !== 'panel') return it
-    let next = migrateStyles(it)
+    let next = migrateLabelIcon(migrateStyles(it))
     if (it.panelType === 'button') next = normalizeButton(next)
     if (next !== it) changed = true
     return next

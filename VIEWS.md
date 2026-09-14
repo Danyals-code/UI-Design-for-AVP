@@ -777,13 +777,18 @@ RealityKit code.
 | Type | Default frame | Key fields | Emit |
 | --- | --- | --- | --- |
 | `sphere` | 160×160 / depth 160 | `radius` | `RealityView { content in MeshResource.generateSphere(radius:) … }` |
-| `box` | 160×160 / depth 160 | `boxWidth/Height/Depth`, `boxCornerRadius` | `MeshResource.generateBox(width: height: depth:)` |
+| `box` | 160×160 / depth 160 | `boxWidth/Height/Depth`, `boxCornerRadius` (rounds every edge on both sides) | `MeshResource.generateBox(width: height: depth: cornerRadius:)` |
 | `plane` | 200×140 / depth 40 | `planeWidth`, `planeDepth` | `MeshResource.generatePlane(width: depth:)` |
 | `cone` | 140×180 / depth 180 | `coneHeight`, `coneRadius` | `MeshResource.generateCone(height: radius:)` |
 | `cylinder` | 140×180 / depth 180 | `cylHeight`, `cylRadius` | `MeshResource.generateCylinder(height: radius:)` |
 | `text3d` | 220×80 / depth 60 | `text`, `textStyle`, `fontWeight`, `extrusionDepth` (20pt) | `Text3D("...").extrusionDepth(...).frame(depth:)` |
 | `mesh` | 220×220 / depth 200 | `meshAsset` (e.g. `'Earth'`) | `Model3D(named: "...").frame(depth:)` |
 | `realityview` | 360×360 | `cameraMode`, `showAnchorAxes` | `RealityView { content in /* TODO */ }` |
+
+Each of these also carries a `depth`, which is its `.frame(depth:)` — the
+Z-room the view reserves around the object, not the object's own size. A frame
+paints nothing, on device or on the canvas, so the canvas draws the box it
+reserves only while the object is selected.
 
 ---
 

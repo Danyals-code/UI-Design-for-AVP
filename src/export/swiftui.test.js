@@ -1650,3 +1650,53 @@ describe('ornament chrome reaches both sides', () => {
     expect(emit({ ornamentAnchorMode: 'scene' })).toContain('.scene(.bottom)')
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// A Label's glyph is stored once (AUDIT #34)
+//
+// `iconName` was a second home for `symbolName`: the canvas drew one, the
+// exporter fell back to the other, the two sides disagreed about the final
+// fallback ('info.circle' here, 'circle.fill' there), and the default was the
+// letter `A`, which is not an SF Symbol. No inspector ever wrote it. The audit
+// filed this against `contentUnavailable`, which never read the field at all.
+// ---------------------------------------------------------------------------
+describe('a Label carries one glyph field', () => {
+  const emitLabel = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const label = makePanel('label', { parentId: win.id, text: 'Wi-Fi', ...props })
+    return exportSwiftUI([tab, win, label], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('starts on a symbol that is a symbol', () => {
+    const label = makePanel('label', {})
+    expect(label.symbolName).toBe('info.circle')
+    expect(label.iconName).toBeUndefined()
+  })
+
+  it('emits the symbol the canvas draws', () => {
+    expect(emitLabel({ symbolName: 'wifi' })).toContain('systemImage: "wifi"')
+  })
+
+  it('falls back to the same glyph the canvas falls back to', () => {
+    // `Panel3D` draws `panel.symbolName || 'info.circle'`; the export used to
+    // land on `circle.fill`, so a Label with no symbol shipped a different
+    // glyph from the one on screen.
+    expect(emitLabel({ symbolName: null })).toContain('systemImage: "info.circle"')
+  })
+
+  it('no longer reads the field it used to fall back to', () => {
+    // A project that still carries `iconName` gets it migrated, not read.
+    expect(emitLabel({ symbolName: null, iconName: 'bolt.fill' }))
+      .not.toContain('systemImage: "bolt.fill"')
+  })
+
+  it('leaves the contentUnavailable fallback alone', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const cu = makePanel('contentUnavailable', { parentId: win.id, text: 'No Results' })
+    const swift = exportSwiftUI([tab, win, cu], 'App', {}).map((f) => f.content).join('\n')
+    expect(swift).toContain('systemImage: "questionmark"')
+  })
+})

@@ -2,6 +2,7 @@ import { useRef, useState, useMemo, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
@@ -33,7 +34,8 @@ import {
   NAVBAR_SEARCH_W_PT,
   NAVBAR_BACK_CAPSULE_W_PT,
   NAVBAR_BACK_ICON_TEXT_GAP_PT,
-  textStyleDefaultWeight
+  textStyleDefaultWeight,
+  roundedBoxRadius
 } from '../appleSystem'
 import { getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
@@ -2766,6 +2768,23 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     [panelType, hasStroke, size[0], size[1], strokeWidth]
   )
 
+  // `generateBox(size:cornerRadius:)` rounds every edge of the box, and the
+  // canvas drew a hard-edged cube whatever the radius said — the field changed
+  // the generated RealityKit call and nothing on screen. AUDIT #34.
+  //
+  // Built here rather than in the primitive branch below because a geometry is
+  // a GPU allocation: memoising it keeps one per box instead of one per frame,
+  // and the effect hands it back when the box changes shape.
+  const roundedBoxGeom = useMemo(() => {
+    if (panelType !== 'box') return null
+    const w = ptToUnits(panel.boxWidth  || 120)
+    const h = ptToUnits(panel.boxHeight || 120)
+    const d = ptToUnits(panel.boxDepth  || 120)
+    const r = roundedBoxRadius(ptToUnits(panel.boxCornerRadius || 0), [w, h, d])
+    return r > 0 ? new RoundedBoxGeometry(w, h, d, 4, r) : null
+  }, [panelType, panel.boxWidth, panel.boxHeight, panel.boxDepth, panel.boxCornerRadius])
+  useEffect(() => () => roundedBoxGeom?.dispose(), [roundedBoxGeom])
+
   const unevenShape = useMemo(
     () => panelType === 'unevenRoundedRect'
       ? unevenRoundedRectShape(
@@ -2972,8 +2991,12 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const groupRot = [rotX, rotY, rotZ]
     let geometryNode = null
     let halo = null
+    // The footprint `.frame(depth:)` reserves its Z-room around. Each branch
+    // fills it in with the object's own width and height. AUDIT #34.
+    let footprint = null
     if (panelType === 'sphere') {
       const r = ptToUnits(panel.radius || 80)
+      footprint = [r * 2, r * 2]
       geometryNode = <sphereGeometry args={[r, 32, 32]} />
       halo = isSelected && (
         <mesh>
@@ -2985,16 +3008,22 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       const w = ptToUnits(panel.boxWidth  || 120)
       const h = ptToUnits(panel.boxHeight || 120)
       const d = ptToUnits(panel.boxDepth  || 120)
-      geometryNode = <boxGeometry args={[w, h, d]} />
+      footprint = [w, h]
+      geometryNode = roundedBoxGeom
+        ? <primitive object={roundedBoxGeom} attach="geometry" />
+        : <boxGeometry args={[w, h, d]} />
       halo = isSelected && (
-        <mesh>
-          <boxGeometry args={[w * 1.04, h * 1.04, d * 1.04]} />
+        <mesh scale={1.04}>
+          {roundedBoxGeom
+            ? <primitive object={roundedBoxGeom} attach="geometry" />
+            : <boxGeometry args={[w, h, d]} />}
           <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
         </mesh>
       )
     } else if (panelType === 'plane') {
       const w = ptToUnits(panel.planeWidth || 200)
       const d = ptToUnits(panel.planeDepth || 140)
+      footprint = [w, d]
       geometryNode = <planeGeometry args={[w, d]} />
       halo = isSelected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -3005,6 +3034,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     } else if (panelType === 'cone') {
       const r = ptToUnits(panel.coneRadius || 70)
       const h = ptToUnits(panel.coneHeight || 180)
+      footprint = [r * 2, h]
       geometryNode = <coneGeometry args={[r, h, 32]} />
       halo = isSelected && (
         <mesh>
@@ -3015,6 +3045,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     } else if (panelType === 'cylinder') {
       const r = ptToUnits(panel.cylRadius || 70)
       const h = ptToUnits(panel.cylHeight || 180)
+      footprint = [r * 2, h]
       geometryNode = <cylinderGeometry args={[r, r, h, 32]} />
       halo = isSelected && (
         <mesh>
@@ -3089,9 +3120,26 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       )
     }
 
+    // `.frame(depth:)` reserves Z-room around the object and paints nothing —
+    // on device or here. So the canvas shows the box it reserves while the
+    // object is selected, which is the one moment a frame is a thing anyone
+    // looks at. Until AUDIT #34 the number reached the generated Swift and the
+    // canvas had no idea the field existed.
+    const frameDepthUnits = ptToUnits(panel.depth || 0)
+    const depthFrame = isSelected && frameDepthUnits > 0 && footprint && (
+      <mesh>
+        <boxGeometry args={[footprint[0], footprint[1], frameDepthUnits]} />
+        <meshBasicMaterial
+          color={resolveSemantic('secondary', scene)}
+          transparent opacity={0.3} wireframe
+        />
+      </mesh>
+    )
+
     return (
       <group ref={groupRef} position={groupPos} rotation={groupRot}>
         {halo}
+        {depthFrame}
         <mesh {...handlers}>
           {geometryNode}
           <meshStandardMaterial color={fillColor} metalness={0.1} roughness={0.55} />

@@ -2064,6 +2064,24 @@ export const isPresentationPanel = (panelType) => PRESENTATION_PANEL_TYPES.has(p
 // only until phase 1.3, because the canvas had no inspector presentation at
 // all to apply them to. AUDIT #7.
 // ---------------------------------------------------------------------------
+// Rounded box radius (AUDIT #34)
+//
+// `MeshResource.generateBox(size:cornerRadius:)` rounds every edge of the box.
+// The canvas drew a hard-edged cube whatever the radius said, so the number
+// reached the generated RealityKit call and nothing on screen.
+//
+// The clamp is the part worth pinning: a radius past half the shortest side
+// has no cube left to round, and three.js does not stop you asking — it hands
+// back inside-out geometry. Both the panel primitive and the entity mesh go
+// through here so they cannot drift, and the number arrives already in the
+// units its caller works in (points for panels, metres for entities).
+export function roundedBoxRadius(radius, [w, h, d]) {
+  const r = Number(radius) || 0
+  if (r <= 0) return 0
+  return Math.min(r, Math.min(w, h, d) / 2)
+}
+
+// ---------------------------------------------------------------------------
 // Ornament content alignment (AUDIT #29)
 //
 // `.ornament(attachmentAnchor:contentAlignment:)` aligns the ornament's content

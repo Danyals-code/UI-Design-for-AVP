@@ -97,11 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 646 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 661 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33 and +16 from #30 and +13 from #29).
+  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1183,6 +1183,42 @@ marked hidden sits in the layer tree and draws nothing at its edge, while two
 top ornaments aligned `.leading` and `.trailing` offset in opposite directions
 from each other. Parity debt 13 → 10.
 
+**#34 — three canvas gaps with no common cause** ✅ **done**
+They had nothing in common except being small, and one of them was not what
+this audit said it was.
+
+- **`boxCornerRadius`.** `MeshResource.generateBox(size:cornerRadius:)` rounds
+  every edge; the canvas drew a hard cube whatever the radius said, with a
+  comment saying so. It now builds a `RoundedBoxGeometry` — from `three`'s own
+  examples, no new dependency — for both the `box` panel primitive and the
+  entity mesh. The clamp is the part worth sharing: a radius past half the
+  shortest side has no cube left to round, and three.js does not stop you
+  asking, it hands back inside-out geometry. One helper, both callers.
+- **`depth`.** *A correction:* the defect index called this "2D panels draw
+  flat". It is not a 2D-panel field at all — it is the `.frame(depth:)` of the
+  3D primitives (sphere, box, plane, cone, cylinder) and of a RealityView. And
+  a frame paints nothing, on device or here; it reserves space. So the canvas
+  now draws the box it reserves **while the object is selected**, which is the
+  one moment a frame is a thing anyone looks at. Drawing it always would be a
+  wireframe that exists nowhere on device.
+- **`iconName`.** *A second correction, and the interesting one.* The index
+  filed this against `contentUnavailable`, which never read the field. It is a
+  `label` field, and it was a **second home for `symbolName`** — the canvas
+  drew one, the exporter fell back to the other, the two sides disagreed about
+  the final fallback (`info.circle` here, `circle.fill` there), the default was
+  the letter `A`, which is not an SF Symbol, and no inspector ever wrote it. So
+  this is a §5.3 duplicate-field case, not a missing drawing: the dead field is
+  gone, `label` starts on a real symbol, both sides fall back to the same one,
+  and `migrateLabelIcon` lifts a stored `iconName` onto `symbolName` — keeping
+  `symbolName` when both are set, because that is the glyph that was on screen.
+
+*Acceptance:* 15 new tests — 5 on the radius clamp, 5 on the label's one glyph
+field, 5 on the migration. Both box reads were ripped out to confirm the
+harness flags the field, and the depth read separately. Verified in the app: a
+box with a 60pt radius draws visibly rounded beside an identical sharp one, and
+a selected box with `.frame(depth: 400)` shows a wireframe reaching well past
+the 160pt object. Parity debt 10 → 7.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1208,8 +1244,8 @@ not a plan but an ordering of what the triage left, worst first:
 ✅ #33 container chrome      — done.
 ✅ #30 presentation metrics  — done.
 ✅ #29 ornament chrome       — done.
-1  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
-2  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #34 three unrelated gaps  — done.
+1  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
@@ -1281,7 +1317,7 @@ six entries were shown not to be work.
 | 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
 | 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |
-| 34 | **Three canvas gaps with no common cause.** `boxCornerRadius` (the box primitive draws sharp edges; needs a rounded-box geometry), `depth` (2D panels draw flat and ignore `.frame(depth:)`), `iconName` (contentUnavailable draws a generic glyph rather than the named symbol). 3 fields. | `Panel3D.jsx` | Low |
+| 34 | ~~**Three canvas gaps with no common cause.**~~ — **fixed.** `boxCornerRadius` rounds the box on the canvas as `generateBox(cornerRadius:)` does on device; `depth` draws the Z-box `.frame(depth:)` reserves while the object is selected; `iconName` turned out to be a second home for `symbolName` and was deleted, with a migration. 3 fields. | `Panel3D.jsx`, `Entity3D.jsx`, `panels/registry.js` | Low |
 | 35 | **A stack with blur OFF still exports a frosted Material.** The toggle says the background is not frosted and `.background(.thickMaterial)` is emitted regardless. Fixable by emitting the resolved colour when the toggle is off — the blur *radius* beside it is exempt, since Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |
 
 ### Sorted to EXEMPT

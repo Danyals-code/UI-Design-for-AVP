@@ -231,9 +231,6 @@ export const PANEL = {
   // note there. Closing these means shipping a rounded / serif / mono face.
   fontDesign: debt('export-only: only Inter is bundled, so there is no face to swap to', 5),
   monospacedDigit: debt('export-only: tabular figures need a face the app does not ship', 5),
-  boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges; needs a rounded-box geometry', 34),
-  depth: debt('export-only: canvas draws 2D panels flat and ignores .frame(depth:)', 34),
-  iconName: debt('export-only: contentUnavailable draws a generic glyph instead of the named symbol', 34),
   // `styles` left this table in phase #31. The bag now holds exactly the
   // three fields both sides read — `toggleStyle`, `labelStyle` and
   // `textFieldStyle` — and the four that were second homes for concepts with
@@ -345,4 +342,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 10
+export const DEBT_CEILING = 7

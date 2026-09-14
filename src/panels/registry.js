@@ -947,7 +947,14 @@ export const PANELS = {
       textStyle: 'body',
       fontWeight: 'medium',          // visionOS body weight
       textAlign: 'left',
-      iconName: 'A',
+      // The glyph. `iconName` used to sit here as a second home for the same
+      // concept: the canvas drew `symbolName`, the exporter fell back to
+      // `iconName` when `symbolName` was unset, the two sides disagreed about
+      // the final fallback ('info.circle' here, 'circle.fill' there), and the
+      // default was the letter `A`, which is not an SF Symbol at all. No
+      // inspector ever wrote it. One field now, with a real default, and
+      // `migrateLabelIcon` lifts a stored `iconName` onto it. AUDIT #34.
+      symbolName: 'info.circle',
       iconColor: '#007aff',
       // Apple sidebar Label — a tinted rounded-rect tile behind the glyph
       // (Settings.app pattern). null tile ⇒ fall back to the classic circle.
@@ -960,7 +967,7 @@ export const PANELS = {
     },
     emit(panel, ctx) {
       const { push, escapeString, sym, style, weight, swiftColor } = ctx
-      const icon = sym || panel.iconName || 'circle.fill'
+      const icon = sym || 'info.circle'
       const ls = panel.styles?.labelStyle && panel.styles.labelStyle !== 'automatic'
         ? `.labelStyle(.${panel.styles.labelStyle})` : ''
       const is = panel.imageScale && panel.imageScale !== 'medium'
