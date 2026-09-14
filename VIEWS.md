@@ -661,29 +661,51 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 
 ### Presentation (modifier-emitted)
 
-These panels never render in the parent's child list at export - they
-attach as modifiers on the parent.
+These panels never render in the parent's child list - they attach to the
+parent as `.sheet(…)` / `.popover(…)` / `.alert(…)` /
+`.confirmationDialog(…)` / `.inspector(…)` modifiers, and the canvas presents
+them over the window rather than flowing them inside it.
+
+The set lives in `appleSystem.js` (`isPresentationPanel`) and is imported by
+the canvas, the exporter and the modifier registry alike. It used to be
+hand-maintained in each: the canvas knew about three types and the exporter
+about five, so a `confirmationdialog` or an `inspector` was laid out as an
+ordinary child on screen and presented modally in the code - the wrong
+*place*, not merely the wrong pixels. `parity.test.js` now fails if any side
+stops consulting the shared set or starts keeping its own copy.
+
+They are not all presented the same way, so the canvas does not place them the
+same way: **modals** (sheet, alert, confirmationdialog) sit centred over a
+dimmed plate; a **popover** hangs off the edge its `popoverArrowEdge` points
+from, with an arrow drawn there (narrower for a `point` anchor); an
+**inspector** is a trailing column with a divider and no dimming, because it
+is not modal - and it narrows the body the modals centre in, the way a real
+split view does.
 
 #### `sheet`
 - **Default:** 600×400, `sheetDetent: 'large'`, `sheetFraction: 0.7`, material `'regular'`, optional `presentationDragIndicator`, `presentationCornerRadius`, `interactiveDismissDisabled`.
 - **Emit:** Attached as `.sheet(isPresented: ...) { … }` on the parent view.
 
 #### `popover`
-- **Default:** 260×180, color `'systemBackground'`, material `'thick'`, `popoverAnchor: 'rectBounds'`.
-- **Emit:** `.popover(isPresented: ...) { … }`.
+- **Default:** 260×180, color `'systemBackground'`, material `'thick'`, `popoverAnchor: 'rectBounds'`, `popoverArrowEdge: 'automatic'`.
+- **Emit:** `.popover(isPresented: ..., attachmentAnchor: ..., arrowEdge: ...) { … }` - both arguments elided at their defaults.
+- **Canvas:** anchored to the named arrow edge with an arrow drawn there; `automatic` centres it. A `point` anchor draws the narrower arrow. visionOS ignores `arrowEdge`, but the same document targets iPadOS and macOS, where it is the difference between a menu above the button and below it.
 
 #### `alert`
-- **Default:** 300×180, text `'Alert Title'`, `alertMessage: 'Are you sure?'`, `alertButtons: ['Cancel', 'OK']`.
+- **Default:** 300×180, text `'Alert Title'`, `alertMessage: 'Are you sure?'`, `alertButtons: ['Cancel', 'OK']`, `dialogSeverity: 'automatic'`, `dialogIcon: ''`.
+- **Canvas:** `dialogIcon` draws a glyph above the title, tinted red when `dialogSeverity` is `critical`.
 - **Auto-roles:** Buttons named `'Cancel' / 'Delete' / 'Remove'` get `.cancel` / `.destructive` automatically.
 - **Emit:** `.alert("...", isPresented: ...) { Button(...) { } } message: { Text(...) }`.
 
 #### `confirmationdialog`
 - **Default:** 300×180, text `'Are you sure?'`, `alertButtons: ['Delete', 'Cancel']`, `titleVisibility: 'automatic'`.
 - **Emit:** `.confirmationDialog("...", isPresented: ..., titleVisibility: ...) { Button(role: .destructive, ...) }`.
+- **Canvas:** shares the alert's renderer - title, message, roled buttons - because SwiftUI presents the two the same way. `titleVisibility` is honoured, including `.automatic`'s rule that the title shows only when there is a message to caption it.
 
 #### `inspector`
-- **Default:** 320×480, text `'Inspector content'`, material `'regular'`, width metrics (`inspectorColumnWidth: 320pt`, min/ideal/max).
+- **Default:** 320×480, text `'Inspector content'`, material `'regular'`, width metrics (`inspectorColumnWidth`, min/ideal/max - all `null` = system default).
 - **Emit:** `.inspector(isPresented: ...) { … }.inspectorColumnWidth(min:..., ideal:..., max:...)`.
+- **Canvas:** a trailing column at the width `inspectorColumnWidth()` (`appleSystem.js`) resolves, mirroring the exporter's precedence - an exact width wins outright, otherwise the ideal (falling back to the stored frame) is clamped between min and max, and the result still has to fit the window it splits.
 
 ### Navigation & misc
 

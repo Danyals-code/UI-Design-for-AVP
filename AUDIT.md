@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7 and 1.1 have landed since;
-each is marked where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4, 1.7, 1.1 and 1.3 have landed
+since; each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -29,13 +29,13 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
-now 65**.
+now 56**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 43 |
-| Neither side reads a field the inspector writes | 7 fields | 6 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 35 |
+| Neither side reads a field the inspector writes | 7 fields | 5 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
 
@@ -48,13 +48,13 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) is most of the way
-through its filed work** — 1.4, 1.7 and 1.1 have landed, so scrollable stacks
-scroll, every control honours its declared range, and the modifier stack draws
-what it emits. Of the remaining 65, **47 carry no defect number at all**: #19
-(13) and #20 (10) plus the ornament / volume / presentation-metric tail. The
-filed remainder is #7 (8 presentation fields), #5 (4, all blocked on font
-assets — see 1.1), #13 (3), #6 (2) and #14 (1).
+compile-clean enum surface. **Stage 1 (code → visual) has closed most of its
+filed work** — 1.4, 1.7, 1.1 and 1.3 have landed, so scrollable stacks scroll,
+every control honours its declared range, the modifier stack draws what it
+emits, and presentations are presented rather than laid out inline. Of the
+remaining 56, **46 carry no defect number at all**: #19 (13) and #20 (10) plus
+the ornament / volume / presentation-metric tail. The filed remainder is #5
+(4, all blocked on font assets — see 1.1), #13 (3), #6 (2) and #14 (1).
 
 **A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
 originally written retire exactly the 35 divergences that carry a defect
@@ -86,7 +86,7 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
 | **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln | 🟡 Near-complete | 15/15 actions, 11/12 triggers. `rotateGesture` is missing. See §4.4. |
-| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln | 🟡 Good, uneven | 48/56 view types have a dedicated renderer; 8 fall back to a generic plate. See §4.2. |
+| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln → 5,900 | 🟡 Good, uneven | 51/56 view types have a dedicated renderer (48 before 1.3, which gave `confirmationdialog` and `inspector` real presentations). `form` and `outlinegroup` still fall back to a generic plate — see §4.2. |
 | **Templates** (`templates/index.js`) | 3,102 ln | ✅ Re-seeded in 2.3 *(was: stale)* | 6 window + 6 volume + 2 blanks + 6 legacy. The two that overflow are scrollable and now export a real ScrollView. See §5.3. |
 
 ### Quality gates — all green
@@ -95,8 +95,8 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 500 passing, 10 files (365 at the audit; +89 from the harness and
-  the Stage 2 phases, +9 from 1.4, +20 from 1.7, +17 from 1.1).
+- **Tests:** 512 passing, 10 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from 1.3).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -185,17 +185,21 @@ plain rounded rectangle with a text label:
 | ---- | ------- | ------------ | -------- |
 | `form` | A real `Form { … }` with every row | Empty plate — **no rows** | **High** — the row data is authored in the inspector and invisible |
 | `outlinegroup` | A generated `OutlineNode` tree with every row | Empty plate — **no rows** | **High** — same |
-| `confirmationdialog` | `.confirmationDialog(…)` modifier on the parent | Inline content sitting in the layout | **High** — wrong *place*, not just wrong pixels |
-| `inspector` | `.inspector(…)` modifier on the parent | Inline content sitting in the layout | **High** — same |
+| ~~`confirmationdialog`~~ | `.confirmationDialog(…)` modifier on the parent | **Fixed in 1.3** — presents as a modal dialog | — |
+| ~~`inspector`~~ | `.inspector(…)` modifier on the parent | **Fixed in 1.3** — presents as a trailing column | — |
 | `navigationlink` | `NavigationLink(…)` | Plain text, no chevron / link affordance | Medium |
-| `popover` | `.popover(…)` | Plate, no arrow or presentation framing | Low |
+| ~~`popover`~~ | `.popover(…)` | **Fixed in 1.3** — anchored to its arrow edge, with an arrow | — |
 | `sheet` | `.sheet(…)` | Plate (positioned correctly, detents honoured) | Low |
 | `canvas` | Placeholder `Rectangle()` | Plain plate | **None** — the two already agree |
 
-`confirmationdialog` and `inspector` are the sharp ones. `SceneTree.jsx:784`
-lists only `['sheet', 'popover', 'alert']` as presentation types, while
-`swiftui.js:747` lists five. The two extra types are therefore laid out as
+`confirmationdialog` and `inspector` were the sharp ones. `SceneTree.jsx:784`
+listed only `['sheet', 'popover', 'alert']` as presentation types, while
+`swiftui.js:747` listed five. The two extra types were therefore laid out as
 ordinary children on screen and emitted as modal modifiers in the code.
+
+**Fixed in 1.3**, and the list is now one set in `appleSystem.js` that all
+three readers — canvas, exporter and modifier registry — import, so it cannot
+drift again. `form` and `outlinegroup` remain, and are phase 1.2's job.
 
 ### 4.3 Scrollable stacks draw a scrollbar that does not scroll ✅ **fixed in 1.4**
 
@@ -487,9 +491,55 @@ before the next renderer-side phase.
 Both already carry `rows` and a `rowHeight`; `list` and `table` have working
 row overlays to copy from (`Panel3D.jsx:1444`, `:1639`).
 
-**1.3 — Route `confirmationdialog` and `inspector` as presentations** *(½ day)*
-Single-line fix: align `SceneTree.jsx:784` with the exporter's list at
-`swiftui.js:747`. Then give each a presentation chrome consistent with `alert`.
+**1.3 — Route `confirmationdialog` and `inspector` as presentations** ✅ **done**
+
+Five panel types attach to their PARENT as a modifier instead of flowing
+inside it. The canvas knew about three of them and the exporter about five, so
+a `confirmationdialog` or an `inspector` was laid out as an ordinary child on
+screen while the generated code presented it over the view — the wrong
+*place*, not merely the wrong pixels. Parity debt 65 → 56, closing defect #7
+outright.
+
+**The fix was not the one-line alignment the plan called for.** Copying the
+exporter's five types into the canvas would have fixed today's drift and left
+tomorrow's: the list was hand-maintained in *three* places (the third being
+`modifiers/registry.js`, which uses it to decide that presentations take no
+modifier chain). It is one set in `appleSystem.js` now — the vocabulary module
+every side already imports, and the one layer with no cycle to worry about —
+and `parity.test.js` gained two tests that fail if either side stops consulting
+it or starts keeping a private copy.
+
+Then the chrome, which is where the remaining seven fields lived:
+
+- **They are not presented the same way, so they are not placed the same
+  way.** Modals sit centred over a dimmed plate; a popover hangs off the edge
+  its arrow points from, with an arrow drawn there; an inspector is a trailing
+  column in a split, with a divider and *no* dimming, because it is not modal.
+  The inspector column also narrows the body the modals centre in, the way a
+  real split does.
+- **`confirmationdialog` draws the dialog furniture** — title, message, roled
+  buttons — sharing the alert's renderer, because SwiftUI presents the two the
+  same way. `titleVisibility` is honoured, including `.automatic`'s rule that
+  the title shows only when there is a message to caption it.
+- **`dialogIcon` / `dialogSeverity`** put a glyph above the title, tinted red
+  when the dialog is critical.
+- **The four `.inspectorColumnWidth(…)` inputs** size the column, through a
+  shared helper that mirrors the exporter's precedence: an exact width wins
+  outright, otherwise the ideal is clamped between min and max.
+- **`popoverAnchor` was read by *neither* side** — a live control wired to
+  nothing. The canvas now draws a narrower arrow for a point anchor, and the
+  exporter emits the matching `attachmentAnchor: .point(.center)`.
+
+*Acceptance:* 12 new tests. The routing one sweeps all 56 panel types and
+compares `isPresentationPanel` against whether the generator actually attaches
+a presentation modifier — not against the list the predicate is built from.
+The width tests read the emitted `.inspectorColumnWidth(…)` back out of the
+Swift and check the canvas helper resolves the same number. Verified by
+perturbation: restoring the drifted three-type list fails 5, including the
+guard against a private copy. Confirmed in the running app — a confirmation
+dialog presents as a centred modal over a dimmed backdrop instead of landing
+in the Settings column, and adding an inspector shifts it left to make room
+for the column.
 
 **1.4 — Make stack scrolling real** ✅ **done**
 
@@ -802,7 +852,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
-Week 3   1.2 form/outlinegroup · 1.3 presentations · 1.5 · 1.6
+Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup · 1.5 · 1.6
 Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
 
@@ -829,7 +879,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
 | 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4. The last 2 (`fontDesign`, `monospacedDigit`) are blocked on font assets, not wiring — see §4.1. | `modifiers/registry.js`, `Panel3D.jsx`, `SceneTree.jsx` | Low |
 | 6 | `form` / `outlinegroup` rows invisible on canvas | `Panel3D.jsx` (no branch) | **High** |
-| 7 | `confirmationdialog` / `inspector` inline on canvas, modal in code | `SceneTree.jsx:784` | **High** |
+| 7 | ~~`confirmationdialog` / `inspector` inline on canvas, modal in code~~ — **fixed in 1.3.** One presentation set, imported by all three readers. | `appleSystem.js`, `SceneTree.jsx` | — |
 | 8 | ~~Window `.frame` / `.padding` order inverts the inset~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 9 | ~~`paddingEdges` canvas-only~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 10 | ~~`buttonSize`/`buttonShape` vs `controlSize`/`buttonBorderShape`~~ — **fixed in 2.3** | `appleSystem.js`, `inspectors.jsx` | — |

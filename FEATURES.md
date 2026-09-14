@@ -193,7 +193,8 @@ Tab (page)
 │   │   ├── Entity       (3D primitive / model / attachment)
 │   │   └── ...
 │   ├── Stack (ornament: leading / trailing / top / bottom)
-│   └── Panel (presentation: sheet / popover / alert)
+│   └── Panel (presentation: sheet / popover / alert /
+│                     confirmationDialog / inspector)
 └── Tab (...) more pages
 ```
 
@@ -324,6 +325,11 @@ defaults in [VIEWS.md](VIEWS.md), source in
   UnevenRoundedRectangle (four per-corner radii).
 - **Presentation:** sheet, popover, alert, confirmationdialog,
   inspector, navigationlink, contentUnavailable
+  - **These present over the window rather than flowing inside it**,
+    and each in its own way: sheets, alerts and confirmation dialogs
+    sit centred over a dimmed plate; a popover hangs off the edge its
+    arrow points from; an inspector is a trailing column with a
+    divider and no dimming, narrowing the body the modals centre in.
 - **3D primitives (RealityKit):** sphere, box, plane, cone, cylinder,
   text3d, mesh, realityview, canvas
 

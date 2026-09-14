@@ -13,7 +13,7 @@
 // list — adding a modifier to a view that SwiftUI rejects is impossible
 // because that modifier never appears in the dropdown for that view.
 
-
+import { isPresentationPanel } from '../appleSystem'
 
 // Convert a 6-digit hex color to a SwiftUI Color(...) expression.
 // SwiftUI has no `Color(hex:)` init in its stdlib — always use Color(red:green:blue:).
@@ -45,8 +45,10 @@ const KIND_3D = new Set(['sphere', 'box', 'plane', 'cone', 'cylinder', 'text3d',
 
 // Presentation panels are conceptually `.sheet(...)` / `.alert(...)` modifiers
 // on the parent — they don't accept their own modifier chain in the inspector
-// sense. Hide the stack on those too.
-const KIND_PRESENTATION = new Set(['sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'])
+// sense. Hide the stack on those too. The set is owned by `panels/registry.js`
+// so the canvas, the exporter and this file cannot disagree about which types
+// present rather than flow.
+const KIND_PRESENTATION = { has: (k) => isPresentationPanel(k) }
 
 // RealityView is a SwiftUI view that hosts a RealityKit content closure.
 // SwiftUI accepts a *small* subset of modifiers on it — the rest target

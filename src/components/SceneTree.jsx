@@ -6,7 +6,7 @@ import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
 import { summarizeModifiers } from '../modifiers/registry'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape, ellipseShape } from '../shapes'
-import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial } from '../appleSystem'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
@@ -75,6 +75,51 @@ function applyClipPlanes(root, planes) {
     }
   }
   visit(root)
+}
+
+// ---------------------------------------------------------------------------
+// Presentations (AUDIT #7)
+// ---------------------------------------------------------------------------
+
+// The little triangle a popover hangs from. `popoverArrowEdge` names the side
+// it comes out of, and `popoverAnchor` says whether SwiftUI anchors to the
+// source's bounds or to a point — the point anchor draws a narrower arrow,
+// since it is pinned to a spot rather than spanning an edge. Both were
+// export-only; `popoverAnchor` was read by neither side.
+function PopoverArrow3D({ panel, centre, size, scene }) {
+  const edge = panel.popoverArrowEdge || 'automatic'
+  if (edge === 'automatic') return null
+  const pointAnchored = panel.popoverAnchor === 'point'
+  const half = ptToUnits(pointAnchored ? 6 : 10)
+  const depth = ptToUnits(pointAnchored ? 8 : 10)
+  const [cx, cy] = centre
+  const [pw, ph] = size
+  const fill = resolveAnyMaterial(panel.material || 'thick', scene)?.color
+    || resolveSemantic('secondarySystemBackground', scene)
+
+  // Tip sits just outside the body on the named edge; the base spans it.
+  const shape = new THREE.Shape()
+  let pos = [cx, cy]
+  if (edge === 'top' || edge === 'bottom') {
+    const dir = edge === 'top' ? 1 : -1
+    pos = [cx, cy + dir * ph / 2]
+    shape.moveTo(-half, 0)
+    shape.lineTo(half, 0)
+    shape.lineTo(0, dir * depth)
+  } else {
+    const dir = edge === 'leading' ? -1 : 1
+    pos = [cx + dir * pw / 2, cy]
+    shape.moveTo(0, -half)
+    shape.lineTo(0, half)
+    shape.lineTo(dir * depth, 0)
+  }
+  shape.closePath()
+  return (
+    <mesh position={[pos[0], pos[1], 0.051]}>
+      <shapeGeometry args={[shape]} />
+      <meshBasicMaterial color={fill} transparent opacity={0.98} side={THREE.DoubleSide} />
+    </mesh>
+  )
 }
 
 // Build a real soft shadow as a CanvasTexture. The canvas 2D `shadowBlur`
@@ -1087,7 +1132,16 @@ function Window3D({ window: win, items, previewPosition }) {
   }
 
   const allChildren = items.filter((c) => c.parentId === win.id && isEffectivelyVisible(items, c.id))
-  const presentationTypes = ['sheet', 'popover', 'alert']
+  // The four `.inspectorColumnWidth(…)` inputs, spelled out here so the
+  // precedence lives in one shared helper the exporter's own output can be
+  // tested against.
+  const inspectorWidth = (p) => inspectorColumnWidth({
+    exact:  p.inspectorColumnWidth,
+    ideal:  p.inspectorIdealWidth,
+    min:    p.inspectorMinWidth,
+    max:    p.inspectorMaxWidth,
+    stored: Array.isArray(p.size) ? p.size[0] : null
+  }, w)
   // Entities can land directly under a window when the window is volumetric
   // (the window itself acts as a RealityView container). Rendered after
   // content/ornaments at the window's own origin.
@@ -1095,10 +1149,10 @@ function Window3D({ window: win, items, previewPosition }) {
   const contentChildren = allChildren.filter((c) =>
     c.type !== 'entity' &&
     !(c.type === 'stack' && c.ornament) &&
-    !(c.type === 'panel' && presentationTypes.includes(c.panelType))
+    !(c.type === 'panel' && isPresentationPanel(c.panelType))
   )
   const ornamentChildren = allChildren.filter((c) => c.type === 'stack' && c.ornament)
-  const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
+  const presentationChildren = allChildren.filter((c) => c.type === 'panel' && isPresentationPanel(c.panelType))
   // Per WWDC23 #10076, visionOS ornaments *overlap* the window plate
   // by 20pt rather than floating outside it with a gap. ORNAMENT_GAP
   // is the overlap distance, used as a NEGATIVE offset against the
@@ -1413,45 +1467,109 @@ function Window3D({ window: win, items, previewPosition }) {
         )
       })}
 
-      {/* Presentation overlays (sheet / alert / popover) — rendered above
-          the window content. In SwiftUI these modals are always *contained*
-          by their parent window, so we clamp both the dimming backdrop and
-          the panel itself to the window bounds (minus a small inset) rather
-          than letting them bleed past the edge. */}
-      {presentationChildren.length > 0 && (
-        <>
-          {/* Dimming backdrop — covers exactly the window interior. */}
-          <mesh position={[0, 0, 0.04]}>
-            <planeGeometry args={[w, h]} />
-            <meshBasicMaterial color="#000000" transparent opacity={0.35} />
-          </mesh>
-          {/* Each presentation child */}
-          {presentationChildren.map((p) => {
-            // SwiftUI sheets get a small margin on every side rather than
-            // pinning to the window edges. 8% inset reads as a comfortable
-            // modal frame; the content still lays out at its declared size
-            // until that exceeds the window minus insets, then we clamp.
-            const maxW = w * 0.92
-            const maxH = h * 0.92
-            const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
-            const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
-            let py = 0
-            if (p.panelType === 'sheet') {
-              // `.presentationDetents(.medium)` pushes the sheet toward the
-              // bottom; otherwise sheets center inside the window.
-              py = p.sheetDetent === 'medium' ? -(h - clamped[1]) / 2 * 0.9 : 0
-            }
-            return (
-              <Panel3D
-                key={p.id}
-                panel={p}
-                localPosition={[0, py, 0.05]}
-                resolvedSize={clamped}
-              />
-            )
-          })}
-        </>
-      )}
+      {/* Presentation overlays — rendered above the window content. In
+          SwiftUI these attach to the parent as `.sheet(…)` / `.alert(…)` /
+          `.confirmationDialog(…)` / `.popover(…)` / `.inspector(…)`
+          modifiers, so they are presented over the view rather than flowing
+          inside it. The canvas knew about only three of the five until phase
+          1.3, which laid a `confirmationdialog` or an `inspector` out as an
+          ordinary child on screen while the code emitted it as a modal — the
+          wrong place, not merely the wrong pixels. AUDIT #7.
+
+          They are placed by kind, because SwiftUI does not present them the
+          same way: modals sit centred over a dimmed plate, a popover hangs
+          off the edge its arrow points from, and an inspector is a trailing
+          column in a split — no dimming, because it is not modal. */}
+      {presentationChildren.length > 0 && (() => {
+        const inspectorKids = presentationChildren.filter((p) => p.panelType === 'inspector')
+        const modalKids = presentationChildren.filter((p) => p.panelType !== 'inspector')
+        // The inspector column eats into the width the modals have to sit in,
+        // the way a real split view would.
+        const inspectorW = inspectorKids.reduce((acc, p) => acc + inspectorWidth(p), 0)
+        const bodyW = Math.max(ptToUnits(40), w - inspectorW)
+        return (
+          <>
+            {/* Dimming backdrop — only for the modal kinds, and only over the
+                body, so an inspector column beside them stays legible. */}
+            {modalKids.length > 0 && (
+              <mesh position={[-inspectorW / 2, 0, 0.04]}>
+                <planeGeometry args={[bodyW, h]} />
+                <meshBasicMaterial color="#000000" transparent opacity={0.35} />
+              </mesh>
+            )}
+            {modalKids.map((p) => {
+              // SwiftUI modals get a small margin on every side rather than
+              // pinning to the window edges. 8% inset reads as a comfortable
+              // frame; the content still lays out at its declared size until
+              // that exceeds the window minus insets, then we clamp.
+              const maxW = bodyW * 0.92
+              const maxH = h * 0.92
+              const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
+              const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
+              let px = -inspectorW / 2
+              let py = 0
+              if (p.panelType === 'sheet') {
+                // `.presentationDetents(.medium)` pushes the sheet toward the
+                // bottom; otherwise sheets centre inside the window.
+                py = p.sheetDetent === 'medium' ? -(h - clamped[1]) / 2 * 0.9 : 0
+              } else if (p.panelType === 'popover') {
+                // A popover is anchored to its source rather than centred, and
+                // `arrowEdge` names the side the arrow comes OUT of — so the
+                // body sits on the opposite side of the anchor. visionOS
+                // ignores the argument, but the canvas is previewing a
+                // document that also targets iPadOS and macOS, where it is the
+                // difference between a menu above the button and below it.
+                const gap = ptToUnits(12)
+                const edge = p.popoverArrowEdge || 'automatic'
+                if (edge === 'top')      py =  (h - clamped[1]) / 2 - gap
+                if (edge === 'bottom')   py = -(h - clamped[1]) / 2 + gap
+                if (edge === 'leading')  px += -(bodyW - clamped[0]) / 2 + gap
+                if (edge === 'trailing') px +=  (bodyW - clamped[0]) / 2 - gap
+              }
+              return (
+                <group key={p.id}>
+                  <Panel3D
+                    panel={p}
+                    localPosition={[px, py, 0.05]}
+                    resolvedSize={clamped}
+                  />
+                  {p.panelType === 'popover' && (
+                    <PopoverArrow3D
+                      panel={p}
+                      centre={[px, py]}
+                      size={clamped}
+                      scene={scene}
+                    />
+                  )}
+                </group>
+              )
+            })}
+            {/* Inspector — a trailing column pinned to the full window
+                height, at the width `.inspectorColumnWidth(…)` asks for. */}
+            {inspectorKids.map((p, i) => {
+              const iw = inspectorWidth(p)
+              const offsetFromTrailing = inspectorKids
+                .slice(0, i)
+                .reduce((acc, q) => acc + inspectorWidth(q), 0)
+              const px = w / 2 - iw / 2 - offsetFromTrailing
+              return (
+                <group key={p.id}>
+                  {/* The split's divider, on the column's leading edge. */}
+                  <mesh position={[px - iw / 2, 0, 0.049]}>
+                    <planeGeometry args={[ptToUnits(1), h]} />
+                    <meshBasicMaterial color={resolveSemantic('separator', scene)} transparent opacity={0.6} />
+                  </mesh>
+                  <Panel3D
+                    panel={p}
+                    localPosition={[px, 0, 0.05]}
+                    resolvedSize={[iw, h]}
+                  />
+                </group>
+              )
+            })}
+          </>
+        )
+      })()}
     </group>
   )
 }

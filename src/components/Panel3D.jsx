@@ -1200,20 +1200,48 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     return roundedRectShape(w, h, Math.min(w, h) / 2)
   }, [panelType, hasStroke, size[0], size[1], strokeWidth])
 
-  // ---- Alert overlay (title + message + buttons row) ----
-  const alertOverlay = panelType === 'alert' && (() => {
+  // ---- Alert / confirmation-dialog overlay (title + message + buttons) ----
+  // Both draw the same furniture, because SwiftUI presents them the same way:
+  // a title, an optional message, and a row of roled buttons. The dialog had
+  // no canvas rendering at all until phase 1.3 — it was laid out as an
+  // ordinary child while the code emitted `.confirmationDialog(…)`. AUDIT #7.
+  const alertOverlay = (panelType === 'alert' || panelType === 'confirmationdialog') && (() => {
     const primary = resolveSemantic('primary', scene)
     const secondary = resolveSemantic('secondary', scene)
     const msg = panel.alertMessage || ''
-    const btns = panel.alertButtons || ['OK']
+    const btns = panel.alertButtons || (panelType === 'confirmationdialog' ? ['Cancel'] : ['OK'])
     const btnH = ptToUnits(36)
     const btnY = -size[1] / 2 + ptToUnits(20) + btnH / 2
     const btnW = (size[0] - ptToUnits(32)) / btns.length
+    // `.confirmationDialog(titleVisibility:)` — `.automatic` shows the title
+    // only when there is a message body to caption, which is the platform
+    // rule the exporter relies on; `.hidden` drops it outright.
+    const tv = panel.titleVisibility || 'automatic'
+    const showTitle = panelType !== 'confirmationdialog'
+      ? true
+      : (tv === 'visible' || (tv === 'automatic' && !!msg))
+    // `.dialogIcon` / `.dialogSeverity` — a glyph above the title, tinted red
+    // when the dialog is marked critical. Both reached the export only.
+    const severity = panel.dialogSeverity || 'automatic'
+    const iconColor = severity === 'critical'
+      ? resolveSemantic('systemRed', scene)
+      : accentColor
+    const titleY = panel.dialogIcon ? size[1] * 0.12 : size[1] * 0.2
     return (
       <>
-        <Text position={[0, size[1] * 0.2, 0.005]} font={fontUrl} fontSize={ptToUnits(17)} color={primary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center" fontWeight="bold">
-          {panel.text || 'Alert'}
+        {panel.dialogIcon && (
+          <SymbolIcon3D
+            name={panel.dialogIcon}
+            sizeUnits={ptToUnits(28)}
+            color={iconColor}
+            position={[0, size[1] * 0.32, 0.005]}
+          />
+        )}
+        {showTitle && (
+        <Text position={[0, titleY, 0.005]} font={fontUrl} fontSize={ptToUnits(17)} color={primary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center" fontWeight="bold">
+          {panel.text || (panelType === 'confirmationdialog' ? 'Confirm' : 'Alert')}
         </Text>
+        )}
         <Text position={[0, 0, 0.005]} font={fontUrl} fontSize={ptToUnits(13)} color={secondary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center">
           {msg}
         </Text>

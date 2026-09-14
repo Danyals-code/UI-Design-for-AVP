@@ -19,9 +19,11 @@
 
 import { describe, it, expect } from 'vitest'
 import { TEMPLATES } from '../templates'
+import { panelTypes } from '../panels/registry'
 import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
-import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction } from '../appleSystem'
+import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
+  isPresentationPanel, inspectorColumnWidth } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1068,5 +1070,116 @@ describe('control ranges reach the export as the canvas draws them', () => {
       expect(f).toBeGreaterThan(0)
       expect(f).toBeLessThan(1)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Presentations (AUDIT #7)
+//
+// Five panel types are not laid out as children at all: each attaches to its
+// PARENT as a `.sheet(…)` / `.popover(…)` / `.alert(…)` /
+// `.confirmationDialog(…)` / `.inspector(…)` modifier. The canvas knew about
+// three of them and the exporter about five, so a `confirmationdialog` or an
+// `inspector` was laid out as an ordinary child on screen while the generated
+// code presented it over the view — the wrong PLACE, not merely the wrong
+// pixels.
+//
+// One set answers for both sides now. What follows checks that set against
+// what the generator actually emits, type by type, rather than against the
+// list it is built from.
+// ---------------------------------------------------------------------------
+describe('presentations route the same way on both sides', () => {
+  const PRESENTATION_MODIFIERS = [
+    '.sheet(', '.popover(', '.alert(', '.confirmationDialog(', '.inspector('
+  ]
+  const underWindow = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('presents exactly the types the exporter attaches as a modifier', () => {
+    for (const type of panelTypes()) {
+      const swift = underWindow(type)
+      const presented = PRESENTATION_MODIFIERS.some((m) => swift.includes(m))
+      expect(isPresentationPanel(type),
+        `${type}: isPresentationPanel=${isPresentationPanel(type)} but the ` +
+        `export ${presented ? 'DOES' : 'does NOT'} attach a presentation modifier`
+      ).toBe(presented)
+    }
+  })
+
+  it('covers all five, so the sweep above is not vacuous', () => {
+    const presented = panelTypes().filter(isPresentationPanel).sort()
+    expect(presented).toEqual(
+      ['alert', 'confirmationdialog', 'inspector', 'popover', 'sheet']
+    )
+  })
+
+  it('emits the dialog and inspector that used to be laid out inline', () => {
+    // The two the canvas did not know about. Both reach the file as modifiers.
+    expect(underWindow('confirmationdialog')).toContain('.confirmationDialog(')
+    expect(underWindow('inspector')).toContain('.inspector(')
+  })
+
+  it('carries the popover anchor that neither side read', () => {
+    expect(underWindow('popover', { popoverAnchor: 'point' }))
+      .toContain('attachmentAnchor: .point(.center)')
+    // The default stays implicit rather than emitting `.rect(.bounds)`.
+    expect(underWindow('popover', { popoverAnchor: 'rectBounds' }))
+      .not.toContain('attachmentAnchor:')
+  })
+
+  it('emits the column width the canvas draws the inspector at', () => {
+    // The seam that matters: the width in the generated Swift and the width
+    // the canvas column resolves to have to be the same number.
+    const swift = underWindow('inspector', { inspectorColumnWidth: 280 })
+    expect(swift).toContain('.inspectorColumnWidth(280)')
+    const windowW = ptToUnits(1200)
+    expect(inspectorColumnWidth({ exact: 280 }, windowW)).toBeCloseTo(ptToUnits(280), 9)
+  })
+
+  it('emits the min/ideal/max triple the canvas clamps between', () => {
+    const swift = underWindow('inspector', {
+      inspectorMinWidth: 200, inspectorIdealWidth: 320, inspectorMaxWidth: 400
+    })
+    expect(swift).toContain('.inspectorColumnWidth(min: 200, ideal: 320, max: 400)')
+    const windowW = ptToUnits(1200)
+    const drawn = inspectorColumnWidth(
+      { min: 200, ideal: 320, max: 400 }, windowW
+    )
+    expect(drawn).toBeCloseTo(ptToUnits(320), 9)
+  })
+})
+
+describe('inspectorColumnWidth precedence', () => {
+  const W = ptToUnits(1200)
+
+  it('lets an exact width win outright, as the exporter does', () => {
+    // `.inspectorColumnWidth(n)` and `(min:ideal:max:)` are separate calls in
+    // SwiftUI and the exporter emits the first when it is set, so the canvas
+    // has to ignore the bounds in that case too.
+    expect(inspectorColumnWidth({ exact: 280, min: 400, max: 500 }, W))
+      .toBeCloseTo(ptToUnits(280), 9)
+  })
+
+  it('clamps the ideal between the bounds', () => {
+    expect(inspectorColumnWidth({ ideal: 100, min: 200 }, W)).toBeCloseTo(ptToUnits(200), 9)
+    expect(inspectorColumnWidth({ ideal: 900, max: 400 }, W)).toBeCloseTo(ptToUnits(400), 9)
+    expect(inspectorColumnWidth({ ideal: 300, min: 200, max: 400 }, W)).toBeCloseTo(ptToUnits(300), 9)
+  })
+
+  it('falls back to the stored frame, then to the system default', () => {
+    expect(inspectorColumnWidth({ stored: ptToUnits(260) }, W)).toBeCloseTo(ptToUnits(260), 9)
+    expect(inspectorColumnWidth({}, W)).toBeCloseTo(ptToUnits(320), 9)
+  })
+
+  it('still has to fit the window it splits', () => {
+    const narrow = ptToUnits(300)
+    expect(inspectorColumnWidth({ ideal: 5000 }, narrow)).toBeLessThanOrEqual(narrow)
+    expect(inspectorColumnWidth({ exact: 5000 }, narrow)).toBeLessThanOrEqual(narrow)
+    // ...and never collapses to nothing.
+    expect(inspectorColumnWidth({ ideal: 0 }, W)).toBeGreaterThan(0)
   })
 })

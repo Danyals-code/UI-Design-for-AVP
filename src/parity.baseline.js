@@ -171,15 +171,14 @@ export const PANEL = {
   presentationDragIndicator: debt('export-only: canvas draws no drag indicator'),
   sheetFraction: debt('export-only: canvas honours sheetDetent only'),
   sheetHeight: debt('export-only: canvas honours sheetDetent only'),
-  titleVisibility: debt('export-only: canvas always draws the dialog title'),
-  popoverArrowEdge: debt('export-only: canvas draws no popover arrow', 7),
-  popoverAnchor: debt('neither: popover anchor is read by no one', 7),
-  dialogIcon: debt('export-only: confirmationdialog has no canvas presentation', 7),
-  dialogSeverity: debt('export-only: confirmationdialog has no canvas presentation', 7),
-  inspectorColumnWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorIdealWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorMinWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorMaxWidth: debt('export-only: inspector has no canvas presentation', 7),
+  // AUDIT #7 emptied in phase 1.3. `confirmationdialog` and `inspector` are
+  // routed as presentations now rather than laid out as ordinary children, so
+  // the fields that describe them finally have something to describe:
+  // `titleVisibility`, `dialogIcon` and `dialogSeverity` draw on the dialog,
+  // the four inspector widths size its column, and the popover draws an arrow
+  // on `popoverArrowEdge`. `popoverAnchor` was read by NEITHER side; the
+  // canvas now narrows the arrow for a point anchor and the exporter emits
+  // the matching `attachmentAnchor:`.
 
   // -- typography and 3D ----------------------------------------------------
   // Same blocker as their modifier twins in MODIFIER_VISIBILITY — see the
@@ -276,4 +275,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 65
+export const DEBT_CEILING = 56

@@ -435,6 +435,39 @@ describe('emission sanity', () => {
 // 'a scrollable stack exports a real ScrollView' above.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Presentation routing
+//
+// Five panel types attach to their PARENT as a modifier instead of flowing
+// inside it. That list was hand-maintained in three places and two of them
+// disagreed — the canvas knew about three types, the exporter about five — so
+// a `confirmationdialog` sat inline on screen and presented modally in the
+// code. The fix was a single set, and these two guard the property that makes
+// it a fix rather than a patch: nobody keeps a private copy.
+// ---------------------------------------------------------------------------
+describe('presentation routing', () => {
+  it('both sides ask the same function which views present', () => {
+    for (const [name, src] of [['canvas', CANVAS], ['export', EXPORT]]) {
+      expect(src.includes('isPresentationPanel'),
+        `the ${name} side no longer consults isPresentationPanel — if the ` +
+        'routing moved, point this test at the new seam rather than deleting it'
+      ).toBe(true)
+    }
+  })
+
+  it('neither side keeps its own copy of the list', () => {
+    // The original bug in one regex: an inline array or Set carrying the
+    // presentation vocabulary, maintained by hand alongside the real one.
+    const ownList = /\[[^\]]*'sheet'[^\]]*'alert'[^\]]*\]/
+    for (const [name, src] of [['canvas', CANVAS], ['export', EXPORT]]) {
+      expect(ownList.test(src),
+        `the ${name} side declares its own presentation-type list; there is ` +
+        'one set in appleSystem.js and a second copy is how these drifted apart'
+      ).toBe(false)
+    }
+  })
+})
+
 describe('containment', () => {
   it('no non-scrollable content exceeds its window', () => {
     const overflows = []

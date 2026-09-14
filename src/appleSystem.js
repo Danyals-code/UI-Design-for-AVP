@@ -1996,3 +1996,46 @@ export function applyAspectRatio(size, aspect) {
   if (current > r) return fill ? [w, w / r] : [h * r, h]
   return fill ? [h * r, h] : [w, w / r]
 }
+
+// Panel types that are not laid out as children at all: in SwiftUI each one
+// attaches to its PARENT as a `.sheet(…)` / `.alert(…)` / `.confirmationDialog(…)`
+// / `.inspector(…)` modifier, so it is presented over the view rather than
+// flowing inside it.
+//
+// This lived in three places — the exporter, the canvas and the modifier
+// registry — and two of them disagreed: the canvas knew about three types and
+// the exporter about five. A `confirmationdialog` or an `inspector` was
+// therefore laid out as an ordinary child on screen and emitted as a modal
+// modifier in the code: the wrong *place*, not merely the wrong pixels. It
+// lives here, in the vocabulary both sides already import, because the token
+// module is the one layer with no cycle to worry about. AUDIT #7.
+const PRESENTATION_PANEL_TYPES = new Set([
+  'sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'
+])
+
+export const isPresentationPanel = (panelType) => PRESENTATION_PANEL_TYPES.has(panelType)
+
+// How wide an `.inspector(…)` column is. This mirrors the precedence the
+// exporter emits — an exact `.inspectorColumnWidth(n)` wins outright,
+// otherwise `.inspectorColumnWidth(min:ideal:max:)` clamps the ideal (falling
+// back to the panel's stored width) between the bounds — so the column the
+// canvas draws and the column the generated code asks for are the same box.
+// It lives beside the other metric resolvers rather than in the renderer so
+// that precedence can be pinned by a test; all four fields reached the export
+// only until phase 1.3, because the canvas had no inspector presentation at
+// all to apply them to. AUDIT #7.
+// Takes the four widths rather than the panel, so the caller spells each
+// field at the call site — the same shape `controlFraction` uses, and what
+// keeps the parity scan able to see that the canvas reads them.
+export function inspectorColumnWidth({ exact, ideal, min, max, stored }, windowW) {
+  const pt = (v) => (v == null ? null : ptToUnits(v))
+  const exactU = pt(exact)
+  if (exactU != null) return Math.min(exactU, windowW)
+  let width = pt(ideal) ?? (stored ?? ptToUnits(320))
+  const minU = pt(min)
+  const maxU = pt(max)
+  if (minU != null) width = Math.max(width, minU)
+  if (maxU != null) width = Math.min(width, maxU)
+  // However wide it asks to be, it still has to fit the window it splits.
+  return Math.max(ptToUnits(40), Math.min(width, windowW * 0.8))
+}

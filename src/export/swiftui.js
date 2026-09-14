@@ -14,7 +14,7 @@
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
-import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS } from '../appleSystem'
+import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS, isPresentationPanel } from '../appleSystem'
 import {
   emitPanel, isInteractivePanel, compileTapAction,
   panelFrameMode, panelHeightIsDerived
@@ -552,7 +552,13 @@ function emitPresentationModifier(p, pad, out, stateBag) {
     // the code compiles unchanged on iPadOS / macOS.
     const arrow = p.popoverArrowEdge && p.popoverArrowEdge !== 'automatic'
       ? `, arrowEdge: .${p.popoverArrowEdge}` : ''
-    out.push(`${ind}.popover(isPresented: $${stateName}${arrow}) {`)
+    // `attachmentAnchor:` defaults to `.rect(.bounds)`, so it is emitted only
+    // when the designer picked the point anchor. It was read by neither side
+    // before phase 1.3 — a live control wired to nothing — and the canvas now
+    // draws a narrower arrow for it, so the code has to carry it too.
+    const anchor = p.popoverAnchor === 'point'
+      ? ', attachmentAnchor: .point(.center)' : ''
+    out.push(`${ind}.popover(isPresented: $${stateName}${anchor}${arrow}) {`)
     out.push(`${ind}    Text("${escapeString(p.text || 'Popover')}")`)
     out.push(`${ind}        .padding()`)
     out.push(`${ind}}`)
@@ -985,9 +991,8 @@ function renderWindow(win, items, pad, out, stateBag) {
   // Spec §1.25 — every panel type that attaches as a `.xxx(...)` modifier
   // on the parent view, not as an inline child. We separate them so they
   // can ride along after the body and emit matching `@State` declarations.
-  const presentationTypes = new Set(['sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'])
   const ownChildren = items.filter((c) => c.parentId === win.id)
-  const presentationKids = ownChildren.filter((c) => c.type === 'panel' && presentationTypes.has(c.panelType))
+  const presentationKids = ownChildren.filter((c) => c.type === 'panel' && isPresentationPanel(c.panelType))
   const ornamentKids = ownChildren.filter((c) => c.type === 'stack' && c.ornament)
   // Spec §1.26 — every Toolbar child becomes a `.toolbar { … }` modifier
   // on the window body. Direct children with stackType 'toolbar' route
