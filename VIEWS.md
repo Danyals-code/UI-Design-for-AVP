@@ -375,7 +375,7 @@ superset of all stack-type fields; the inspector and exporter consult
 - **Scroll** - Scrollable toggle, axis, indicators.
 - **Section / Disclosure / Navigation / TabView / Tab / ToolbarItem** - only shown for the matching `stackType`.
 - **Ornament** - anchor mode, edge, alignment, visibility, offset, background, material.
-- **Environment** - font, foreground, direction, locale.
+- **Environment** - font, foreground, tint, direction, locale. All five emit as their SwiftUI modifiers; `layoutDirection` is previewed too, mirroring the declaring container's own alignment (`mirroredAlignment()` in `layout.js`). SwiftUI inherits it further down the subtree than the canvas mirrors - noted in `parity.baseline.js`.
 - **Modifiers** - modifier stack.
 
 ---

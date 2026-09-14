@@ -113,6 +113,22 @@ const SELF_SCROLLING_STACK_TYPES = new Set([
   'toolbar', 'toolbarItem', 'toolbarItemGroup', 'tab', 'section', 'disclosure'
 ])
 
+// `.environment(\.layoutDirection, .rightToLeft)` mirrors leading and
+// trailing. The canvas previews it on the container that declares it — the
+// bulk of what a designer is checking when they flip to RTL — while SwiftUI
+// inherits the value further down the tree than this mirrors. The limit is
+// recorded in `parity.baseline.js` rather than left for someone to discover.
+//
+// The whole Environment section was editable in the inspector and read by
+// NOBODY until phase 1.5; the other four values are export-only by nature.
+// AUDIT #13.
+export function mirroredAlignment(alignment, environment) {
+  if (environment?.layoutDirection !== 'rightToLeft') return alignment
+  if (alignment === 'leading') return 'trailing'
+  if (alignment === 'trailing') return 'leading'
+  return alignment
+}
+
 // Which axes a stack scrolls on, mirroring `scrollViewOpener` in
 // `export/swiftui.js` exactly: the `scrollView` stack TYPE always scrolls,
 // any other plain stack scrolls when the `scrollable` FLAG is set, and the
@@ -887,6 +903,8 @@ export function layoutStack(stack, items, outerSize = null) {
   // Offset for asymmetric padding
   const padOffsetX = (pad.leading - pad.trailing) / 2
   const padOffsetY = (pad.top - pad.bottom) / 2
+  // Leading and trailing swap under a right-to-left layout direction.
+  const align = mirroredAlignment(stack.alignment, stack.environment)
 
   for (let i = 0; i < children.length; i++) {
     const c = children[i]
@@ -904,9 +922,9 @@ export function layoutStack(stack, items, outerSize = null) {
       x = -innerW / 2 + cw / 2 + padOffsetX
     } else if (rightAnchored) {
       x = innerW / 2 - cw / 2 + padOffsetX
-    } else if (stack.alignment === 'leading') {
+    } else if (align === 'leading') {
       x = -innerW / 2 + cw / 2 + padOffsetX
-    } else if (stack.alignment === 'trailing') {
+    } else if (align === 'trailing') {
       x = innerW / 2 - cw / 2 + padOffsetX
     } else {
       x = padOffsetX                                    // center (default)

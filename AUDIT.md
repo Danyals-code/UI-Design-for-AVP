@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6 and 1.1–1.4, 1.6–1.9 have landed
-since; each is marked where it changed a finding. Only 1.5 remains.*
+*Audited at `5b294cb`. **Every phase in §6 has landed since** — 2.1–2.6 and
+1.1–1.9 — and each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -28,14 +28,14 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **both stages are done bar one phase, and the count is now
-31**.
+divergences**; **every phase in the plan has landed and the count is now
+27**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
-| Canvas honours a field, exporter drops it | 28 fields | 6 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 23 |
-| Neither side reads a field the inspector writes | 7 fields | 2 |
+| Canvas honours a field, exporter drops it | 28 fields | 5 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 22 |
+| Neither side reads a field the inspector writes | 7 fields | **0** |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
 
@@ -97,10 +97,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 556 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 570 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
-  had — +11 from 1.8 and +9 from 1.9).
+  had — +11 from 1.8, +9 from 1.9 and +14 from 1.5).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -238,15 +238,19 @@ rotate behaviour produces a preview that does nothing and code that works.
 See phase **1.6** below for what shipped, including a second dead control the
 fix uncovered.
 
-### 4.5 Dead inspector controls
+### 4.5 Dead inspector controls ✅ **fixed in 1.5**
 
-`WindowProps.jsx:139–152` exposes Immersion Style, Window Resizability and
-Gestures. Only `spatial.hoverEffect` is ever read (`store/helpers.js:93`). The
-other three reach neither the canvas nor the export — they are controls that do
-nothing at all.
+*Original finding.* `WindowProps.jsx:139–152` exposes Immersion Style, Window
+Resizability and Gestures. Only `spatial.hoverEffect` is ever read
+(`store/helpers.js:93`). The other three reach neither the canvas nor the
+export — they are controls that do nothing at all.
 
 Same class, lower stakes: `blur` / `blurAmount` on stacks and windows are
 canvas-only, and `ornamentOffset` is read by neither side.
+
+Phase **1.5** wired what had an API and removed what did not; `ornamentOffset`
+went with it (#14). `blur` / `blurAmount` remain canvas-only and are still in
+the ledger — they are a material question rather than a dead control.
 
 ---
 
@@ -639,10 +643,58 @@ while you scroll (OrbitControls dollies from its own DOM listener on the same
 element that three-fiber uses, so the scroller stops immediate propagation for
 exactly the events it consumes).
 
-**1.5 — Clean up the dead controls** *(½ day)*
-Implement or remove Immersion / Resizability / Gestures. If they are
-export-only concepts, move them under a clearly-labelled “export only” group so
-the inspector stops implying a preview.
+**1.5 — Clean up the dead controls** ✅ **done**
+
+Four sections were editable and read by NOBODY, on either side. The plan said
+"implement or remove"; each turned out to answer that question for itself once
+you asked what SwiftUI API it would be translated into. Parity debt 31 → 27,
+closing #13 and #14 — and with them the last of the "neither side reads it"
+tier, which stood at seven fields when the audit was written.
+
+**Implemented** — these had an API and simply were not wired:
+
+- **`windowResizability`** emits `.windowResizability(.contentSize)` on the
+  WindowGroup. It is a *Scene* modifier, which is also why it has no preview:
+  there is no window chrome on a design surface to drag. The inspector says
+  that now instead of implying one.
+- **The whole Environment section** — Font, Foreground, Tint, Direction,
+  Locale — emits, each as its real modifier. `layoutDirection` is previewed
+  too: leading and trailing swap, which is the bulk of what a designer is
+  checking when they flip to RTL. *One limit stated rather than left to be
+  found:* SwiftUI inherits the value down the whole subtree while the canvas
+  mirrors it at the container that declares it.
+- **`ornamentOffset`** (#14) pushes the ornament out along the edge it hangs
+  from, and emits the matching `.offset` on the ornament content — `.ornament`
+  itself has no offset parameter.
+
+**Removed** — these had nowhere to go, so a renderer would have been invention:
+
+- **`spatial.immersionStyle`** is a *scene* property. The Scene tab already
+  owns it and the exporter already emits it from there, so the per-window copy
+  was a second source for one concept — the shape phase 2.3 spent itself
+  removing — and it happened to be the dead one.
+- **`spatial.gestures`** was a list of gesture names with no SwiftUI API
+  behind it: there is no window-level "these gestures are allowed"
+  declaration to emit it as.
+
+Stale keys in older saved projects are simply ignored, so no migration.
+
+**One scan correction.** Once the exporter started reading `spatial`, the
+parity scan reported the field as export-only — because the canvas reads it
+through `resolveHoverEffect`, which lives in `store/helpers.js`, a file the
+scan did not look at. That would have been a false report inviting someone to
+"fix" a field the canvas already honours, so the file is now in the canvas
+set, with a comment saying why a store file is there.
+
+*Acceptance:* 14 new tests. Six pin `mirroredAlignment` and the RTL layout,
+and the rest read the generated Swift for the environment modifiers, the Scene
+resizability and the ornament offset. Two pin the **removals** — a fresh
+window declares exactly `hoverEffect` and `windowResizability`, and immersion
+still reaches the file from the Scene where it belongs — because a dead
+control coming back is the defect returning. Verified by perturbation:
+reverting any of the four fails 8, the parity harness among them. Confirmed in
+the running app: the window's Behaviour section now shows Hover and Resize and
+nothing else.
 
 **1.6 — Add `rotateGesture` to the preview runtime** ✅ **done**
 
@@ -1012,7 +1064,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
 Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
-Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5
+Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5 ✅
 Week 4   1.8 style pickers (#19) ✅ · 1.9 canvas-only visuals (#20) ✅
 ```
 
@@ -1045,8 +1097,8 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 10 | ~~`buttonSize`/`buttonShape` vs `controlSize`/`buttonBorderShape`~~ — **fixed in 2.3** | `appleSystem.js`, `inspectors.jsx` | — |
 | 11 | ~~Free panel position not exported~~ — **fixed in 2.4** | `export/swiftui.js` | — |
 | 12 | ~~`rotateGesture` dead in preview~~ — **fixed in 1.6.** Shift + wheel stands in for the two-handed twist, and the wheel stream now produces all three gesture phases rather than only `change`. | `behaviors/runtime.js` | — |
-| 13 | `spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides | `WindowProps.jsx:139` | Low |
-| 14 | `blur` / `blurAmount` / `ornamentOffset` canvas-only or unread | `store/factories.js` | Low |
+| 13 | ~~`spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides~~ — **fixed in 1.5.** Resizability emits as a Scene modifier; the other two were removed, having nowhere to go. | `WindowProps.jsx`, `store/factories.js` | — |
+| 14 | ~~`ornamentOffset` unread by both sides~~ — **fixed in 1.5**; it offsets the ornament on the canvas and emits `.offset` on the ornament content. `blur` / `blurAmount` remain canvas-only, in the unfiled tail. | `store/factories.js` | — |
 | 15 | ~~`layoutPriority` is a no-op on both sides~~ — **fixed in 1.1.** It wrote nothing into the summary, so it emitted real Swift and moved neither the canvas nor the layout engine. It now allocates a stack's slack to the highest priority among the children that want to grow, which is what SwiftUI does. | `modifiers/registry.js`, `layout.js` | — |
 | 16 | ~~README counts stale (55→56, 42→43)~~ — **fixed** alongside the harness | `README.md` | — |
 

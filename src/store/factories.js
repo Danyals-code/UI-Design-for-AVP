@@ -152,11 +152,21 @@ export const makeWindow = (overrides = {}) => ({
   blur: null,
   blurAmount: null,
   padding: 14,             // pt — default inner padding for the window content
+  // visionOS spatial behaviour. Both survivors are read: `hoverEffect` is the
+  // window-level default a panel inherits (store/helpers.js), and
+  // `windowResizability` is emitted as a Scene modifier on the WindowGroup.
+  //
+  // Two siblings were removed in phase 1.5 rather than wired, because neither
+  // had anywhere to go. `immersionStyle` is a SCENE property — the Scene tab
+  // already owns it and the exporter already emits it from there — so the
+  // per-window copy was a second source for one concept, of exactly the kind
+  // phase 2.3 spent itself removing, and it happened to be the dead one.
+  // `gestures` was a list of gesture names with no SwiftUI API behind it:
+  // there is no window-level "these gestures are allowed" declaration to emit
+  // it as. Stale keys in older saved projects are simply ignored. AUDIT #13.
   spatial: {
-    immersionStyle: 'mixed',
     hoverEffect: 'automatic',
-    windowResizability: 'automatic',
-    gestures: ['tap', 'drag']
+    windowResizability: 'automatic'
   },
   // visionOS window-style metadata (spec §3.1, §3.2). Defaults match
   // Apple's `.automatic` glass plate; `.volumetric` enables the rest of

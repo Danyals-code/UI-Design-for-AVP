@@ -1191,6 +1191,18 @@ function Window3D({ window: win, items, previewPosition }) {
       edgeOffsets.bottom += oh
     }
 
+    // `ornamentOffset` nudges the ornament further out along the edge it
+    // hangs from — read by NEITHER side until phase 1.5, so the number in the
+    // inspector moved nothing and reached no file. Positive pushes away from
+    // the window, which is the direction the field reads as. AUDIT #14.
+    const off = ptToUnits(Number(orn.ornamentOffset) || 0)
+    if (off) {
+      if (edge === 'leading')       ox -= off
+      else if (edge === 'trailing') ox += off
+      else if (edge === 'top')      oy += off
+      else if (edge === 'bottom')   oy -= off
+    }
+
     ornPositions.set(orn.id, [ox, oy, 0.015])
     ornSizes.set(orn.id, [ow, oh])
   }

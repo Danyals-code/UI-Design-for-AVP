@@ -5,9 +5,7 @@ import { useStore } from '../../store'
 import {
   TEXT_STYLES,
   TEXT_STYLE_ORDER,
-  IMMERSION_STYLES,
   HOVER_EFFECTS,
-  GESTURE_TYPES,
   WINDOW_RESIZABILITY,
   WORLD_SCALING_BEHAVIOR,
   VOLUME_BASEPLATE_VISIBILITY,
@@ -136,29 +134,18 @@ export function WindowProps({ item }) {
 
         {/* Spatial */}
         <div className="text-[9px] text-textMute uppercase tracking-wider mt-3 mb-1">Behaviour</div>
-        <Row label="Immersion"><Select value={item.spatial?.immersionStyle || 'mixed'} options={IMMERSION_STYLES} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, immersionStyle: v } })} /></Row>
         <Row label="Hover"><Select value={item.spatial?.hoverEffect || 'automatic'} options={HOVER_EFFECTS} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, hoverEffect: v } })} /></Row>
         <Row label="Resize"><Select value={item.spatial?.windowResizability || 'automatic'} options={WINDOW_RESIZABILITY} onChange={(v) => updateItem(item.id, { spatial: { ...item.spatial, windowResizability: v } })} /></Row>
-        <div className="text-[9px] text-textMute uppercase tracking-wider mt-2 mb-1">Gestures</div>
-        <div className="flex flex-wrap gap-1">
-          {GESTURE_TYPES.map((g) => {
-            const gestures = item.spatial?.gestures || []
-            const active = gestures.includes(g.value)
-            return (
-              <button
-                key={g.value}
-                onClick={() => {
-                  const next = active ? gestures.filter((x) => x !== g.value) : [...gestures, g.value]
-                  updateItem(item.id, { spatial: { ...item.spatial, gestures: next } })
-                }}
-                className={`px-2 py-0.5 text-[9px] rounded border transition-colors ${
-                  active ? 'bg-accent border-accent text-white' : 'bg-surface3 border-border text-textDim hover:text-text'
-                }`}
-              >
-                {g.label}
-              </button>
-            )
-          })}
+        {/* `windowResizability` is a Scene modifier on the WindowGroup — the
+            canvas has no window chrome to resize, so it is honestly labelled
+            rather than left to imply a preview. The Immersion picker and the
+            Gestures chips that used to sit here were removed in phase 1.5:
+            immersion is a SCENE property the Scene tab already owns and
+            emits, and "allowed gestures" has no SwiftUI API to emit it as.
+            AUDIT #13. */}
+        <div className="text-[9px] text-textMute leading-snug mt-1">
+          Resize is a WindowGroup modifier — it reaches the export, and there
+          is no window chrome on the canvas to preview it against.
         </div>
       </Section>
 

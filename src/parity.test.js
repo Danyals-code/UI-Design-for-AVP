@@ -61,7 +61,14 @@ const CANVAS = [
   './components/SceneTree.jsx',
   './components/Entity3D.jsx',
   './layout.js',
-  './text.js'
+  './text.js',
+  // Renderer-side resolution that happens to live in the store folder:
+  // `resolveHoverEffect` walks up to the owning window for its
+  // `spatial.hoverEffect` default and is imported by Panel3D alone. Without
+  // it the scan reported `spatial` as export-only the moment the exporter
+  // started emitting `.windowResizability` — which would have been false,
+  // and would have had someone 'fix' a field the canvas already honours.
+  './store/helpers.js'
 ].map(read).join('\n')
 
 const EXPORT = [

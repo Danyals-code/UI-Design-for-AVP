@@ -414,6 +414,12 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 
 ### Object - Window
 - **Window:** name, Group ID, Tab Icon, Primary (this/auto), Scrollable.
+  **Behaviour** carries Hover and Resize. Resize is a WindowGroup
+  Scene modifier - it reaches the export, and the inspector says so,
+  because there is no window chrome on the canvas to preview it
+  against. The Immersion picker and Gestures chips that used to sit
+  here are gone: immersion is a scene property the Scene tab already
+  owns and exports, and "allowed gestures" has no SwiftUI API.
   When **Scrollable** is on, the canvas wires a wheel handler that
   scrolls content inside the plate; world-space clip planes keep
   off-bounds content hidden regardless of the toggle (no leaks past

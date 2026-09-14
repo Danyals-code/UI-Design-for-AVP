@@ -65,7 +65,11 @@ export const STACK = {
   ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()'),
   ornamentContentAlignment: debt('export-only: canvas ignores ornament content alignment'),
   ornamentVisibility: debt('export-only: canvas always draws the ornament regardless of visibility'),
-  ornamentOffset: debt('neither: read by no one — either wire it or delete the field', 14),
+  // `ornamentOffset` left this table in phase 1.5 (AUDIT #14). It was read by
+  // NEITHER side — the number in the inspector moved nothing and reached no
+  // file. The canvas now pushes the ornament that far out along the edge it
+  // hangs from, and the export carries the matching `.offset` on the ornament
+  // content, because `.ornament` itself has no offset parameter.
 
   // -- scrolling / chrome ---------------------------------------------------
   // `scrollShowsIndicators` left this table in phase 1.4: a scrollable stack
@@ -74,8 +78,19 @@ export const STACK = {
   toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement'),
   fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes'),
 
-  // -- environment: a whole inspector section nothing reads (AUDIT #13) -----
-  environment: debt('neither: Font / Foreground / Locale / LTR-RTL are editable in StackProps and read by no one', 13)
+  // -- environment ----------------------------------------------------------
+  // The whole section left this table in phase 1.5 (AUDIT #13). Font,
+  // Foreground, Tint, Direction and Locale were editable in the inspector and
+  // read by NOBODY, on either side. All five now emit — each is a real
+  // SwiftUI modifier — and `layoutDirection` is previewed as well: the canvas
+  // mirrors the declaring container's own alignment.
+  //
+  // One limit worth stating rather than leaving to be discovered: SwiftUI
+  // inherits `\.layoutDirection` down the whole subtree, while the canvas
+  // mirrors it at the container that declares it. A nested stack with its own
+  // alignment will read left-to-right on the canvas and right-to-left on
+  // device. Closing that means threading an inherited environment through
+  // `layoutStack`, which is a bigger change than this phase.
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +110,19 @@ export const WINDOW = {
   volumeWorldAlignment: debt('export-only: no canvas equivalent'),
   supportedVolumeViewpoints: debt('export-only: no canvas equivalent'),
 
-  spatial: debt('neither: Immersion / Resizability / Gestures are editable in WindowProps and read by no one', 13),
-  environment: debt('neither: same environment section as stacks, read by no one', 13)
+  // `spatial` and `environment` left this table in phase 1.5 (AUDIT #13).
+  //
+  // `spatial` lost two of its four fields rather than gaining renderers for
+  // them. `immersionStyle` is a SCENE property that the Scene tab already
+  // owns and the exporter already emits — the per-window copy was a second
+  // source for one concept, and the dead one. `gestures` was a list of
+  // gesture names with no SwiftUI API to emit it as. What is left is read by
+  // both sides: `hoverEffect` by the canvas (via `resolveHoverEffect`) and
+  // `windowResizability` by the exporter, as a Scene modifier on the
+  // WindowGroup — which is why the canvas has nowhere to preview it, and why
+  // the inspector now says so instead of implying one.
+  //
+  // `environment` is the same section stacks carry; see the note there.
 }
 
 // ---------------------------------------------------------------------------
@@ -305,4 +331,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 31
+export const DEBT_CEILING = 27

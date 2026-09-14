@@ -1391,3 +1391,102 @@ describe('canvas-only visuals reach the export', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// The dead controls (AUDIT #13, #14)
+//
+// Four sections were editable in the inspector and read by NOBODY, on either
+// side: the window's Immersion / Resizability / Gestures block, the
+// Environment section on stacks and windows, and the ornament offset. Phase
+// 1.5 wired what had an API, removed what did not, and these pin both halves
+// of that — including the removals, because a control that comes back is the
+// defect returning.
+// ---------------------------------------------------------------------------
+describe('the Environment section reaches the file', () => {
+  const withEnv = (environment) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const col = makeStack({ parentId: win.id, name: 'Col', stackType: 'vstack', environment })
+    const kid = makePanel('text', { parentId: col.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, col, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits each of the five as its real SwiftUI modifier', () => {
+    expect(withEnv({ font: 'headline' })).toContain('.environment(\\.font, .headline)')
+    expect(withEnv({ foregroundStyle: 'secondary' })).toContain('.foregroundStyle(')
+    expect(withEnv({ tint: 'systemRed' })).toContain('.tint(')
+    expect(withEnv({ layoutDirection: 'rightToLeft' }))
+      .toContain('.environment(\\.layoutDirection, .rightToLeft)')
+    expect(withEnv({ locale: 'fr-FR' }))
+      .toContain('.environment(\\.locale, Locale(identifier: "fr-FR"))')
+  })
+
+  it('stays silent at the defaults', () => {
+    const bare = withEnv({ font: null, foregroundStyle: null, tint: null, locale: null, layoutDirection: 'leftToRight' })
+    expect(bare).not.toContain('.environment(')
+    expect(withEnv(undefined)).not.toContain('.environment(')
+  })
+})
+
+describe('windowResizability reaches the Scene', () => {
+  const withResize = (windowResizability) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id, spatial: { hoverEffect: 'automatic', windowResizability } })
+    return exportSwiftUI([tab, win], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('is a Scene modifier on the WindowGroup, which is why it has no preview', () => {
+    const swift = withResize('contentSize')
+    expect(swift).toContain('.windowResizability(.contentSize)')
+    // It belongs to the App scene, not to a view body.
+    const appFile = exportSwiftUI(
+      [makeTab({ name: 'T' }), makeWindow({ name: 'W', spatial: { windowResizability: 'contentSize' } })],
+      'App', {}
+    ).find((f) => f.filename.includes('App'))
+    expect(appFile.content).toContain('.windowResizability(.contentSize)')
+  })
+
+  it('stays silent at .automatic', () => {
+    expect(withResize('automatic')).not.toContain('.windowResizability(')
+  })
+})
+
+describe('the removed window controls stay removed', () => {
+  // `immersionStyle` was a SECOND source for a scene-level concept the Scene
+  // tab already owns and emits; `gestures` had no SwiftUI API at all. A
+  // window carrying them again would be the dead control coming back.
+  it('a fresh window declares neither', () => {
+    const spatial = makeWindow({}).spatial
+    expect(Object.keys(spatial).sort()).toEqual(['hoverEffect', 'windowResizability'])
+  })
+
+  it('immersion still reaches the file, from the Scene where it belongs', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const swift = exportSwiftUI([tab, win], 'App', { sceneMode: 'immersive', immersionStyle: 'full' })
+      .map((f) => f.content).join('\n')
+    expect(swift).toContain('.immersionStyle(selection: .constant(.full), in: .full)')
+  })
+})
+
+describe('the ornament offset reaches both sides', () => {
+  const withOffset = (edge, ornamentOffset) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const orn = makeStack({ parentId: win.id, name: 'Orn', stackType: 'hstack', ornament: edge, ornamentOffset })
+    const kid = makePanel('text', { parentId: orn.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, orn, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('offsets away from the window on the edge it hangs from', () => {
+    // `.ornament` has no offset parameter, so it lands on the content.
+    expect(withOffset('bottom', 20)).toContain('.offset(y: 20)')
+    expect(withOffset('top', 20)).toContain('.offset(y: -20)')
+    expect(withOffset('leading', 20)).toContain('.offset(x: -20)')
+    expect(withOffset('trailing', 20)).toContain('.offset(x: 20)')
+  })
+
+  it('stays silent at zero', () => {
+    expect(withOffset('bottom', 0)).not.toContain('.offset(')
+  })
+})

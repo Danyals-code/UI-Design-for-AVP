@@ -221,6 +221,29 @@ function escapeString(s) {
 // Stable, Swift-safe state-var name from any item id.
 function stateVarName(id) { return `showing_${String(id).replace(/[^A-Za-z0-9]/g, '_')}` }
 
+// The Environment section — Font / Foreground / Tint / Direction / Locale —
+// on a stack or a window. Every one of the five is a real SwiftUI modifier,
+// and not one of them was emitted: the section was editable in the inspector
+// and read by NOBODY, on either side. AUDIT #13.
+//
+// `layoutDirection` is the one the canvas also previews (it mirrors the
+// declaring container's own alignment), so the two sides now agree about it
+// at that level; SwiftUI inherits it further down the tree than the canvas
+// mirrors, which is noted in `parity.baseline.js`.
+function environmentModifiers(item) {
+  const env = item?.environment
+  if (!env) return []
+  const out = []
+  if (env.font) out.push(`.environment(\\.font, .${env.font})`)
+  if (env.foregroundStyle) out.push(`.foregroundStyle(${swiftColor(env.foregroundStyle, null)})`)
+  if (env.tint) out.push(`.tint(${swiftColor(env.tint, null)})`)
+  if (env.layoutDirection === 'rightToLeft') {
+    out.push(`.environment(\\.layoutDirection, .rightToLeft)`)
+  }
+  if (env.locale) out.push(`.environment(\\.locale, Locale(identifier: "${env.locale}"))`)
+  return out
+}
+
 function swiftColor(token, hex) {
   // Map our semantic tokens to SwiftUI's `Color` convenience values.
   // Tokens that have no first-party SwiftUI equivalent (designWindow,
@@ -901,6 +924,7 @@ function renderStack(stack, items, pad, out, stateBag) {
     const cr = unitsToPt(stack.cornerRadius)
     out.push(`${boxMod}.clipShape(RoundedRectangle(cornerRadius: ${cr}, style: .continuous))`)
   }
+  for (const line of environmentModifiers(stack)) out.push(`${boxMod}${line}`)
   if (stack.navTitle) out.push(`${boxMod}.navigationTitle("${escapeString(stack.navTitle)}")`)
   if (stack.ornament) {
     out.push(`${boxMod}.ornament(attachmentAnchor: .scene(.${stack.ornament})) {`)
@@ -1090,6 +1114,18 @@ function renderWindow(win, items, pad, out, stateBag) {
     out.push(`${ind}    .ornament(attachmentAnchor: ${anchor}${visibility}${alignment}) {`)
     renderStack(o, items, pad + 2, out, stateBag)
     out.push(`${indent(pad + 2)}    .glassBackgroundEffect()`)
+    // `.ornament` has no offset parameter, so the distance from the window
+    // edge belongs on the content — which is where the canvas applies it too.
+    // Read by NEITHER side until phase 1.5. AUDIT #14.
+    const ornOff = Number(o.ornamentOffset) || 0
+    if (ornOff) {
+      const edge = o.ornament
+      const expr = edge === 'leading'  ? `x: ${-ornOff}`
+                 : edge === 'trailing' ? `x: ${ornOff}`
+                 : edge === 'bottom'   ? `y: ${ornOff}`
+                 : `y: ${-ornOff}`
+      out.push(`${indent(pad + 2)}    .offset(${expr})`)
+    }
     out.push(`${ind}    }`)
   }
 
@@ -1285,6 +1321,14 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
     const winH = unitsToPt(firstWindow.size?.[1] || 0)
     if (winW > 0 && winH > 0 && (firstWindow.windowStyle !== 'volumetric' && mode !== 'volume')) {
       sceneLines.push(`        .defaultSize(width: ${winW}, height: ${winH})`)
+    }
+    // `.windowResizability` is a Scene modifier, which is why the canvas has
+    // nowhere to preview it: there is no window chrome on a design surface to
+    // drag. It was editable in the inspector and read by nobody until phase
+    // 1.5. AUDIT #13.
+    const resize = firstWindow.spatial?.windowResizability
+    if (resize && resize !== 'automatic') {
+      sceneLines.push(`        .windowResizability(.${resize})`)
     }
   }
 

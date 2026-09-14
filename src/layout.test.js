@@ -19,7 +19,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeSize, layoutStack, resolvedChildSizes, gridColumnCount, SYSTEM_SPACING_PT,
-  scrollAxesOf
+  scrollAxesOf, mirroredAlignment
 } from './layout'
 import { ptToUnits } from './appleSystem'
 import { makeStack, makePanel, makeTab, makeWindow, textStyleToFontSize } from './store/factories'
@@ -639,5 +639,68 @@ describe('layoutPriority decides who gets the slack', () => {
       expect(p[1] + sz[1] / 2).toBeLessThanOrEqual(outer[1] / 2 + EPS)
       expect(p[1] - sz[1] / 2).toBeGreaterThanOrEqual(-outer[1] / 2 - EPS)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Layout direction (AUDIT #13)
+//
+// The Environment section — Font / Foreground / Tint / Direction / Locale —
+// was editable in the inspector and read by NOBODY, on either side. All five
+// now emit, and `layoutDirection` is the one the canvas previews too: leading
+// and trailing swap, which is the bulk of what a designer is checking when
+// they flip a layout to RTL.
+// ---------------------------------------------------------------------------
+describe('mirroredAlignment', () => {
+  const rtl = { layoutDirection: 'rightToLeft' }
+  const ltr = { layoutDirection: 'leftToRight' }
+
+  it('swaps leading and trailing under RTL', () => {
+    expect(mirroredAlignment('leading', rtl)).toBe('trailing')
+    expect(mirroredAlignment('trailing', rtl)).toBe('leading')
+  })
+
+  it('leaves centre alone, since it has no handedness', () => {
+    expect(mirroredAlignment('center', rtl)).toBe('center')
+    expect(mirroredAlignment(undefined, rtl)).toBe(undefined)
+  })
+
+  it('changes nothing without an RTL environment', () => {
+    for (const env of [ltr, {}, null, undefined]) {
+      expect(mirroredAlignment('leading', env)).toBe('leading')
+      expect(mirroredAlignment('trailing', env)).toBe('trailing')
+    }
+  })
+
+  it('is its own inverse', () => {
+    for (const a of ['leading', 'trailing', 'center']) {
+      expect(mirroredAlignment(mirroredAlignment(a, rtl), rtl)).toBe(a)
+    }
+  })
+})
+
+describe('an RTL stack lays its children out mirrored', () => {
+  const columnAt = (alignment, layoutDirection) => {
+    const col = makeStack({
+      stackType: 'vstack', padding: 0, spacing: 0, alignment,
+      widthMode: 'fixed', fixedWidth: 400,
+      environment: { layoutDirection }
+    })
+    const kid = makePanel('rectangle', { parentId: col.id, size: [ptToUnits(100), ptToUnits(40)] })
+    const items = [col, kid]
+    return layoutStack(col, items, computeSize(col, items)).get(kid.id)[0]
+  }
+
+  it('puts a leading child on the right and a trailing child on the left', () => {
+    const leadingLTR = columnAt('leading', 'leftToRight')
+    const leadingRTL = columnAt('leading', 'rightToLeft')
+    expect(leadingLTR).toBeLessThan(0)
+    expect(leadingRTL).toBeGreaterThan(0)
+    expect(leadingRTL).toBeCloseTo(-leadingLTR, 9)
+    expect(columnAt('trailing', 'rightToLeft')).toBeCloseTo(leadingLTR, 9)
+  })
+
+  it('leaves a centred child where it was', () => {
+    expect(columnAt('center', 'rightToLeft')).toBeCloseTo(columnAt('center', 'leftToRight'), 9)
   })
 })
