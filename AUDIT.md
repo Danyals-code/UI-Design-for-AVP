@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
 
-*Audited at `5b294cb`. Phases 2.1–2.6 and 1.4 have landed since; each is marked
-where it changed a finding.*
+*Audited at `5b294cb`. Phases 2.1–2.6, 1.4 and 1.7 have landed since; each is
+marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -29,12 +29,12 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
-now 97**.
+now 79**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 75 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 57 |
 | Neither side reads a field the inspector writes | 7 fields | 6 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
@@ -48,24 +48,24 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) has started** — phase
-1.4 landed and scrollable stacks now scroll — and it is where the remaining 97
-sit, dominated by defect #5 (17 modifiers that emit correct Swift and draw
-nothing) and #7 (8 presentation fields with no canvas equivalent).
+compile-clean enum surface. **Stage 1 (code → visual) has started** — phases
+1.4 and 1.7 have landed, so scrollable stacks scroll and every control honours
+its declared range — and it is where the remaining 79 sit, dominated by defect
+#5 (17 modifiers that emit correct Swift and draw nothing) and #7 (8
+presentation fields with no canvas equivalent).
 
 **A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
-written below retire exactly the 35 divergences that carry a defect number —
-100 → 65. The other 65 have no phase: **#17 (18), #19 (13) and #20 (10)**
-account for 41 of them and the ornament / volume / presentation-metric tail
-for the rest. So the plan as drafted closes about a third of what is left, and
-#17 in particular deserves a phase of its own: the audit files it as High but
-never schedules it, it is the largest single block after #5, and it is a
-wrong-pixels bug rather than an unread field — a slider authored `0…100` at
-value `50` draws hard right on the canvas and centred on device. Sequenced
-below as **1.7**, though it is cheap enough to take before 1.1.
+originally written retire exactly the 35 divergences that carry a defect
+number — 100 → 65. The other 65 had no phase at all: **#17 (18), #19 (13) and
+#20 (10)** accounted for 41 of them and the ornament / volume /
+presentation-metric tail for the rest. So the plan as drafted closed about a
+third of what was left. #17 was the clearest omission — filed High, never
+scheduled, the largest single block after #5, and a *wrong-pixels* bug rather
+than an unread field — so it became phase **1.7** and shipped ahead of 1.1.
+**#19 and #20 are now scheduled as 1.8 and 1.9.**
 
-Estimate for Stage 1 as originally scoped ≈ 4–6 working days; adding #17,
-#19 and #20 roughly doubles it.
+Estimate for Stage 1 as originally scoped ≈ 4–6 working days; with #19 and
+#20 still to come, roughly 7–9 in total.
 
 ---
 
@@ -93,8 +93,8 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 463 passing, 10 files (365 at the audit; +89 from the harness and
-  the Stage 2 phases, +9 from phase 1.4).
+- **Tests:** 483 passing, 10 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, +9 from phase 1.4, +20 from phase 1.7).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -490,21 +490,49 @@ the inspector stops implying a preview.
 **1.6 — Add `rotateGesture` to the preview runtime** *(½ day)*
 Alongside the existing `drag` and `pinch` handling.
 
-**1.7 — Honour control ranges (#17)** *(½ day)* — *added after 1.4; see the
+**1.7 — Honour control ranges (#17)** ✅ **done** — *added after 1.4; see the
 scoping correction in §1.*
-Slider, Gauge, Stepper and ProgressView all treat their value as already
-normalised `0…1`, so `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step`
-and `total` reach the export only. One `(value − min) / (max − min)` helper,
-used in four places, closes 18 divergences — the best debt-per-day ratio in
-Stage 1, and the only Stage 1 phase that fixes pixels that are *wrong* rather
-than missing.
-*Acceptance:* a slider authored `0…100` at `50` draws at its midpoint, and a
-test pins the canvas fraction against the value the exporter emits.
+
+Slider, Gauge, Stepper and ProgressView each carried a value inside a range the
+designer declares, and the canvas clamped that value to `0…1` and painted the
+result — right only when the range happens to BE `0…1`. `controlFraction` in
+`appleSystem.js` is now the single conversion every fill width and ring sweep
+goes through, and it reads the bounds with the same `?? 0` / `?? 1` fallbacks
+the exporter uses, so a half-specified control lands in the same place in both
+outputs. Parity debt 97 → 79, retiring all 18 entries and defect #17.
+
+What each control gained: the **Slider** maps its value through its range,
+writes drag-to-set back *in* that range snapped to `sliderStep`, and draws the
+`minimumValueLabel` / `maximumValueLabel` slots. The **Gauge** honours
+`gaugeMin/Max`, switches to a dial for the `accessoryCircular` styles, and
+samples a two-stop `gaugeTintFrom/To` gradient at the value's own position.
+The **Stepper** steps by `stepperStep` instead of ±1, stops at both bounds,
+and dims the button that can no longer do anything. **ProgressView** measures
+`value` against `total`, draws `.circular` as a ring, and gives
+`indeterminate` the position-unknown treatment rather than a full bar.
+
+**One shipped default was internally inconsistent.** The Gauge seeded
+`value: 0.7` alongside `gaugeMin: 0, gaugeMax: 100` and a `"70"` label — so it
+*looked* right only because the canvas clamped everything to `0…1`, while the
+exporter wrote `Gauge(value: 0.7, in: 0...100)`, which reads as 0.7%. The seed
+is now `70`, and a test asserts the emitted value, the emitted bounds and the
+printed label agree.
+
+*Acceptance:* 13 unit tests on the conversion plus 7 that read the value and
+bounds back out of the **real emitted Swift** and feed them to the canvas
+helper — so if either side starts reading a different field, or the fallbacks
+drift apart, the fraction stops matching. Verified by perturbation: restoring
+the old clamp fails 8 of them. Confirmed in the running app — setting a
+slider's Max to 100 moves the thumb from the midpoint to the far left, which
+is where `Slider(value: .constant(0.5), in: 0...100)` puts it.
 
 **1.8 — Per-type style pickers (#19)** *(1–2 days)* · **1.9 — Canvas-only
 visuals the export drops (#20)** *(1 day)*
 The remaining two filed groups, 23 divergences between them. Both were left
-unscheduled by the original plan.
+unscheduled by the original plan. 1.7 already took `gaugeStyle` and
+`progressViewStyle` off #19's list, so what is left there is `menuStyle`,
+`tableStyle`, `groupBoxStyle`, `formStyle`, the list-row family,
+`headerProminence`, `dateStyle` and `displayedComponents`.
 
 ---
 
@@ -716,7 +744,7 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 
 ```
 Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
-Week 2   1.4 real scrolling ✅  →  1.7 control ranges  →  1.1 inert modifiers
+Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers
 Week 3   1.2 form/outlinegroup · 1.3 presentations · 1.5 · 1.6
 Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
@@ -759,7 +787,7 @@ Found by the parity harness after the first pass, so not in the narrative above:
 
 | # | Defect | Where | Sev |
 | - | ------ | ----- | --- |
-| 17 | **Control ranges are ignored by the canvas.** Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `Panel3D.jsx:1757` (slider), `:1851` (gauge), `:1810` (stepper) | **High** |
+| 17 | ~~**Control ranges are ignored by the canvas.**~~ — **fixed in 1.7.** Original text: Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `appleSystem.js` (`controlFraction`), `Panel3D.jsx` | — |
 | 18 | **The whole `environment` section is dead.** Font, Foreground, Locale and LTR/RTL are editable on every stack and window, and read by neither side — five more controls in the same class as #13. | `StackProps.jsx:574–582` | Medium |
 | 19 | **Per-type style pickers do not reach the canvas.** `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
 | 20 | **Canvas-only visuals dropped on export.** `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |

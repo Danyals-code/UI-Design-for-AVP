@@ -1925,3 +1925,55 @@ export const TOOLBAR_PLACEMENTS = {
   confirmationAction:{ label: 'Confirmation Action' },
   cancellationAction:{ label: 'Cancellation Action' }
 }
+
+// ---------------------------------------------------------------------------
+// Control ranges (AUDIT #17)
+//
+// SwiftUI's Slider, Gauge and ProgressView each take a value inside a declared
+// range and paint how far through that range it sits. The canvas used to clamp
+// the raw value to 0…1 and paint *that*, which is only right when the range
+// happens to be 0…1: a slider authored `0…100` at `50` drew hard right here and
+// centred on device, and a Gauge — whose own default range is `0…100` — drew a
+// full bar for a value that reads as 0.7% in Swift.
+//
+// `controlFraction` is the one place that conversion happens. Bounds are read
+// with the same fallbacks the exporter uses (`min ?? 0`, `max ?? 1`) so the two
+// sides resolve missing bounds identically rather than each guessing. A
+// zero-width range has no meaningful fraction — SwiftUI draws those empty — so
+// it maps to 0 rather than dividing by zero.
+export function controlFraction(value, min, max) {
+  const lo = Number(min ?? 0)
+  const hi = Number(max ?? 1)
+  const v = Number(value)
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(v)) return 0
+  if (hi === lo) return 0
+  return Math.max(0, Math.min(1, (v - lo) / (hi - lo)))
+}
+
+// Two-stop colour mix, for the gauge's `.tint(Gradient(colors: [from, to]))`.
+// The canvas paints the gauge fill as one colour, so it samples the gradient
+// at the value's own position — the stop the eye actually lands on. Falls
+// back to the first colour if either side isn't a 6-digit hex.
+export function mixHex(from, to, t) {
+  const parse = (h) => /^#[0-9a-f]{6}$/i.test(h || '')
+    ? [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
+    : null
+  const a = parse(from)
+  const b = parse(to)
+  if (!a || !b) return from || to || '#007aff'
+  const k = Math.max(0, Math.min(1, t))
+  const ch = (i) => Math.round(a[i] + (b[i] - a[i]) * k).toString(16).padStart(2, '0')
+  return `#${ch(0)}${ch(1)}${ch(2)}`
+}
+
+// The inverse, for the preview's drag-to-set: a 0…1 position along the track
+// becomes a value in the control's own range, snapped to `step` when the
+// designer set one (SwiftUI treats step 0 as continuous).
+export function valueFromFraction(t, min, max, step) {
+  const lo = Number(min ?? 0)
+  const hi = Number(max ?? 1)
+  let v = lo + t * (hi - lo)
+  const s = Number(step)
+  if (Number.isFinite(s) && s > 0) v = lo + Math.round((v - lo) / s) * s
+  return Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), v))
+}

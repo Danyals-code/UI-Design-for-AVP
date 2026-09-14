@@ -16,6 +16,9 @@ import {
   computeButtonFramePt,
   buttonSizePreset,
   buttonRadiusPt,
+  controlFraction,
+  valueFromFraction,
+  mixHex,
   NAVBAR_STYLE_SPECS,
   NAVBAR_SIDE_PADDING_PT,
   NAVBAR_ITEM_PT,
@@ -1749,23 +1752,82 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Progress ----
+  // `value` is measured against `total`, not against 1 — a ProgressView at
+  // `value: 30, total: 100` is 30% full, and the canvas used to draw it
+  // pinned at 100%. Indeterminate views have no fraction to show at all, and
+  // `.circular` is a ring rather than a bar.
   const progressOverlay = panelType === 'progress' && (() => {
-    const value = Math.max(0, Math.min(1, panel.value ?? 0.5))
+    const value = controlFraction(panel.value ?? 0.5, 0, panel.total ?? 1)
+    const tint = scene.tintColor || '#007aff'
+    const circular = panel.progressViewStyle === 'circular'
+
+    if (panel.indeterminate) {
+      // A spinner is a time-based affordance and the canvas is a still
+      // frame, so draw the shape SwiftUI settles on rather than animating:
+      // a ring arc for circular, and a part-width pill for linear, both in
+      // the "position unknown" treatment the platform uses.
+      const r = Math.min(size[0], size[1]) / 2
+      if (circular) {
+        return (
+          <mesh position={[0, 0, 0.005]}>
+            <ringGeometry args={[r * 0.72, r, 32, 1, 0, Math.PI * 1.35]} />
+            <meshBasicMaterial color={tint} />
+          </mesh>
+        )
+      }
+      const barW = size[0] * 0.35
+      return (
+        <mesh position={[-size[0] / 2 + barW / 2, 0, 0.005]}>
+          <shapeGeometry args={[roundedRectShape(barW, size[1], Math.min(cornerRadius, size[1] / 2))]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.75} />
+        </mesh>
+      )
+    }
+
+    if (circular) {
+      const r = Math.min(size[0], size[1]) / 2
+      return (
+        <>
+          <mesh position={[0, 0, 0.004]}>
+            <ringGeometry args={[r * 0.72, r, 32]} />
+            <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
+          </mesh>
+          {value > 0 && (
+            <mesh position={[0, 0, 0.005]} rotation={[0, 0, Math.PI / 2]}>
+              <ringGeometry args={[r * 0.72, r, 32, 1, 0, -Math.PI * 2 * value]} />
+              <meshBasicMaterial color={tint} />
+            </mesh>
+          )}
+        </>
+      )
+    }
+
     const fillW = size[0] * value
     return (
       <mesh position={[-size[0] / 2 + fillW / 2, 0, 0.005]}>
         <shapeGeometry args={[roundedRectShape(fillW, size[1], Math.min(cornerRadius, size[1] / 2))]} />
-        <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+        <meshBasicMaterial color={tint} />
       </mesh>
     )
   })()
 
   // ---- Slider ----
   const sliderOverlay = panelType === 'slider' && (() => {
-    const value = Math.max(0, Math.min(1, panel.sliderValue ?? 0.5))
+    // `sliderValue` lives in the slider's own range, not in 0…1 — see
+    // `controlFraction`. The labels shrink the track the way SwiftUI's
+    // `minimumValueLabel:` / `maximumValueLabel:` slots do.
+    const value = controlFraction(panel.sliderValue ?? 0.5, panel.sliderMin, panel.sliderMax)
     const trackH = ptToUnits(4)
     const thumbR = ptToUnits(13)
-    const fillW = size[0] * value
+    const minLabel = panel.sliderMinLabel || ''
+    const maxLabel = panel.sliderMaxLabel || ''
+    const labelPt = ptToUnits(13)
+    const labelGap = ptToUnits(8)
+    const leadInset  = minLabel ? ptToUnits(minLabel.length * 7) + labelGap : 0
+    const trailInset = maxLabel ? ptToUnits(maxLabel.length * 7) + labelGap : 0
+    const trackW = Math.max(ptToUnits(20), size[0] - leadInset - trailInset)
+    const trackX0 = -size[0] / 2 + leadInset
+    const fillW = trackW * value
     // Preview: click/drag along the track sets the slider value from
     // the local-X intersect. Editor-mode keeps the panel passive so
     // the regular drag-to-reposition pipeline still works.
@@ -1773,8 +1835,10 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       if (!scene.previewMode) return
       e.stopPropagation()
       const local = e.eventObject.worldToLocal(e.point.clone())
-      const t = Math.max(0, Math.min(1, (local.x + size[0] / 2) / size[0]))
-      useStore.getState().updateItem(id, { sliderValue: t })
+      const t = Math.max(0, Math.min(1, (local.x - trackX0) / trackW))
+      useStore.getState().updateItem(id, {
+        sliderValue: valueFromFraction(t, panel.sliderMin, panel.sliderMax, panel.sliderStep)
+      })
     }
     return (
       <group
@@ -1792,18 +1856,36 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           try { e.target.releasePointerCapture(e.pointerId) } catch {}
         }}
       >
-        <mesh position={[0, 0, 0.003]}>
-          <planeGeometry args={[size[0], trackH]} />
+        <mesh position={[trackX0 + trackW / 2, 0, 0.003]}>
+          <planeGeometry args={[trackW, trackH]} />
           <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
         </mesh>
-        <mesh position={[-size[0] / 2 + fillW / 2, 0, 0.004]}>
+        <mesh position={[trackX0 + fillW / 2, 0, 0.004]}>
           <planeGeometry args={[fillW, trackH]} />
           <meshBasicMaterial color={scene.tintColor || '#007aff'} />
         </mesh>
-        <mesh position={[-size[0] / 2 + fillW, 0, 0.006]}>
+        <mesh position={[trackX0 + fillW, 0, 0.006]}>
           <circleGeometry args={[thumbR, 32]} />
           <meshBasicMaterial color="#ffffff" />
         </mesh>
+        {minLabel && (
+          <Text
+            position={[-size[0] / 2, 0, 0.005]}
+            fontSize={labelPt}
+            color={resolveSemantic('secondary', scene)}
+            anchorX="left"
+            anchorY="middle"
+          >{minLabel}</Text>
+        )}
+        {maxLabel && (
+          <Text
+            position={[size[0] / 2, 0, 0.005]}
+            fontSize={labelPt}
+            color={resolveSemantic('secondary', scene)}
+            anchorX="right"
+            anchorY="middle"
+          >{maxLabel}</Text>
+        )}
       </group>
     )
   })()
@@ -1822,54 +1904,134 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const xPlus  = size[0] / 2 - CIRCLE_R - ptToUnits(4)
     const xMinus = xPlus - (CIRCLE_R * 2 + ptToUnits(12))
     const xValue = xMinus - ptToUnits(18)
+    // SwiftUI's Stepper moves by `step` and stops at the ends of `in:`.
+    // The canvas bumped by ±1 and ran past both bounds, so a stepper
+    // authored `0…10 by 5` counted 1, 2, 3 … here and 0, 5, 10 on device,
+    // and the buttons never went inert at the ends. AUDIT #17.
+    const lo = Number(panel.stepperMin ?? 0)
+    const hi = Number(panel.stepperMax ?? 10)
+    const stepBy = Number(panel.stepperStep) || 1
+    const current = Math.max(lo, Math.min(hi, Number(panel.stepperValue ?? 0)))
     const bump = (delta) => (e) => {
       if (!scene.previewMode) return
       e.stopPropagation()
-      useStore.getState().updateItem(id, { stepperValue: (panel.stepperValue ?? 0) + delta })
+      const next = Math.max(lo, Math.min(hi, current + delta * stepBy))
+      if (next !== current) useStore.getState().updateItem(id, { stepperValue: next })
     }
+    // Apple dims the button that can no longer do anything.
+    const atMin = current <= lo
+    const atMax = current >= hi
     return (
       <>
         {/* Leading label uses the panel's text rendering path above; the
             stepper-specific glyph + value live here. */}
         <Text position={[xValue, 0, 0.005]} fontSize={ptToUnits(14)} color={primary} anchorX="right" anchorY="middle" fontWeight="semibold">
-          {String(panel.stepperValue ?? 0)}
+          {String(current)}
         </Text>
         {/* Minus button */}
         <group position={[xMinus, 0, 0.004]} onPointerDown={bump(-1)}>
           <mesh>
             <circleGeometry args={[CIRCLE_R, 32]} />
-            <meshBasicMaterial color={buttonBg} />
+            <meshBasicMaterial color={buttonBg} transparent opacity={atMin ? 0.4 : 1} />
           </mesh>
-          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">−</Text>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} fillOpacity={atMin ? 0.4 : 1} anchorX="center" anchorY="middle">−</Text>
         </group>
         {/* Plus button */}
         <group position={[xPlus, 0, 0.004]} onPointerDown={bump(+1)}>
           <mesh>
             <circleGeometry args={[CIRCLE_R, 32]} />
-            <meshBasicMaterial color={buttonBg} />
+            <meshBasicMaterial color={buttonBg} transparent opacity={atMax ? 0.4 : 1} />
           </mesh>
-          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">+</Text>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} fillOpacity={atMax ? 0.4 : 1} anchorX="center" anchorY="middle">+</Text>
         </group>
       </>
     )
   })()
 
-  // ---- Gauge (linear bar with label) ----
+  // ---- Gauge ----
+  // `value` sits in `gaugeMin…gaugeMax` (which defaults to 0…100, not 0…1),
+  // so the fraction has to be derived rather than read straight off the
+  // field. `gaugeStyle` picks between the linear-capacity bar and the
+  // accessory-circular dial, and `gaugeTintFrom/To` fills with the same
+  // two-stop gradient the exporter hands to `.tint(Gradient(...))`.
   const gaugeOverlay = panelType === 'gauge' && (() => {
-    const value = Math.max(0, Math.min(1, panel.value ?? 0.5))
+    const value = controlFraction(panel.value ?? 0.5, panel.gaugeMin, panel.gaugeMax)
     const primary = resolveSemantic('primary', scene)
+    const track = resolveSemantic('tertiary', scene)
+    const style = panel.gaugeStyle || 'automatic'
+    const circular = style === 'accessoryCircular' || style === 'accessoryCircularCapacity'
+    // A two-stop tint reads as a gradient on device; the canvas approximates
+    // it with the colour at the value's own position, which is the stop the
+    // eye lands on.
+    const tint = (panel.gaugeTintFrom && panel.gaugeTintTo)
+      ? mixHex(panel.gaugeTintFrom, panel.gaugeTintTo, value)
+      : (scene.tintColor || '#007aff')
+    const minLabel = panel.gaugeMinLabel || ''
+    const maxLabel = panel.gaugeMaxLabel || ''
+    const labelPt = ptToUnits(11)
+
+    if (circular) {
+      const r = Math.min(size[0], size[1]) * 0.38
+      // Accessory-circular sweeps a 270° dial from the lower-left; the
+      // capacity variant closes the full ring.
+      const sweep = style === 'accessoryCircularCapacity' ? Math.PI * 2 : Math.PI * 1.5
+      const start = style === 'accessoryCircularCapacity' ? Math.PI / 2 : Math.PI * 1.25
+      return (
+        <>
+          <mesh position={[0, 0, 0.003]} rotation={[0, 0, start]}>
+            <ringGeometry args={[r * 0.74, r, 40, 1, 0, -sweep]} />
+            <meshBasicMaterial color={track} />
+          </mesh>
+          {value > 0 && (
+            <mesh position={[0, 0, 0.004]} rotation={[0, 0, start]}>
+              <ringGeometry args={[r * 0.74, r, 40, 1, 0, -sweep * value]} />
+              <meshBasicMaterial color={tint} />
+            </mesh>
+          )}
+          <Text
+            position={[0, 0, 0.005]}
+            fontSize={ptToUnits(16)}
+            color={primary}
+            fontWeight="bold"
+            anchorX="center"
+            anchorY="middle"
+          >{panel.text || ''}</Text>
+        </>
+      )
+    }
+
     const trackH = ptToUnits(6)
     const trackY = -size[1] * 0.25
+    // The value labels sit at the ends of the bar, so the bar gives way to
+    // them rather than running underneath.
+    const leadInset  = minLabel ? ptToUnits(minLabel.length * 6 + 6) : 0
+    const trailInset = maxLabel ? ptToUnits(maxLabel.length * 6 + 6) : 0
+    const barW = Math.max(ptToUnits(20), size[0] * 0.85 - leadInset - trailInset)
+    const barX0 = -size[0] * 0.425 + leadInset
     return (
       <>
-        <mesh position={[0, trackY, 0.003]}>
-          <planeGeometry args={[size[0] * 0.85, trackH]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
+        <mesh position={[barX0 + barW / 2, trackY, 0.003]}>
+          <planeGeometry args={[barW, trackH]} />
+          <meshBasicMaterial color={track} />
         </mesh>
-        <mesh position={[-size[0] * 0.425 + size[0] * 0.85 * value / 2, trackY, 0.004]}>
-          <planeGeometry args={[size[0] * 0.85 * value, trackH]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+        <mesh position={[barX0 + barW * value / 2, trackY, 0.004]}>
+          <planeGeometry args={[barW * value, trackH]} />
+          <meshBasicMaterial color={tint} />
         </mesh>
+        {minLabel && (
+          <Text
+            position={[-size[0] * 0.425, trackY, 0.005]}
+            fontSize={labelPt} color={resolveSemantic('secondary', scene)}
+            anchorX="left" anchorY="middle"
+          >{minLabel}</Text>
+        )}
+        {maxLabel && (
+          <Text
+            position={[size[0] * 0.425, trackY, 0.005]}
+            fontSize={labelPt} color={resolveSemantic('secondary', scene)}
+            anchorX="right" anchorY="middle"
+          >{maxLabel}</Text>
+        )}
         <Text
           position={[0, size[1] * 0.1, 0.005]}
           fontSize={ptToUnits(22)}

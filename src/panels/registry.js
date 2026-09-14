@@ -719,7 +719,11 @@ export const PANELS = {
       color: '#e3e3e8',
       colorToken: 'systemFill',
       cornerRadius: ptToUnits(8),
-      value: 0.7,
+      // `value` lives in `gaugeMin…gaugeMax`, so a 0…100 gauge reading "70"
+      // holds 70, not 0.7. It was seeded 0.7 while the canvas clamped every
+      // value to 0…1 — which made the bar look right and the exported
+      // `Gauge(value: 0.7, in: 0...100)` read as 0.7%. AUDIT #17.
+      value: 70,
       gaugeMin: 0,
       gaugeMax: 100,
       text: '70',

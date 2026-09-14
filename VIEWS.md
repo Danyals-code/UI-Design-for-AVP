@@ -431,11 +431,13 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 - **Default:** 280×60, sliderValue `0.5`, min `0`, max `1`, step `0`, optional min/max labels.
 - **Inspector:** Value · Min · Max · Step + Min/Max labels.
 - **Emit:** `Slider(value: .constant(0.5), in: 0...1)`.
+- **Range:** `sliderValue` lives in `sliderMin…sliderMax`, not in `0…1`. The canvas maps it through `controlFraction` and drag-to-set writes back in that range, snapped to `sliderStep`. The value labels shrink the track the way SwiftUI's `minimumValueLabel:` / `maximumValueLabel:` slots do.
 
 #### `stepper`
 - **Default:** 280×36 (fill width), stepperValue `5`, min `0`, max `10`, step `1`, text `'Stepper'`.
 - **Inspector:** Label, Value, Min, Max, Step.
 - **Emit:** `Stepper("...", value: .constant(5), in: 0...10)`.
+- **Range:** the ± buttons move by `stepperStep` and stop at `stepperMin` / `stepperMax`; the button that can no longer do anything dims, as it does on device.
 
 #### `picker`
 - **Default:** 260×36, text `'Selection'`, pickerOptions `['Option 1', 'Option 2', 'Option 3']`, pickerValue `'Option 1'`, `pickerStyle: 'automatic'` (→ `.menu` on visionOS).
@@ -458,14 +460,16 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 - **Emit:** `ColorPicker("...", selection: .constant(...), supportsOpacity: true)`.
 
 #### `gauge`
-- **Default:** 140×80, value `0.7`, min `0`, max `100`, `gaugeStyle: 'automatic'`, optional min/max labels, optional tint gradient (`gaugeTintFrom`/`To`).
+- **Default:** 140×80, value `70`, min `0`, max `100`, `gaugeStyle: 'automatic'`, optional min/max labels, optional tint gradient (`gaugeTintFrom`/`To`).
 - **Inspector:** Value, Range, Style, Tint gradient, Labels.
-- **Emit:** `Gauge(value: 0.7, in: 0...100) { ... } currentValueLabel: { ... }.gaugeStyle(...)`.
+- **Emit:** `Gauge(value: 70, in: 0...100) { ... } currentValueLabel: { ... }.gaugeStyle(...)`.
+- **Range:** `value` sits in `gaugeMin…gaugeMax`, which defaults to `0…100` — so a gauge reading "70" holds `70`, not `0.7`. It was seeded `0.7` until phase 1.7, which looked right only because the canvas clamped every value to `0…1`. The `accessoryCircular` styles draw a dial rather than a bar, and a two-stop tint is sampled at the value's own position.
 
 #### `progress`
 - **Default:** 240×8, value `0.65`, total `1.0`, indeterminate `false`.
 - **Inspector:** Value / Total / Indeterminate (Yes/No segmented).
 - **Emit:** `ProgressView(value: 0.65, total: 1.0).progressViewStyle(...)`.
+- **Range:** `value` is measured against `total`, not against 1. `.circular` draws a ring; `indeterminate` gets the position-unknown treatment, since the canvas is a still frame and a spinner is time-based.
 
 > **Inputs group.** `textfield`, `securefield` and `search` share one
 > "Input Type" variant switcher in the inspector (see

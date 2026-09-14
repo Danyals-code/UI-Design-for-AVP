@@ -284,6 +284,14 @@ defaults in [VIEWS.md](VIEWS.md), source in
   don't reach the exporter - generated Swift keeps `text: .constant("")`.
 - **Controls:** button, toggle, segmented, picker, datepicker,
   colorpicker, slider, stepper, gauge, progress, texteditor
+  - **Slider, Gauge, Stepper and ProgressView honour the range you
+    declare.** A slider set to `0…100` with value `50` draws at its
+    midpoint, not hard right; a Stepper moves by its Step and stops at
+    its bounds (the button that can do nothing dims); a ProgressView
+    measures its value against Total. Gauges also draw their
+    `accessoryCircular` styles as a dial and their tint gradient, and
+    ProgressView draws `.circular` as a ring. Slider and Gauge value
+    labels render at the ends of the track.
   - **Button** is sized by a `Size` picker (Small `65×32` / Regular
     `86×44` / Large `101×52` pt) and a `Style` picker (Capsule - 100pt
     radius, or Rounded Rect - 16pt radius). Width/height are not

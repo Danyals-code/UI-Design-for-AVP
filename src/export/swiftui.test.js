@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest'
 import { TEMPLATES } from '../templates'
 import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
-import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES } from '../appleSystem'
+import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -973,6 +973,100 @@ describe('behaviour codegen coverage', () => {
     for (const type of actions) {
       const src = sceneWith('tap', type)
       expect(src, `action "${type}" vanished from the export`).toMatch(new RegExp(`// DO ${type}:`))
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Control ranges reach the device as the canvas draws them (AUDIT #17)
+//
+// `appleSystem.test.js` pins `controlFraction` itself. What matters here is the
+// seam: the fraction the canvas paints has to be derived from the SAME value
+// and bounds the generator writes into the Swift file. So these export a real
+// panel, read the numbers back out of the emitted source, and feed those to the
+// canvas helper — if either side starts reading a different field, or the
+// exporter's `?? 0` / `?? 1` fallbacks drift from the canvas's, the fraction
+// stops matching and this fails.
+// ---------------------------------------------------------------------------
+describe('control ranges reach the export as the canvas draws them', () => {
+  const emitPanel = (type, props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'C', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+  const num = (s) => Number(s)
+
+  it('Slider: the emitted value and bounds give the fraction the canvas fills', () => {
+    const swift = emitPanel('slider', { sliderValue: 50, sliderMin: 0, sliderMax: 100 })
+    const m = swift.match(/Slider\(value: \.constant\(([-\d.]+)\), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(m, `no ranged Slider in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.5, 9)
+  })
+
+  it('Slider: a 0...1 slider still emits the bare initialiser and reads the same', () => {
+    const swift = emitPanel('slider', { sliderValue: 0.25 })
+    expect(swift).toContain('Slider(value: .constant(0.25))')
+    const m = swift.match(/Slider\(value: \.constant\(([-\d.]+)\)\)/)
+    // No `in:` means SwiftUI's own 0...1 default, which is what the canvas
+    // falls back to when the bounds are absent.
+    expect(controlFraction(num(m[1]), undefined, undefined)).toBeCloseTo(0.25, 9)
+  })
+
+  it('Gauge: the shipped default is self-consistent', () => {
+    // The default seeds `value: 70` in `0...100` with the label "70". It used
+    // to seed 0.7, which drew a 70%-full bar here and exported 0.7%.
+    const swift = emitPanel('gauge', {})
+    const m = swift.match(/Gauge\(value: ([-\d.]+), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(m, `no ranged Gauge in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.7, 9)
+    // ...and the number the gauge prints agrees with where the needle sits.
+    const label = swift.match(/currentValueLabel: \{ Text\("(\d+)"\) \}/)
+    expect(Number(label[1]) / 100).toBeCloseTo(0.7, 9)
+  })
+
+  it('Gauge: an arbitrary range maps the same on both sides', () => {
+    const swift = emitPanel('gauge', { value: 30, gaugeMin: 20, gaugeMax: 40, text: '' })
+    const m = swift.match(/Gauge\(value: ([-\d.]+), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.5, 9)
+  })
+
+  it('ProgressView: value is measured against total, not against 1', () => {
+    const swift = emitPanel('progress', { value: 30, total: 100 })
+    const m = swift.match(/ProgressView\(value: ([-\d.]+), total: ([-\d.]+)\)/)
+    expect(m, `no ProgressView with a total in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), 0, num(m[2]))).toBeCloseTo(0.3, 9)
+  })
+
+  it('Stepper: the emitted bounds are the ones the canvas clamps to', () => {
+    const swift = emitPanel('stepper', { stepperValue: 5, stepperMin: 0, stepperMax: 10, stepperStep: 5 })
+    const m = swift.match(/Stepper\("[^"]*", value: \.constant\(([-\d.]+)\), in: ([-\d.]+)\.\.\.([-\d.]+), step: ([-\d.]+)\)/)
+    expect(m, `no stepped Stepper in:\n${swift}`).toBeTruthy()
+    const [, v, lo, hi, step] = m.map(num)
+    // Pressing + from here lands on the upper bound and goes no further —
+    // the canvas steps by `step` and stops, as SwiftUI does.
+    expect(Math.min(hi, v + step)).toBe(10)
+    expect(Math.min(hi, 10 + step)).toBe(10)
+    expect(Math.max(lo, v - step)).toBe(0)
+    expect(Math.max(lo, 0 - step)).toBe(0)
+  })
+
+  it('every ranged control emits bounds the canvas can read back', () => {
+    // A sweep rather than four spot checks: whatever the range, the value the
+    // generator writes must sit inside the bounds it writes beside it.
+    const cases = [
+      ['slider', { sliderValue: 7, sliderMin: 5, sliderMax: 25 }],
+      ['gauge', { value: 7, gaugeMin: 5, gaugeMax: 25 }],
+      ['stepper', { stepperValue: 7, stepperMin: 5, stepperMax: 25 }]
+    ]
+    for (const [type, props] of cases) {
+      const swift = emitPanel(type, props)
+      const m = swift.match(/in: ([-\d.]+)\.\.\.([-\d.]+)/)
+      expect(m, `${type} emitted no range`).toBeTruthy()
+      const f = controlFraction(7, num(m[1]), num(m[2]))
+      expect(f, `${type} fraction`).toBeCloseTo(0.1, 9)
+      expect(f).toBeGreaterThan(0)
+      expect(f).toBeLessThan(1)
     }
   })
 })

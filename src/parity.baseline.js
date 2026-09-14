@@ -141,25 +141,13 @@ export const PANEL = {
   // canvas deriving its metrics from that one field instead of from a
   // mirrored copy the inspector had to keep in sync.
 
-  // -- control ranges: canvas treats every value as normalised 0..1 ---------
-  sliderMin: debt('export-only: canvas clamps sliderValue to 0..1 and ignores the range'),
-  sliderMax: debt('export-only: canvas clamps sliderValue to 0..1 and ignores the range'),
-  sliderStep: debt('export-only: canvas drag is continuous'),
-  sliderMinLabel: debt('export-only: canvas draws no range labels'),
-  sliderMaxLabel: debt('export-only: canvas draws no range labels'),
-  gaugeMin: debt('export-only: canvas clamps value to 0..1 and ignores the range'),
-  gaugeMax: debt('export-only: canvas clamps value to 0..1 and ignores the range'),
-  gaugeMinLabel: debt('export-only: canvas draws no range labels'),
-  gaugeMaxLabel: debt('export-only: canvas draws no range labels'),
-  gaugeStyle: debt('export-only: canvas always draws the linear-capacity gauge'),
-  gaugeTintFrom: debt('export-only: canvas ignores the gauge gradient'),
-  gaugeTintTo: debt('export-only: canvas ignores the gauge gradient'),
-  stepperMin: debt('export-only: canvas bumps by ±1 with no clamping'),
-  stepperMax: debt('export-only: canvas bumps by ±1 with no clamping'),
-  stepperStep: debt('export-only: canvas bumps by ±1 regardless of step'),
-  total: debt('export-only: canvas treats progress value as already normalised'),
-  indeterminate: debt('export-only: canvas always draws a determinate bar'),
-  progressViewStyle: debt('export-only: canvas always draws the linear style'),
+  // The control-range block left this table in phase 1.7 (AUDIT #17). Slider,
+  // Gauge, Stepper and ProgressView each took a value inside a declared range
+  // and the canvas clamped it to 0..1 instead, so a slider authored 0..100 at
+  // 50 drew hard right here and centred on device. `controlFraction` in
+  // Panel3D now derives the fraction from the authored bounds, the value
+  // labels and per-type styles draw, and the Stepper steps by `stepperStep`
+  // and stops at its ends. 18 entries, all closed.
 
   // -- style pickers the canvas does not act on -----------------------------
   formStyle: debt('export-only: form has no canvas rendering at all', 6),
@@ -284,4 +272,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 97
+export const DEBT_CEILING = 79

@@ -15,7 +15,8 @@ import {
   DEFAULT_SCENE_COLORS, buildDefaultSceneColors,
   ptToUnits, unitsToPt, metersToPt, ptToMeters,
   TEXT_STYLES, TEXT_STYLE_ORDER, textStyleDefaultWeight,
-  computeButtonFramePt, segmentedFrame
+  computeButtonFramePt, segmentedFrame,
+  controlFraction, valueFromFraction, mixHex
 } from './appleSystem'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
@@ -245,5 +246,111 @@ describe('control frames', () => {
     for (const n of [0, null, undefined, 1]) {
       expect(segmentedFrame(n)[0]).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Control ranges (AUDIT #17)
+//
+// Slider, Gauge, Stepper and ProgressView each carry a value inside a range
+// the designer declares. The canvas used to clamp that value to 0..1 and paint
+// the result, which is right only when the range happens to BE 0..1 — so a
+// slider authored 0...100 at 50 drew hard right on the canvas and centred on
+// device, and the Gauge, whose own default range is 0...100, drew a full bar
+// for a value the exporter wrote as 0.7%.
+//
+// `controlFraction` is the single conversion both the fill widths and the
+// ring sweeps go through, so these pin it directly. The cross-check that the
+// fraction matches what the generator emits lives in export/swiftui.test.js,
+// where the real emitted Swift is available to compare against.
+// ---------------------------------------------------------------------------
+describe('control ranges', () => {
+  it('maps a value onto its declared range, not onto 0...1', () => {
+    // The bug in one line: 50 in 0...100 is the midpoint, not the far end.
+    expect(controlFraction(50, 0, 100)).toBeCloseTo(0.5, 9)
+    expect(controlFraction(70, 0, 100)).toBeCloseTo(0.7, 9)
+    expect(controlFraction(0, 0, 100)).toBe(0)
+    expect(controlFraction(100, 0, 100)).toBe(1)
+  })
+
+  it('still behaves for the 0...1 default every template uses', () => {
+    expect(controlFraction(0.42, 0, 1)).toBeCloseTo(0.42, 9)
+    expect(controlFraction(0.5, undefined, undefined)).toBeCloseTo(0.5, 9)
+  })
+
+  it('handles ranges that do not start at zero', () => {
+    expect(controlFraction(20, 20, 40)).toBe(0)
+    expect(controlFraction(30, 20, 40)).toBeCloseTo(0.5, 9)
+    expect(controlFraction(40, 20, 40)).toBe(1)
+    // Negative lower bound — a temperature dial, say.
+    expect(controlFraction(0, -50, 50)).toBeCloseTo(0.5, 9)
+  })
+
+  it('clamps outside the range rather than overflowing the track', () => {
+    expect(controlFraction(150, 0, 100)).toBe(1)
+    expect(controlFraction(-10, 0, 100)).toBe(0)
+  })
+
+  it('reads missing bounds the way the exporter does', () => {
+    // Both sides resolve an absent bound as `min ?? 0` / `max ?? 1`, so a
+    // half-specified control lands in the same place in both outputs.
+    expect(controlFraction(0.25, null, null)).toBeCloseTo(0.25, 9)
+    expect(controlFraction(0.25, undefined, 1)).toBeCloseTo(0.25, 9)
+  })
+
+  it('draws an empty track for a zero-width or nonsense range', () => {
+    // SwiftUI renders a zero-width range empty rather than dividing by zero.
+    expect(controlFraction(5, 5, 5)).toBe(0)
+    expect(controlFraction(NaN, 0, 100)).toBe(0)
+    expect(controlFraction(50, 0, Infinity)).toBe(0)
+  })
+})
+
+describe('dragging a control writes a value in its own range', () => {
+  it('converts a track position back into the declared range', () => {
+    expect(valueFromFraction(0.5, 0, 100)).toBeCloseTo(50, 9)
+    expect(valueFromFraction(0, 20, 40)).toBeCloseTo(20, 9)
+    expect(valueFromFraction(1, 20, 40)).toBeCloseTo(40, 9)
+  })
+
+  it('round-trips with controlFraction', () => {
+    for (const [lo, hi] of [[0, 1], [0, 100], [20, 40], [-50, 50]]) {
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        expect(controlFraction(valueFromFraction(t, lo, hi), lo, hi)).toBeCloseTo(t, 9)
+      }
+    }
+  })
+
+  it('snaps to the step when the designer set one', () => {
+    // SwiftUI treats step 0 as continuous; anything positive quantises.
+    expect(valueFromFraction(0.44, 0, 100, 10)).toBeCloseTo(40, 9)
+    expect(valueFromFraction(0.46, 0, 100, 10)).toBeCloseTo(50, 9)
+    expect(valueFromFraction(0.44, 0, 100, 0)).toBeCloseTo(44, 9)
+    // Steps count from the lower bound, not from zero.
+    expect(valueFromFraction(0.5, 5, 25, 10)).toBeCloseTo(15, 9)
+  })
+
+  it('never leaves the range, whatever the step', () => {
+    for (const t of [0, 0.5, 1]) {
+      const v = valueFromFraction(t, 0, 7, 3)
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThanOrEqual(7)
+    }
+  })
+})
+
+describe('two-stop tint mixing', () => {
+  it('returns each end at the ends', () => {
+    expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
+    expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
+  })
+
+  it('samples the middle', () => {
+    expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
+  })
+
+  it('falls back rather than emitting a broken colour', () => {
+    expect(mixHex('not-a-colour', '#ffffff', 0.5)).toBe('not-a-colour')
+    expect(mixHex(null, null, 0.5)).toBe('#007aff')
   })
 })
