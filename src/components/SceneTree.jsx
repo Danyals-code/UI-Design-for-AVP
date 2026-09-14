@@ -1,16 +1,127 @@
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, createContext, useContext } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
-import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
-import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
-import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial } from '../appleSystem'
+import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
+import { summarizeModifiers } from '../modifiers/registry'
+import { roundedRectShape, unevenRoundedRectShape, rimRingShape, ellipseShape } from '../shapes'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth, sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET,
+  ornamentContentOffset, ornamentIsDrawn } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
+
+// ---------------------------------------------------------------------------
+// Clipping
+//
+// A window clips its content to the plate; a scrolling stack clips its
+// content to its own viewport. Both do it the same way — four world-space
+// half-spaces assigned to every material in the subtree — and a scroller
+// inside a window has to obey BOTH rects, so the plane lists compose rather
+// than replace. `three` already gives us that: with `clipIntersection` off,
+// a fragment survives only if it is inside every plane in the array.
+//
+// The rule that keeps it deterministic is single ownership. `ClipContext`
+// carries the ancestor's plane list down; each clipper concatenates its own,
+// assigns the combined list across its subtree, and marks its group
+// `userData.ownsClip` so the ancestor's walk stops at that boundary instead
+// of overwriting the combination with its own shorter list. Without the
+// prune the two walks would fight, and which one won would depend on
+// `useFrame` registration order.
+// ---------------------------------------------------------------------------
+const ClipContext = createContext(null)
+
+// Four half-spaces (left / right / bottom / top) bounding an axis-aligned
+// rect. Allocated once per clipper and mutated in place every frame: the
+// array identity is what every material in the subtree holds, so
+// re-allocating would strand them all on last frame's planes.
+function makeClipPlanes() {
+  return [
+    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),   // x >= leftEdge
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // x <= rightEdge
+    new THREE.Plane(new THREE.Vector3(0,  1, 0), 0),   // y >= bottomEdge
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),   // y <= topEdge
+  ]
+}
+
+// Plane equation: dot(normal, p) + constant >= 0 means "keep". So for the
+// left edge (normal +X) the constant is the negative of the leftmost
+// world-x, and the same shape holds for the other three sides.
+function updateClipPlanes(planes, wx, wy, halfW, halfH) {
+  planes[0].constant = -(wx - halfW)
+  planes[1].constant =  (wx + halfW)
+  planes[2].constant = -(wy - halfH)
+  planes[3].constant =  (wy + halfH)
+}
+
+// Assign `planes` to every material under `root`, stopping at any descendant
+// that owns a composed clip of its own. `Object3D.traverse` can't prune a
+// branch, hence the hand-rolled walk.
+function applyClipPlanes(root, planes) {
+  const visit = (obj) => {
+    const m = obj.material
+    if (Array.isArray(m)) {
+      for (const mm of m) { mm.clippingPlanes = planes; mm.clipIntersection = false }
+    } else if (m) {
+      m.clippingPlanes = planes
+      m.clipIntersection = false
+    }
+    // Prune at the next clipper down: it assigns this list plus its own,
+    // and descending past it would replace that combination.
+    for (const child of obj.children) {
+      if (!child.userData?.ownsClip) visit(child)
+    }
+  }
+  visit(root)
+}
+
+// ---------------------------------------------------------------------------
+// Presentations (AUDIT #7)
+// ---------------------------------------------------------------------------
+
+// The little triangle a popover hangs from. `popoverArrowEdge` names the side
+// it comes out of, and `popoverAnchor` says whether SwiftUI anchors to the
+// source's bounds or to a point — the point anchor draws a narrower arrow,
+// since it is pinned to a spot rather than spanning an edge. Both were
+// export-only; `popoverAnchor` was read by neither side.
+function PopoverArrow3D({ panel, centre, size, scene }) {
+  const edge = panel.popoverArrowEdge || 'automatic'
+  if (edge === 'automatic') return null
+  const pointAnchored = panel.popoverAnchor === 'point'
+  const half = ptToUnits(pointAnchored ? 6 : 10)
+  const depth = ptToUnits(pointAnchored ? 8 : 10)
+  const [cx, cy] = centre
+  const [pw, ph] = size
+  const fill = resolveAnyMaterial(panel.material || 'thick', scene)?.color
+    || resolveSemantic('secondarySystemBackground', scene)
+
+  // Tip sits just outside the body on the named edge; the base spans it.
+  const shape = new THREE.Shape()
+  let pos = [cx, cy]
+  if (edge === 'top' || edge === 'bottom') {
+    const dir = edge === 'top' ? 1 : -1
+    pos = [cx, cy + dir * ph / 2]
+    shape.moveTo(-half, 0)
+    shape.lineTo(half, 0)
+    shape.lineTo(0, dir * depth)
+  } else {
+    const dir = edge === 'leading' ? -1 : 1
+    pos = [cx + dir * pw / 2, cy]
+    shape.moveTo(0, -half)
+    shape.lineTo(0, half)
+    shape.lineTo(dir * depth, 0)
+  }
+  shape.closePath()
+  return (
+    <mesh position={[pos[0], pos[1], 0.051]}>
+      <shapeGeometry args={[shape]} />
+      <meshBasicMaterial color={fill} transparent opacity={0.98} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
 
 // Build a real soft shadow as a CanvasTexture. The canvas 2D `shadowBlur`
 // gives a true Gaussian falloff (not the old hard inflated-rect / ring),
@@ -410,12 +521,110 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     return true
   })
 
+  // ---- Scrolling ----------------------------------------------------------
+  // Which axes scroll is decided by `scrollAxesOf` in layout.js, which
+  // mirrors the exporter's routing, so the canvas scrolls exactly the views
+  // that export a ScrollView. `.scrollDisabled(true)` in the modifier stack
+  // turns it back off, the way it does on device.
+  const modSummary = summarizeModifiers(stack.modifiers)
+  const axes = scrollAxesOf(stack)
+  const scrollsV = axes.vertical   && !modSummary.scrollDisabled
+  const scrollsH = axes.horizontal && !modSummary.scrollDisabled
+  const scrolls = scrollsV || scrollsH
+
+  // The content extent, measured from the boxes the renderer is about to
+  // draw rather than from `computeSize`. Same principle as the layout /
+  // renderer agreement tests: derive the scroll range from what is on
+  // screen and the two cannot disagree about how far there is to go.
+  const pad = resolvePadding(stack)
+  const contentSpan = useMemo(() => {
+    if (!scrolls) return null
+    let top = -Infinity, bottom = Infinity, left = Infinity, right = -Infinity
+    for (const c of children) {
+      const p = childPositions.get(c.id)
+      if (!p) continue
+      const [cw, ch] = childSizes.get(c.id) || computeSize(c, items)
+      top    = Math.max(top,    p[1] + ch / 2)
+      bottom = Math.min(bottom, p[1] - ch / 2)
+      left   = Math.min(left,   p[0] - cw / 2)
+      right  = Math.max(right,  p[0] + cw / 2)
+    }
+    if (top === -Infinity) return { width: 0, height: 0 }
+    // Padding rides with the scrolling content, not the viewport — that is
+    // where the exporter puts it (`ScrollView { VStack{}.padding(24) }`), so
+    // the inset scrolls away with the first screenful on both sides.
+    return {
+      width:  (right - left) + pad.leading + pad.trailing,
+      height: (top - bottom) + pad.top + pad.bottom
+    }
+  }, [scrolls, children, childPositions, childSizes, items, pad.top, pad.bottom, pad.leading, pad.trailing])
+
+  const maxScrollY = scrollsV && contentSpan ? Math.max(0, contentSpan.height - h) : 0
+  const maxScrollX = scrollsH && contentSpan ? Math.max(0, contentSpan.width  - w) : 0
+  const scrollY = Math.min(Math.max(0, Number(stack.scrollY) || 0), maxScrollY)
+  const scrollX = Math.min(Math.max(0, Number(stack.scrollX) || 0), maxScrollX)
+
+  // Two inputs suppress the indicators, and the exporter reads both: the
+  // ScrollView's own `showsIndicators:` argument and `.scrollIndicators()`
+  // in the modifier stack. SwiftUI spells "off" as either `.hidden` or
+  // `.never`; every other case shows.
+  const indicatorMod = modSummary.scrollIndicators
+  const showScrollIndicators = stack.scrollShowsIndicators !== false &&
+                               indicatorMod !== 'hidden' && indicatorMod !== 'never'
+
+  // ---- Container modifiers (AUDIT #5) -------------------------------------
+  // `.containerBackground`, `.navigationTitle` and `.toolbarBackground` all
+  // emitted correct Swift and drew nothing. The first two are read here; the
+  // toolbar one is consulted where the toolbar plate is drawn.
+  //
+  // `.navigationTitle` is the sharp one: the canvas read `stack.navTitle`
+  // instead, so the same concept had two sources and they disagreed the
+  // moment the designer used the modifier stack. The modifier is the SwiftUI
+  // spelling, so it wins.
+  const navTitle = modSummary.navigationTitle || stack.navTitle
+  const containerBg = modSummary.containerBg || null
+  // `.background(...)` and `.overlay(...)` on a container, painted behind and
+  // in front of its children — the same pair Panel3D draws for a view.
+  const stackModBg = (() => {
+    const bg = modSummary.background
+    if (typeof bg !== 'string' || !bg) return null
+    if (bg.startsWith('#')) return { color: bg, opacity: 1 }
+    const mat = resolveAnyMaterial(bg, scene)
+    return { color: mat?.color || resolveSemantic(bg, scene), opacity: mat?.opacity ?? 1 }
+  })()
+  const stackModOverlay = modSummary.overlay?.color ? modSummary.overlay : null
+  const stackClip = modSummary.clipShape && modSummary.clipShape !== 'none'
+    ? modSummary.clipShape : null
+  const stackOpacity = modSummary.opacity ?? 1
+  // `.toolbarBackground(.hidden, ...)` takes the toolbar's plate away; every
+  // other visibility leaves it. Only meaningful on the toolbar stack types.
+  const toolbarBgHidden = modSummary.toolbarBackground?.visibility === 'hidden'
+  const isToolbarStack = stack.stackType === 'toolbar' ||
+                         stack.stackType === 'toolbarItem' ||
+                         stack.stackType === 'toolbarItemGroup' ||
+                         stack.ornament != null
+
   const hasBackground = stack.ornament != null || stack.background != null
   // Allow a stack to override its background corner radius (e.g. the
   // separated NavigationSplitView sidebar uses a 30pt dialogue radius).
   const bgRadius = stack.ornament
     ? Math.min(w, h) / 2
     : (stack.cornerRadius != null ? stack.cornerRadius : ptToUnits(12))
+
+  // The outline the container's modifier layers paint into: `.clipShape`
+  // when the designer set one, otherwise the stack's own background shape.
+  // Shared by `.containerBackground`, `.background` and `.overlay` so all
+  // three agree about the edge.
+  const stackPaintShape = useMemo(() => {
+    if (stackClip === 'circle') {
+      const r = Math.min(w, h) / 2
+      return ellipseShape(r * 2, r * 2)
+    }
+    if (stackClip === 'capsule') return roundedRectShape(w, h, Math.min(w, h) / 2)
+    return roundedRectShape(w, h, stackClip === 'roundedRect'
+      ? (stack.cornerRadius ?? ptToUnits(12))
+      : bgRadius)
+  }, [stackClip, w, h, bgRadius, stack.cornerRadius])
 
   // Same hair-thin selection ring metric as windows — keeps the
   // indicator readable on small stacks without the previous fat halo.
@@ -475,8 +684,82 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     }
   }
 
+  // ScrollView wheel handling. Same 0.0015 units-per-tick feel as the
+  // window's, and the offset is persisted on the stack so it round-trips
+  // through undo and serialization like every other preview affordance.
+  // Wheel events bubble from any descendant, so a row inside the scroller
+  // still takes clicks — `onPointerDown` and `onWheel` are separate event
+  // channels in three-fiber.
+  const onScrollWheel = (e) => {
+    if (maxScrollY === 0 && maxScrollX === 0) return
+    e.stopPropagation()
+    // OrbitControls dollies the camera on wheel from its own DOM listener on
+    // the same canvas element, so three-fiber's `stopPropagation` — which
+    // only walks the scene graph — does not reach it, and scrolling a list
+    // would zoom the viewport at the same time. R3F registers its listener
+    // when the canvas mounts, before OrbitControls registers its own, so
+    // stopping immediate propagation from here suppresses the dolly for
+    // exactly the wheel events this scroller consumes and leaves every other
+    // one alone.
+    e.nativeEvent?.stopImmediatePropagation?.()
+    const patch = {}
+    if (maxScrollY > 0) {
+      const next = Math.max(0, Math.min(maxScrollY, scrollY + e.deltaY * 0.0015))
+      if (Math.abs(next - scrollY) > 0.0001) patch.scrollY = next
+    }
+    // Trackpads send deltaX; a wheel-only mouse gets the vertical delta
+    // routed sideways when the view scrolls horizontally and nowhere else,
+    // which is what a horizontal ScrollView does on device.
+    if (maxScrollX > 0) {
+      const dx = e.deltaX || (maxScrollY === 0 ? e.deltaY : 0)
+      const next = Math.max(0, Math.min(maxScrollX, scrollX + dx * 0.0015))
+      if (Math.abs(next - scrollX) > 0.0001) patch.scrollX = next
+    }
+    if (Object.keys(patch).length) updateItem(stack.id, patch)
+  }
+
+  // Clip the scrolling content to this stack's own viewport, composed with
+  // whatever rect an ancestor already imposes (see the ClipContext note at
+  // the top of the file). Without this the overflow would only be bounded
+  // by the window, so a small scroller in the middle of a plate would spill
+  // its content across everything around it.
+  const inheritedClip = useContext(ClipContext)
+  const ownClipPlanes = useMemo(makeClipPlanes, [])
+  const composedClip = useMemo(
+    () => (inheritedClip ? [...inheritedClip, ...ownClipPlanes] : ownClipPlanes),
+    [inheritedClip, ownClipPlanes]
+  )
+  const viewportRef = useRef()
+  const wasClippingRef = useRef(false)
+  useFrame(() => {
+    const vp = viewportRef.current
+    if (!vp) return
+    if (!scrolls) {
+      // Hand the subtree back to the ancestor's rect on the frame after
+      // scrolling is switched off, so materials don't keep a viewport that
+      // no longer exists.
+      if (wasClippingRef.current) {
+        applyClipPlanes(vp, inheritedClip)
+        wasClippingRef.current = false
+      }
+      return
+    }
+    vp.updateMatrixWorld()
+    updateClipPlanes(
+      ownClipPlanes,
+      vp.matrixWorld.elements[12],
+      vp.matrixWorld.elements[13],
+      w / 2, h / 2
+    )
+    applyClipPlanes(vp, composedClip)
+    wasClippingRef.current = true
+  })
+
   return (
-    <group position={localPosition || [0, 0, 0]} onWheel={stack.splitStyle ? onSidebarWheel : undefined}>
+    <group
+      position={localPosition || [0, 0, 0]}
+      onWheel={stack.splitStyle ? onSidebarWheel : (scrolls ? onScrollWheel : undefined)}
+    >
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
@@ -484,7 +767,35 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         </mesh>
       )}
 
-      {hasBackground && (
+      {/* Modifier: .containerBackground — a container-only backdrop that
+          sits behind everything the stack draws, including its own plate.
+          `.window` placement covers the whole box; the narrower placements
+          all reduce to the same rectangle on a flat canvas. */}
+      {containerBg && (
+        <mesh position={[0, 0, -0.006]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={containerBg.color}
+            transparent
+            opacity={0.9 * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Modifier: .background on the container itself. */}
+      {stackModBg && (
+        <mesh position={[0, 0, -0.004]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={stackModBg.color}
+            transparent
+            opacity={stackModBg.opacity * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+
+      {hasBackground && !(isToolbarStack && toolbarBgHidden) && (
         <LiquidGlass
           size={[w, h]}
           cornerRadius={bgRadius}
@@ -525,13 +836,35 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         )
       })()}
 
-      {/* Scrollbar indicator for scrollable stacks */}
-      {stack.scrollable && (
-        <mesh position={[w / 2 - 0.02, 0, 0.003]}>
-          <planeGeometry args={[0.02, h * 0.5]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.5} />
-        </mesh>
-      )}
+      {/* Scroll indicators. The thumb is sized to the visible fraction of
+          the content and tracks `scrollY` / `scrollX`, so it reads as a
+          real position rather than the fixed decorative bar this used to
+          draw. Hidden when there is nothing to scroll, and suppressed by
+          either `scrollShowsIndicators` (the ScrollView's own argument) or
+          `.scrollIndicators(.hidden)` in the modifier stack — the same two
+          inputs the exporter reads. */}
+      {showScrollIndicators && maxScrollY > 0 && (() => {
+        const thumbH = Math.max(ptToUnits(24), h * Math.min(1, h / contentSpan.height))
+        const travel = Math.max(0, h - thumbH)
+        const t = maxScrollY > 0 ? scrollY / maxScrollY : 0
+        return (
+          <mesh position={[w / 2 - 0.012, h / 2 - thumbH / 2 - t * travel, 0.004]}>
+            <planeGeometry args={[0.012, thumbH]} />
+            <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.55} />
+          </mesh>
+        )
+      })()}
+      {showScrollIndicators && maxScrollX > 0 && (() => {
+        const thumbW = Math.max(ptToUnits(24), w * Math.min(1, w / contentSpan.width))
+        const travel = Math.max(0, w - thumbW)
+        const t = maxScrollX > 0 ? scrollX / maxScrollX : 0
+        return (
+          <mesh position={[-w / 2 + thumbW / 2 + t * travel, -h / 2 + 0.012, 0.004]}>
+            <planeGeometry args={[thumbW, 0.012]} />
+            <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.55} />
+          </mesh>
+        )
+      })()}
 
       {/* Section header/footer text */}
       {stack.stackType === 'section' && stack.sectionHeader && (
@@ -589,7 +922,7 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       )}
 
       {/* NavStack title */}
-      {stack.stackType === 'navigationStack' && stack.navTitle && (
+      {stack.stackType === 'navigationStack' && navTitle && (
         <Text
           position={[0, h / 2 - ptToUnits(24), 0.003]}
           font={getInterFont('bold')}
@@ -599,13 +932,21 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
           anchorY="middle"
           maxWidth={w * 0.85}
         >
-          {stack.navTitle}
+          {navTitle}
         </Text>
       )}
 
       {/* TabView: auto-render bottom tab bar with clickable tabs */}
       {stack.stackType === 'tabView' && <TabBar3D stack={stack} childItems={children} w={w} h={h} scene={scene} />}
 
+      {/* Viewport → scrolled content → children.
+          The viewport group is the clip boundary and stays put, so the rect
+          derived from its world matrix is stable; the offset lives on the
+          group inside it. `ownsClip` tells an ancestor's clip walk to stop
+          here, because this subtree needs the ancestor's planes AND these,
+          and the walk that assigns both is the one above. */}
+      <group ref={viewportRef} userData={{ ownsClip: scrolls }}>
+      <group position={scrolls ? [-scrollX, scrollY, 0] : [0, 0, 0]}>
       {children.map((c) => {
         // In a TabView, only the active Tab is positioned by layoutStack.
         const pos = childPositions.get(c.id)
@@ -618,6 +959,22 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         // inner width rather than its intrinsic content width.
         return <Panel3D key={c.id} panel={c} localPosition={pos} resolvedSize={resolved} />
       })}
+      </group>
+      </group>
+
+      {/* Modifier: .overlay on the container — in front of every child, the
+          mirror of `.background` behind them. */}
+      {stackModOverlay && (
+        <mesh position={[0, 0, 0.05]}>
+          <shapeGeometry args={[stackPaintShape]} />
+          <meshBasicMaterial
+            color={stackModOverlay.color}
+            transparent
+            opacity={(stackModOverlay.opacity ?? 0.2) * stackOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
     </group>
   )
 }
@@ -714,12 +1071,7 @@ function Window3D({ window: win, items, previewPosition }) {
   // frame without re-allocating. Local clipping is turned on globally
   // in Canvas3D's `gl` config; without that flag the renderer ignores
   // every material's `clippingPlanes` array.
-  const clipPlanes = useMemo(() => [
-    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),   // x ≥ leftEdge
-    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // x ≤ rightEdge
-    new THREE.Plane(new THREE.Vector3(0,  1, 0), 0),   // y ≥ bottomEdge
-    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),   // y ≤ topEdge
-  ], [])
+  const clipPlanes = useMemo(makeClipPlanes, [])
   const contentClipRef = useRef()
 
   const [w, h] = win.size
@@ -781,7 +1133,16 @@ function Window3D({ window: win, items, previewPosition }) {
   }
 
   const allChildren = items.filter((c) => c.parentId === win.id && isEffectivelyVisible(items, c.id))
-  const presentationTypes = ['sheet', 'popover', 'alert']
+  // The four `.inspectorColumnWidth(…)` inputs, spelled out here so the
+  // precedence lives in one shared helper the exporter's own output can be
+  // tested against.
+  const inspectorWidth = (p) => inspectorColumnWidth({
+    exact:  p.inspectorColumnWidth,
+    ideal:  p.inspectorIdealWidth,
+    min:    p.inspectorMinWidth,
+    max:    p.inspectorMaxWidth,
+    stored: Array.isArray(p.size) ? p.size[0] : null
+  }, w)
   // Entities can land directly under a window when the window is volumetric
   // (the window itself acts as a RealityView container). Rendered after
   // content/ornaments at the window's own origin.
@@ -789,10 +1150,14 @@ function Window3D({ window: win, items, previewPosition }) {
   const contentChildren = allChildren.filter((c) =>
     c.type !== 'entity' &&
     !(c.type === 'stack' && c.ornament) &&
-    !(c.type === 'panel' && presentationTypes.includes(c.panelType))
+    !(c.type === 'panel' && isPresentationPanel(c.panelType))
   )
-  const ornamentChildren = allChildren.filter((c) => c.type === 'stack' && c.ornament)
-  const presentationChildren = allChildren.filter((c) => c.type === 'panel' && presentationTypes.includes(c.panelType))
+  // A hidden ornament is not drawn and does not take a slot on its edge — it
+  // is gone on device, so it is gone here. It stays in the layer tree, the way
+  // anything else switched off does. AUDIT #29.
+  const ornamentChildren = allChildren.filter((c) =>
+    c.type === 'stack' && c.ornament && ornamentIsDrawn(c.ornamentVisibility))
+  const presentationChildren = allChildren.filter((c) => c.type === 'panel' && isPresentationPanel(c.panelType))
   // Per WWDC23 #10076, visionOS ornaments *overlap* the window plate
   // by 20pt rather than floating outside it with a gap. ORNAMENT_GAP
   // is the overlap distance, used as a NEGATIVE offset against the
@@ -830,6 +1195,26 @@ function Window3D({ window: win, items, previewPosition }) {
       oy = -(h / 2 - overlap + oh / 2) - edgeOffsets.bottom
       edgeOffsets.bottom += oh
     }
+
+    // `ornamentOffset` nudges the ornament further out along the edge it
+    // hangs from — read by NEITHER side until phase 1.5, so the number in the
+    // inspector moved nothing and reached no file. Positive pushes away from
+    // the window, which is the direction the field reads as. AUDIT #14.
+    const off = ptToUnits(Number(orn.ornamentOffset) || 0)
+    if (off) {
+      if (edge === 'leading')       ox -= off
+      else if (edge === 'trailing') ox += off
+      else if (edge === 'top')      oy += off
+      else if (edge === 'bottom')   oy -= off
+    }
+
+    // Content alignment slides the ornament along its anchor point: the named
+    // edge of the ornament is the edge that sits on the point, so a bottom
+    // ornament aligned leading starts at the window's centre and runs right.
+    // Nine alignments drew one picture until AUDIT #29.
+    const [adx, ady] = ornamentContentOffset(orn.ornamentContentAlignment, [ow, oh])
+    ox += adx
+    oy += ady
 
     ornPositions.set(orn.id, [ox, oy, 0.015])
     ornSizes.set(orn.id, [ow, oh])
@@ -904,25 +1289,11 @@ function Window3D({ window: win, items, previewPosition }) {
     outer.updateMatrixWorld()
     const wx = outer.matrixWorld.elements[12]
     const wy = outer.matrixWorld.elements[13]
-    const halfW = w / 2
-    const halfH = h / 2
-    // Plane equation: dot(normal, p) + constant >= 0 means "keep". So
-    // for the left edge (normal +X) the constant is the *negative* of
-    // the leftmost world-x. Same shape for the other three sides.
-    clipPlanes[0].constant = -(wx - halfW)
-    clipPlanes[1].constant =  (wx + halfW)
-    clipPlanes[2].constant = -(wy - halfH)
-    clipPlanes[3].constant =  (wy + halfH)
-    inner.traverse((obj) => {
-      const m = obj.material
-      if (!m) return
-      if (Array.isArray(m)) {
-        for (const mm of m) { mm.clippingPlanes = clipPlanes; mm.clipIntersection = false }
-      } else {
-        m.clippingPlanes = clipPlanes
-        m.clipIntersection = false
-      }
-    })
+    updateClipPlanes(clipPlanes, wx, wy, w / 2, h / 2)
+    // Stops at any scrolling stack inside: that stack assigns these planes
+    // plus its own viewport's, and descending past it would drop its half
+    // of the pair.
+    applyClipPlanes(inner, clipPlanes)
   })
 
   if (isPreviewActive && !previewPosition) {
@@ -1002,6 +1373,25 @@ function Window3D({ window: win, items, previewPosition }) {
         </mesh>
       )}
 
+      {/* The volume's own bounds. `volumeDepthMeters` is the Z half of what
+          `.defaultSize(…, in: .meters)` declares, and until AUDIT #32 the
+          canvas had no idea the field existed — a volumetric window drew its
+          width and height and nothing at all in depth, so a designer authoring
+          a volume had no way to see the box their entities had to fit inside.
+
+          Drawn as editor chrome, faintly: visionOS paints no wall around a
+          volume, which is rather the point of one. Scene units are metres, so
+          the declared depth is the box depth with no conversion. */}
+      {isVolumetric && (win.volumeDepthMeters ?? 0) > 0 && (
+        <mesh position={[0, 0, -(win.volumeDepthMeters ?? 0) / 2]}>
+          <boxGeometry args={[w, h, win.volumeDepthMeters ?? 0]} />
+          <meshBasicMaterial
+            color={resolveSemantic('separator', scene)}
+            transparent opacity={0.35} wireframe
+          />
+        </mesh>
+      )}
+
       {/* Clipped + (optionally) scrollable content layer. The four
           clipping planes anchored to the window's world bounds are
           attached to every descendant material via the useFrame walk
@@ -1009,6 +1399,11 @@ function Window3D({ window: win, items, previewPosition }) {
           ornaments and chrome stay outside this group so they can
           overlap the edge. Wheel events on the plate's hit surface
           bubble up here when the window is marked scrollable. */}
+      {/* Descendants inherit the window's clip rect: a scrolling stack
+          inside composes its own viewport planes with these rather than
+          replacing them, so its content stays inside BOTH boxes. A
+          volumetric window publishes nothing, because it clips nothing. */}
+      <ClipContext.Provider value={isVolumetric ? null : clipPlanes}>
       <group
         ref={contentClipRef}
         position={[0, win.scrollable ? (win.scrollY || 0) : 0, 0]}
@@ -1095,6 +1490,7 @@ function Window3D({ window: win, items, previewPosition }) {
         <EntityChildren hostId={win.id} items={items} scene={scene} />
       )}
       </group>
+      </ClipContext.Provider>
 
       {/* Ornaments — pinned to edges. Sit a touch in front of content
           (which is at 0.012-0.020) so toolbar items overlap content
@@ -1115,45 +1511,134 @@ function Window3D({ window: win, items, previewPosition }) {
         )
       })}
 
-      {/* Presentation overlays (sheet / alert / popover) — rendered above
-          the window content. In SwiftUI these modals are always *contained*
-          by their parent window, so we clamp both the dimming backdrop and
-          the panel itself to the window bounds (minus a small inset) rather
-          than letting them bleed past the edge. */}
-      {presentationChildren.length > 0 && (
-        <>
-          {/* Dimming backdrop — covers exactly the window interior. */}
-          <mesh position={[0, 0, 0.04]}>
-            <planeGeometry args={[w, h]} />
-            <meshBasicMaterial color="#000000" transparent opacity={0.35} />
-          </mesh>
-          {/* Each presentation child */}
-          {presentationChildren.map((p) => {
-            // SwiftUI sheets get a small margin on every side rather than
-            // pinning to the window edges. 8% inset reads as a comfortable
-            // modal frame; the content still lays out at its declared size
-            // until that exceeds the window minus insets, then we clamp.
-            const maxW = w * 0.92
-            const maxH = h * 0.92
-            const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
-            const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
-            let py = 0
-            if (p.panelType === 'sheet') {
-              // `.presentationDetents(.medium)` pushes the sheet toward the
-              // bottom; otherwise sheets center inside the window.
-              py = p.sheetDetent === 'medium' ? -(h - clamped[1]) / 2 * 0.9 : 0
-            }
-            return (
-              <Panel3D
-                key={p.id}
-                panel={p}
-                localPosition={[0, py, 0.05]}
-                resolvedSize={clamped}
-              />
-            )
-          })}
-        </>
-      )}
+      {/* Presentation overlays — rendered above the window content. In
+          SwiftUI these attach to the parent as `.sheet(…)` / `.alert(…)` /
+          `.confirmationDialog(…)` / `.popover(…)` / `.inspector(…)`
+          modifiers, so they are presented over the view rather than flowing
+          inside it. The canvas knew about only three of the five until phase
+          1.3, which laid a `confirmationdialog` or an `inspector` out as an
+          ordinary child on screen while the code emitted it as a modal — the
+          wrong place, not merely the wrong pixels. AUDIT #7.
+
+          They are placed by kind, because SwiftUI does not present them the
+          same way: modals sit centred over a dimmed plate, a popover hangs
+          off the edge its arrow points from, and an inspector is a trailing
+          column in a split — no dimming, because it is not modal. */}
+      {presentationChildren.length > 0 && (() => {
+        const inspectorKids = presentationChildren.filter((p) => p.panelType === 'inspector')
+        const modalKids = presentationChildren.filter((p) => p.panelType !== 'inspector')
+        // The inspector column eats into the width the modals have to sit in,
+        // the way a real split view would.
+        const inspectorW = inspectorKids.reduce((acc, p) => acc + inspectorWidth(p), 0)
+        const bodyW = Math.max(ptToUnits(40), w - inspectorW)
+        return (
+          <>
+            {/* Dimming backdrop — only for the modal kinds, and only over the
+                body, so an inspector column beside them stays legible. */}
+            {modalKids.length > 0 && (
+              <mesh position={[-inspectorW / 2, 0, 0.04]}>
+                <planeGeometry args={[bodyW, h]} />
+                <meshBasicMaterial color="#000000" transparent opacity={0.35} />
+              </mesh>
+            )}
+            {modalKids.map((p) => {
+              // SwiftUI modals get a small margin on every side rather than
+              // pinning to the window edges. 8% inset reads as a comfortable
+              // frame; the content still lays out at its declared size until
+              // that exceeds the window minus insets, then we clamp.
+              const maxW = bodyW * (1 - MODAL_INSET)
+              const maxH = h * (1 - MODAL_INSET)
+              const [pw, ph] = Array.isArray(p.size) ? p.size : [maxW, maxH]
+              const clamped = [Math.min(pw, maxW), Math.min(ph, maxH)]
+              let px = -inspectorW / 2
+              let py = 0
+              if (p.panelType === 'sheet') {
+                // A detent IS the sheet's height, measured from the bottom of
+                // the container — so it decides the box, not just where the
+                // box sits. Until AUDIT #30 the canvas sized every sheet from
+                // its own stored height and only nudged `.medium` down, which
+                // drew `.fraction(0.3)` and `.height(200)` as the same sheet.
+                clamped[1] = sheetDetentHeight({
+                  detent: p.sheetDetent,
+                  fraction: p.sheetFraction,
+                  heightPt: p.sheetHeight
+                }, h)
+                // Every sheet rests the same margin above the window's bottom
+                // edge. A `.large` sheet fills the inset box, so this leaves it
+                // centred — exactly where it was drawn before.
+                py = -(h - clamped[1]) / 2 + h * (MODAL_INSET / 2)
+              } else if (p.panelType === 'popover') {
+                // A popover is anchored to its source rather than centred, and
+                // `arrowEdge` names the side the arrow comes OUT of — so the
+                // body sits on the opposite side of the anchor. visionOS
+                // ignores the argument, but the canvas is previewing a
+                // document that also targets iPadOS and macOS, where it is the
+                // difference between a menu above the button and below it.
+                const gap = ptToUnits(12)
+                const edge = p.popoverArrowEdge || 'automatic'
+                if (edge === 'top')      py =  (h - clamped[1]) / 2 - gap
+                if (edge === 'bottom')   py = -(h - clamped[1]) / 2 + gap
+                if (edge === 'leading')  px += -(bodyW - clamped[0]) / 2 + gap
+                if (edge === 'trailing') px +=  (bodyW - clamped[0]) / 2 - gap
+              }
+              return (
+                <group key={p.id}>
+                  <Panel3D
+                    panel={p}
+                    localPosition={[px, py, 0.05]}
+                    resolvedSize={clamped}
+                  />
+                  {p.panelType === 'popover' && (
+                    <PopoverArrow3D
+                      panel={p}
+                      centre={[px, py]}
+                      size={clamped}
+                      scene={scene}
+                    />
+                  )}
+                  {/* The grabber. A sheet asking for a visible drag indicator
+                      got one on the device and nothing here until AUDIT #30.
+                      36x5pt, the metric iOS uses, a little below the sheet's
+                      top edge.
+
+                      Spelled without a leading dot on purpose: the parity scan
+                      matches `.fieldName` as text, so writing the modifier out
+                      in a comment would let it pass for the code below. */}
+                  {p.panelType === 'sheet' && sheetDragIndicatorVisible(p.presentationDragIndicator) && (
+                    <mesh position={[px, py + clamped[1] / 2 - ptToUnits(11), 0.06]}>
+                      <shapeGeometry args={[roundedRectShape(ptToUnits(36), ptToUnits(5), ptToUnits(2.5))]} />
+                      <meshBasicMaterial color={resolveSemantic('separator', scene)} transparent opacity={0.9} />
+                    </mesh>
+                  )}
+                </group>
+              )
+            })}
+            {/* Inspector — a trailing column pinned to the full window
+                height, at the width `.inspectorColumnWidth(…)` asks for. */}
+            {inspectorKids.map((p, i) => {
+              const iw = inspectorWidth(p)
+              const offsetFromTrailing = inspectorKids
+                .slice(0, i)
+                .reduce((acc, q) => acc + inspectorWidth(q), 0)
+              const px = w / 2 - iw / 2 - offsetFromTrailing
+              return (
+                <group key={p.id}>
+                  {/* The split's divider, on the column's leading edge. */}
+                  <mesh position={[px - iw / 2, 0, 0.049]}>
+                    <planeGeometry args={[ptToUnits(1), h]} />
+                    <meshBasicMaterial color={resolveSemantic('separator', scene)} transparent opacity={0.6} />
+                  </mesh>
+                  <Panel3D
+                    panel={p}
+                    localPosition={[px, 0, 0.05]}
+                    resolvedSize={[iw, h]}
+                  />
+                </group>
+              )
+            })}
+          </>
+        )
+      })()}
     </group>
   )
 }

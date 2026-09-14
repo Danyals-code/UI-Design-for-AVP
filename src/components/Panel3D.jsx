@@ -2,6 +2,7 @@ import { useRef, useState, useMemo, useEffect } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { useStore } from '../store'
 import { resolveHoverEffect } from '../store/helpers'
 import { roundedRectShape, rimRingShape, ellipseShape, unevenRoundedRectShape } from '../shapes'
@@ -16,6 +17,15 @@ import {
   computeButtonFramePt,
   buttonSizePreset,
   buttonRadiusPt,
+  applyAspectRatio,
+  outlineVisibleRows,
+  labelSlots,
+  PICKER_STYLES_SHOWING_OPTIONS,
+  MENU_STYLES_AS_BUTTON,
+  dateComponentsParts,
+  controlFraction,
+  valueFromFraction,
+  mixHex,
   NAVBAR_STYLE_SPECS,
   NAVBAR_SIDE_PADDING_PT,
   NAVBAR_ITEM_PT,
@@ -24,11 +34,13 @@ import {
   NAVBAR_SEARCH_W_PT,
   NAVBAR_BACK_CAPSULE_W_PT,
   NAVBAR_BACK_ICON_TEXT_GAP_PT,
-  textStyleDefaultWeight
+  textStyleDefaultWeight,
+  roundedBoxRadius
 } from '../appleSystem'
-import { getInterFont } from '../fonts'
+import { getFont, getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from '../text'
+import { textMetrics } from '../layout'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
 
@@ -237,6 +249,7 @@ function ImageTextureMesh({ url, size, cornerRadius, imageFit = 'fill' }) {
 // the user can see the panel's bounds when editing.
 function RealityViewPanel3D({ panel, localPosition, resolvedSize }) {
   const scene = useStore((s) => s.scene)
+
   const items = useStore((s) => s.items)
   const select = useStore((s) => s.select)
   const selectedId = useStore((s) => s.selectedId)
@@ -472,7 +485,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   //   2. For text/link with widthMode 'fit' and no explicit size — intrinsic.
   //   3. panel.size — explicit user-set frame.
   //   4. auto-estimate from text content (legacy fallback).
-  const size = (() => {
+  const rawSize = (() => {
     // Button: height locked to the Size preset, width grows with the label
     // so a longer string still fits on one line with 12pt side padding.
     // Runs BEFORE the resolvedSize check so the parent stack's auto-layout
@@ -516,7 +529,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         // Must match what layout.js reserved for this panel, or the box the
         // stack set aside and the text drawn into it disagree.
         fontWeight: panel.fontWeight
-          || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
+          || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular'),
+        fontDesign: textMetrics(panel, modSummary).fontDesign
       })
       const w = frameWidthU != null
         ? frameWidthU
@@ -547,6 +561,11 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       fontSize * 1.5
     ]
   })()
+  // `.aspectRatio` reshapes whatever frame the branches above produced. A
+  // panel inside a stack already had it applied by `computeSize`, so this
+  // matters for the free-placed case — and running the same helper on both
+  // paths means a ratio can never mean one box here and another there.
+  const size = applyAspectRatio(rawSize, modSummary.aspectRatio)
   // Input fields (text / secure / search) render a pill (capsule) by
   // default — the radius tracks the field height so it stays a true pill
   // at any size. The Edge toggle sets `fieldShape: 'rounded'` to fall back
@@ -557,11 +576,20 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // A button's radius is derived from `buttonBorderShape` — the field the
   // exporter emits — rather than from a stored `cornerRadius` the inspector
   // had to keep in sync. `automatic` is visionOS's capsule default.
+  // A sheet's presentation corner radius overrides the system radius on
+  // device, and overrode nothing on the canvas until AUDIT #30 — the plate
+  // kept the panel's own stored radius, so the field changed the generated
+  // file and not the picture. 0 means "no override", which is how the
+  // exporter reads it too. (Written without the leading dot: the parity scan
+  // matches `.fieldName` as text and a comment would pass for the read.)
+  const presentationRadius = panelType === 'sheet' && panel.presentationCornerRadius > 0
+    ? ptToUnits(panel.presentationCornerRadius)
+    : null
   const cornerRadius = ((isInputField && (panel.fieldShape || 'pill') === 'pill') || panelType === 'segmented')
     ? Math.min(size[0], size[1]) / 2
     : panelType === 'button'
       ? ptToUnits(buttonRadiusPt(panel.buttonBorderShape))
-      : (panel.cornerRadius ?? 0)
+      : (presentationRadius ?? panel.cornerRadius ?? 0)
   // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
   // — rendered as a slightly larger copy of the shape in `strokeColor`
   // placed BEHIND the fill. Half the width sits outside the shape's
@@ -571,6 +599,17 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const strokeWidth = strokeColor ? Math.max(0, ptToUnits(panel.strokeWidth || 0)) : 0
   const hasStroke   = !!strokeColor && strokeWidth > 0
   const scene = useStore((s) => s.scene)
+  // `.tint` is the control accent — the colour sliders, toggles, progress
+  // bars and gauges fill with. Every one of them read `scene.tintColor`
+  // unconditionally before, so the modifier emitted correct Swift and the
+  // canvas ignored it. Resolved here because the fill / text resolution
+  // below needs it too. AUDIT #5.
+  const accentColor = modSummary.tint || scene.tintColor || '#007aff'
+  // `.foregroundStyle` is SwiftUI's own spelling for the content colour, so
+  // it wins over the stored `textColor` the inspector's colour well writes.
+  // The canvas read only the latter, which meant the two disagreed the moment
+  // the designer reached for the modifier stack.
+  const modForeground = modSummary.foregroundStyle || null
   const selectedId = useStore((s) => s.selectedId)
   const editingId = useStore((s) => s.editingId)
   const select = useStore((s) => s.select)
@@ -853,6 +892,12 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   if (panelType === 'navbar') {
     resolvedFillOpacity = 0.0
   }
+  // `.textFieldStyle(.plain)` drops the field's chrome entirely — no recessed
+  // glass, just the text on whatever is behind it. Export-only until AUDIT #31.
+  if ((panelType === 'textfield' || panelType === 'securefield') &&
+      panel.styles?.textFieldStyle === 'plain') {
+    resolvedFillOpacity = 0.0
+  }
   if (panelType === 'button') {
     if (inOrnamentChrome && buttonStyle !== 'borderedProminent' && buttonStyle !== 'destructive') {
       resolvedFillOpacity = 0.0
@@ -871,17 +916,20 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       if (!hasExplicitFill) {
         resolvedFillOpacity = 0.0
         if (panel.textColorToken == null && panel.textColor == null) {
-          resolvedTextColor = scene.tintColor || textColor
+          resolvedTextColor = accentColor
         }
       }
     } else if (buttonStyle === 'borderedProminent') {
-      resolvedFill = scene.tintColor || '#007aff'
+      resolvedFill = accentColor
       resolvedTextColor = '#ffffff'
     } else if (buttonStyle === 'destructive') {
       resolvedFill = resolveSemantic('systemRed', scene)
       resolvedTextColor = '#ffffff'
     }
   }
+  // `.foregroundStyle` is the last word on content colour, as it is in
+  // SwiftUI — it overrides the per-type defaults resolved above.
+  if (modForeground) resolvedTextColor = modForeground
 
   // Segmented control — the base pill is the raised *rim* that catches
   // light; the overlay paints a darker inset well inside it (the recess)
@@ -941,7 +989,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // troika's `fontStyle` prop only takes effect if the font file itself
   // carries italic glyphs. For non-text panel kinds (button, picker, …)
   // italic isn't exposed in the UI so we stay on the upright face.
-  const fontUrl = getInterFont(
+  // `.fontDesign(_:)` picks the face. Resolved through `textMetrics` — the
+  // same function the layout engine measures with — so the file troika shapes
+  // and the face the wrapper measured are never two different answers to one
+  // question. Until AUDIT #5 three of the four designs drew Inter.
+  const fontDesign = textMetrics(panel, modSummary).fontDesign
+  const fontUrl = getFont(
+    fontDesign,
     panel.fontWeight,
     (panelType === 'text' || panelType === 'link') && !!modSummary.italic
   )
@@ -1088,7 +1142,11 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // switch the same way they would on-device. The handler bypasses
   // the regular drag/select gate above (which early-returns in
   // preview) by reading directly from the store.
+  // `.toggleStyle(.button)` renders a Toggle as a pressed-in button carrying
+  // the label, not as a switch on the trailing edge. Export-only until AUDIT
+  // #31, so a toggle authored as a button previewed as a switch.
   const toggleOverlay = panelType === 'toggle' && (() => {
+    const toggleStyle = panel.styles?.toggleStyle || 'automatic'
     const TRACK_W = ptToUnits(52)
     const TRACK_H = ptToUnits(32)
     const trackX = size[0] / 2 - TRACK_W / 2 - ptToUnits(4)
@@ -1103,6 +1161,31 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       e.stopPropagation()
       useStore.getState().updateItem(id, { toggleOn: !panel.toggleOn })
     }
+
+    if (toggleStyle === 'button') {
+      // A button toggle fills its frame and reads as on/off by its fill, the
+      // way `.buttonStyle(.bordered)` does when selected.
+      const on = !!panel.toggleOn
+      return (
+        <group onPointerDown={flip}>
+          <mesh position={[0, 0, 0.004]}>
+            <shapeGeometry args={[roundedRectShape(size[0], size[1], Math.min(cornerRadius || ptToUnits(12), size[1] / 2))]} />
+            <meshBasicMaterial
+              color={on ? accentColor : resolveSemantic('systemFill', scene)}
+              transparent
+              opacity={on ? 1 : 0.6}
+            />
+          </mesh>
+          <Text
+            position={[0, 0, 0.006]}
+            font={fontUrl} fontSize={finalFontSize}
+            color={on ? '#ffffff' : resolveSemantic('primary', scene)}
+            anchorX="center" anchorY="middle" maxWidth={size[0] * 0.9}
+          >{panel.text || 'Toggle'}</Text>
+        </group>
+      )
+    }
+
     return (
       <group onPointerDown={flip}>
         {/* Switch track */}
@@ -1176,20 +1259,48 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     return roundedRectShape(w, h, Math.min(w, h) / 2)
   }, [panelType, hasStroke, size[0], size[1], strokeWidth])
 
-  // ---- Alert overlay (title + message + buttons row) ----
-  const alertOverlay = panelType === 'alert' && (() => {
+  // ---- Alert / confirmation-dialog overlay (title + message + buttons) ----
+  // Both draw the same furniture, because SwiftUI presents them the same way:
+  // a title, an optional message, and a row of roled buttons. The dialog had
+  // no canvas rendering at all until phase 1.3 — it was laid out as an
+  // ordinary child while the code emitted `.confirmationDialog(…)`. AUDIT #7.
+  const alertOverlay = (panelType === 'alert' || panelType === 'confirmationdialog') && (() => {
     const primary = resolveSemantic('primary', scene)
     const secondary = resolveSemantic('secondary', scene)
     const msg = panel.alertMessage || ''
-    const btns = panel.alertButtons || ['OK']
+    const btns = panel.alertButtons || (panelType === 'confirmationdialog' ? ['Cancel'] : ['OK'])
     const btnH = ptToUnits(36)
     const btnY = -size[1] / 2 + ptToUnits(20) + btnH / 2
     const btnW = (size[0] - ptToUnits(32)) / btns.length
+    // `.confirmationDialog(titleVisibility:)` — `.automatic` shows the title
+    // only when there is a message body to caption, which is the platform
+    // rule the exporter relies on; `.hidden` drops it outright.
+    const tv = panel.titleVisibility || 'automatic'
+    const showTitle = panelType !== 'confirmationdialog'
+      ? true
+      : (tv === 'visible' || (tv === 'automatic' && !!msg))
+    // `.dialogIcon` / `.dialogSeverity` — a glyph above the title, tinted red
+    // when the dialog is marked critical. Both reached the export only.
+    const severity = panel.dialogSeverity || 'automatic'
+    const iconColor = severity === 'critical'
+      ? resolveSemantic('systemRed', scene)
+      : accentColor
+    const titleY = panel.dialogIcon ? size[1] * 0.12 : size[1] * 0.2
     return (
       <>
-        <Text position={[0, size[1] * 0.2, 0.005]} font={fontUrl} fontSize={ptToUnits(17)} color={primary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center" fontWeight="bold">
-          {panel.text || 'Alert'}
+        {panel.dialogIcon && (
+          <SymbolIcon3D
+            name={panel.dialogIcon}
+            sizeUnits={ptToUnits(28)}
+            color={iconColor}
+            position={[0, size[1] * 0.32, 0.005]}
+          />
+        )}
+        {showTitle && (
+        <Text position={[0, titleY, 0.005]} font={fontUrl} fontSize={ptToUnits(17)} color={primary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center" fontWeight="bold">
+          {panel.text || (panelType === 'confirmationdialog' ? 'Confirm' : 'Alert')}
         </Text>
+        )}
         <Text position={[0, 0, 0.005]} font={fontUrl} fontSize={ptToUnits(13)} color={secondary} anchorX="center" anchorY="middle" maxWidth={size[0] * 0.85} textAlign="center">
           {msg}
         </Text>
@@ -1201,7 +1312,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         {btns.map((label, i) => {
           const x = -size[0] / 2 + ptToUnits(16) + btnW * (i + 0.5)
           return (
-            <Text key={i} position={[x, btnY, 0.005]} font={fontUrl} fontSize={ptToUnits(15)} color={i === btns.length - 1 ? (scene.tintColor || '#007aff') : primary} anchorX="center" anchorY="middle" fontWeight={i === btns.length - 1 ? 'bold' : 'regular'}>
+            <Text key={i} position={[x, btnY, 0.005]} font={fontUrl} fontSize={ptToUnits(15)} color={i === btns.length - 1 ? (accentColor) : primary} anchorX="center" anchorY="middle" fontWeight={i === btns.length - 1 ? 'bold' : 'regular'}>
               {label}
             </Text>
           )
@@ -1454,12 +1565,32 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const padY = ptToUnits(style.pad)
     const inset = ptToUnits(style.inset)
     const rowH = ptToUnits(style.rowH)
-    const gap = ptToUnits(style.gap)
+    // `.listRowSpacing(n)` adds to whatever gap the style preset already
+    // carries, the way SwiftUI stacks it on top of the list's own metrics.
+    const gap = ptToUnits(style.gap) + ptToUnits(Number(panel.listRowSpacing) || 0)
     const innerW = size[0] - inset * 2
     const startY = size[1] / 2 - padY
     const primary = resolveSemantic('primary', scene)
     const secondary = resolveSemantic('secondary', scene)
-    const separator = resolveSemantic('tertiary', scene)
+    // `.listRowSeparator(.hidden)` takes the hairlines away, and
+    // `.listRowSeparatorTint(_:)` recolours them. Both reached the export
+    // only — the canvas drew whatever the style preset said and nothing
+    // else. AUDIT #19.
+    const separatorMode = panel.listRowSeparator || 'automatic'
+    const showSeparators = style.showSeparators && separatorMode !== 'hidden'
+    const separator = panel.listRowSeparatorTint
+      ? (panel.listRowSeparatorTint.startsWith('#')
+          ? panel.listRowSeparatorTint
+          : resolveSemantic(panel.listRowSeparatorTint, scene))
+      : resolveSemantic('tertiary', scene)
+    // `.listItemTint(_:)` is the accent a row's content takes — the icon and
+    // the chevron, not the label. A per-row `tint` still wins over it, the
+    // way a row-level modifier beats a list-level one.
+    const itemTint = panel.listItemTint
+      ? (panel.listItemTint.startsWith('#')
+          ? panel.listItemTint
+          : resolveSemantic(panel.listItemTint, scene))
+      : null
     const fontSizeTitle = ptToUnits(style.rowH <= 32 ? 13 : 15)
     const fontSizeSub   = ptToUnits(style.rowH <= 32 ? 11 : 12)
 
@@ -1522,7 +1653,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           // conventions in Shortcuts / News / Settings.
           const iconTint = r.tint
             ? (r.tint.startsWith('#') ? r.tint : resolveSemantic(r.tint, scene))
-            : (scene.tintColor || '#007aff')
+            : (itemTint || accentColor)
           const hasIcon = !!r.systemImage
           const textStartX = -innerW / 2 + (hasIcon ? ptToUnits(42) : ptToUnits(12))
           // Optional row highlight pill (`.listRowBackground(...)` in SwiftUI).
@@ -1615,13 +1746,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
                 <Text
                   position={[innerW / 2 - ptToUnits(8), 0, 0]}
                   fontSize={ptToUnits(14)}
-                  color={secondary}
+                  color={itemTint || secondary}
                   anchorX="right"
                   anchorY="middle"
                 >›</Text>
               )}
               {/* Separator line (plain/inset/insetGrouped/grouped/bordered) */}
-              {style.showSeparators && i < rows.length - 1 && (
+              {showSeparators && i < rows.length - 1 && (
                 <mesh
                   position={[
                     // Separator has a small leading inset on plain/inset so it
@@ -1643,10 +1774,162 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Table ----
+
+  // ---- Form ----
+  // SwiftUI's `Form` is a grouped list of labelled rows. It exported every row
+  // faithfully and drew an empty plate, so data the designer typed into the
+  // inspector was invisible on the canvas until export. AUDIT #6.
+  const formOverlay = panelType === 'form' && (() => {
+    const rows = panel.rows || []
+    const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const separator = resolveSemantic('tertiary', scene)
+    // `.formStyle(.columns)` is a two-column layout — labels trailing-aligned
+    // in a leading column, content leading-aligned in a trailing one.
+    // `.grouped` (and `.automatic`, which resolves to grouped on visionOS) is
+    // the inset card with hairline separators between rows.
+    const columns = (panel.formStyle || 'automatic') === 'columns'
+    const rowH = ptToUnits(panel.rowHeight ?? 48)
+    const inset = ptToUnits(columns ? 0 : 12)
+    const innerW = size[0] - inset * 2
+    const padY = ptToUnits(columns ? 8 : 12)
+    const startY = size[1] / 2 - padY
+    // Apple's columns form puts the label gutter at ~40% of the width.
+    const labelW = innerW * 0.4
+    const gutter = ptToUnits(12)
+    const cardShape = !columns && rows.length
+      ? roundedRectShape(innerW, Math.min(rows.length * rowH, size[1] - padY * 2), ptToUnits(12))
+      : null
+    const visibleRows = Math.max(0, Math.floor((size[1] - padY * 2) / Math.max(rowH, 1e-6)))
+    const shown = rows.slice(0, visibleRows)
+    return (
+      <group position={[0, 0, 0.004]}>
+        {cardShape && (
+          <mesh position={[0, startY - (shown.length * rowH) / 2, -0.001]}>
+            <shapeGeometry args={[cardShape]} />
+            <meshBasicMaterial color={resolveSemantic('secondarySystemBackground', scene)} transparent opacity={0.95} />
+          </mesh>
+        )}
+        {shown.map((r, i) => {
+          const cy = startY - rowH / 2 - i * rowH
+          const label = r.title || ''
+          const value = r.subtitle || r.value || ''
+          return (
+            <group key={i} position={[0, cy, 0]}>
+              {columns ? (
+                <>
+                  <Text
+                    position={[-innerW / 2 + labelW, 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={secondary}
+                    anchorX="right" anchorY="middle" maxWidth={labelW}
+                  >{label}</Text>
+                  <Text
+                    position={[-innerW / 2 + labelW + gutter, 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={primary}
+                    anchorX="left" anchorY="middle" maxWidth={innerW - labelW - gutter}
+                  >{value}</Text>
+                </>
+              ) : (
+                <>
+                  <Text
+                    position={[-innerW / 2 + ptToUnits(14), 0, 0.002]}
+                    font={fontUrl} fontSize={ptToUnits(15)} color={primary}
+                    anchorX="left" anchorY="middle" maxWidth={innerW * 0.6}
+                  >{label}</Text>
+                  {value && (
+                    <Text
+                      position={[innerW / 2 - ptToUnits(14), 0, 0.002]}
+                      font={fontUrl} fontSize={ptToUnits(14)} color={secondary}
+                      anchorX="right" anchorY="middle" maxWidth={innerW * 0.35}
+                    >{value}</Text>
+                  )}
+                  {/* Hairline between rows, inset from the leading edge the
+                      way a grouped list insets its separators. */}
+                  {i < shown.length - 1 && (
+                    <mesh position={[ptToUnits(7), -rowH / 2, 0.001]}>
+                      <planeGeometry args={[innerW - ptToUnits(14), ptToUnits(0.5)]} />
+                      <meshBasicMaterial color={separator} />
+                    </mesh>
+                  )}
+                </>
+              )}
+            </group>
+          )
+        })}
+      </group>
+    )
+  })()
+
+  // ---- OutlineGroup ----
+  // A disclosure tree, flattened in the inspector to (title, indent,
+  // expanded) rows. Same finding as `form`: the export built a whole
+  // recursive `OutlineNode` model from this data while the canvas drew a bare
+  // plate. AUDIT #6.
+  //
+  // `expanded` is honoured, so a collapsed row hides everything beneath it
+  // until the next row at its own depth or shallower — which is what the
+  // designer sees the tree doing. It is a preview affordance rather than a
+  // document property: SwiftUI's OutlineGroup owns its own expansion state at
+  // runtime, so the export carries the shape of the tree and not which parts
+  // of it happen to be open.
+  const outlineOverlay = panelType === 'outlinegroup' && (() => {
+    const rows = panel.rows || []
+    const primary = resolveSemantic('primary', scene)
+    const separator = resolveSemantic('tertiary', scene)
+    const rowH = ptToUnits(panel.rowHeight ?? 44)
+    const inset = ptToUnits(12)
+    const innerW = size[0] - inset * 2
+    const padY = ptToUnits(10)
+    const startY = size[1] / 2 - padY
+    const indentStep = ptToUnits(18)
+
+    const visible = outlineVisibleRows(rows)
+    const maxRows = Math.max(0, Math.floor((size[1] - padY * 2) / Math.max(rowH, 1e-6)))
+    const shown = visible.slice(0, maxRows)
+    return (
+      <group position={[0, 0, 0.004]}>
+        {shown.map((r, i) => {
+          const cy = startY - rowH / 2 - i * rowH
+          const x0 = -innerW / 2 + r.level * indentStep
+          return (
+            <group key={i} position={[0, cy, 0]}>
+              {/* Disclosure chevron — only on rows that have children, and
+                  pointing down when open, as a DisclosureGroup draws it. */}
+              {r.isParent && (
+                <Text
+                  position={[x0 + ptToUnits(6), 0, 0.002]}
+                  fontSize={ptToUnits(11)} color={primary}
+                  anchorX="center" anchorY="middle"
+                >{r.expanded ? '▾' : '▸'}</Text>
+              )}
+              <Text
+                position={[x0 + ptToUnits(18), 0, 0.002]}
+                font={fontUrl} fontSize={ptToUnits(14)} color={primary}
+                anchorX="left" anchorY="middle"
+                maxWidth={innerW - r.level * indentStep - ptToUnits(18)}
+              >{r.title || ''}</Text>
+              {i < shown.length - 1 && (
+                <mesh position={[ptToUnits(6), -rowH / 2, 0.001]}>
+                  <planeGeometry args={[innerW - ptToUnits(12), ptToUnits(0.5)]} />
+                  <meshBasicMaterial color={separator} transparent opacity={0.6} />
+                </mesh>
+              )}
+            </group>
+          )
+        })}
+      </group>
+    )
+  })()
+
+  // `.tableStyle(.inset)` insets the table inside its container and drops the
+  // grid rules for alternating row fills — Apple's "inset" look. `.automatic`
+  // keeps the ruled grid. Exported correctly, drew the same grid either way.
+  // AUDIT #19.
   const tableOverlay = panelType === 'table' && (() => {
     const cols = panel.columns || []
     const rows = panel.rows || []
-    const pad = ptToUnits(14)
+    const inset = (panel.tableStyle || 'automatic') === 'inset'
+    const pad = ptToUnits(inset ? 22 : 14)
     const innerW = size[0] - pad * 2
     const innerH = size[1] - pad * 2
     const headerH = ptToUnits(30)
@@ -1682,8 +1965,9 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           <planeGeometry args={[innerW, 0.003]} />
           <meshBasicMaterial color={sep} />
         </mesh>
-        {/* Vertical dividers */}
-        {cols.slice(1).map((_, i) => (
+        {/* Vertical dividers — the ruled grid belongs to `.automatic`; the
+            inset style separates columns by spacing alone. */}
+        {!inset && cols.slice(1).map((_, i) => (
           <mesh key={`v${i}`} position={[startX + colW * (i + 1), startY - headerH / 2 - (rows.length * rowH) / 2, 0]}>
             <planeGeometry args={[0.003, headerH + rows.length * rowH]} />
             <meshBasicMaterial color={sep} />
@@ -1692,6 +1976,14 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         {/* Data rows */}
         {rows.map((row, r) => (
           <group key={`r${r}`} position={[0, startY - headerH - rowH * (r + 0.5), 0]}>
+            {/* Alternating row fill — what the inset style uses in place of
+                the rules it drops. */}
+            {inset && r % 2 === 1 && (
+              <mesh position={[0, 0, -0.001]}>
+                <planeGeometry args={[innerW, rowH]} />
+                <meshBasicMaterial color={resolveSemantic('systemFill', scene)} transparent opacity={0.5} />
+              </mesh>
+            )}
             {row.slice(0, cols.length).map((cell, i) => (
               <Text
                 key={`cell${i}`}
@@ -1716,13 +2008,46 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Menu ----
+  // `.menuStyle` decides whether a Menu shows as an open list or as a button
+  // that reveals one, and `.menuIndicator` whether that button carries a
+  // chevron. Both exported correctly and drew the same open list either way.
+  // AUDIT #19.
   const menuOverlay = panelType === 'menu' && (() => {
     const items = panel.menuItems || []
     const pad = ptToUnits(8)
-    const rowH = (size[1] - pad * 2) / Math.max(1, items.length)
     const innerW = size[0] - pad * 2
     const primary = resolveSemantic('primary', scene)
     const sep = resolveSemantic('tertiary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const menuStyle = panel.menuStyle || 'automatic'
+    // `.button` and `.borderlessButton` collapse the menu to its label; the
+    // items only appear once it is opened, which a still canvas cannot show.
+    const asButton = MENU_STYLES_AS_BUTTON.includes(menuStyle)
+    const indicator = panel.menuIndicator || 'automatic'
+    const showIndicator = indicator !== 'hidden'
+
+    if (asButton) {
+      return (
+        <>
+          <Text
+            position={[-innerW / 2 + ptToUnits(10), 0, 0.005]}
+            font={fontUrl} fontSize={ptToUnits(15)}
+            color={menuStyle === 'borderlessButton' ? accentColor : primary}
+            anchorX="left" anchorY="middle"
+            maxWidth={innerW * 0.8}
+          >{panel.text || 'Menu'}</Text>
+          {showIndicator && (
+            <Text
+              position={[innerW / 2 - ptToUnits(4), 0, 0.005]}
+              fontSize={ptToUnits(10)} color={secondary}
+              anchorX="right" anchorY="middle"
+            >▾</Text>
+          )}
+        </>
+      )
+    }
+
+    const rowH = (size[1] - pad * 2) / Math.max(1, items.length)
     const startY = size[1] / 2 - pad
     return (
       <>
@@ -1749,23 +2074,82 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   })()
 
   // ---- Progress ----
+  // `value` is measured against `total`, not against 1 — a ProgressView at
+  // `value: 30, total: 100` is 30% full, and the canvas used to draw it
+  // pinned at 100%. Indeterminate views have no fraction to show at all, and
+  // `.circular` is a ring rather than a bar.
   const progressOverlay = panelType === 'progress' && (() => {
-    const value = Math.max(0, Math.min(1, panel.value ?? 0.5))
+    const value = controlFraction(panel.value ?? 0.5, 0, panel.total ?? 1)
+    const tint = accentColor
+    const circular = panel.progressViewStyle === 'circular'
+
+    if (panel.indeterminate) {
+      // A spinner is a time-based affordance and the canvas is a still
+      // frame, so draw the shape SwiftUI settles on rather than animating:
+      // a ring arc for circular, and a part-width pill for linear, both in
+      // the "position unknown" treatment the platform uses.
+      const r = Math.min(size[0], size[1]) / 2
+      if (circular) {
+        return (
+          <mesh position={[0, 0, 0.005]}>
+            <ringGeometry args={[r * 0.72, r, 32, 1, 0, Math.PI * 1.35]} />
+            <meshBasicMaterial color={tint} />
+          </mesh>
+        )
+      }
+      const barW = size[0] * 0.35
+      return (
+        <mesh position={[-size[0] / 2 + barW / 2, 0, 0.005]}>
+          <shapeGeometry args={[roundedRectShape(barW, size[1], Math.min(cornerRadius, size[1] / 2))]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.75} />
+        </mesh>
+      )
+    }
+
+    if (circular) {
+      const r = Math.min(size[0], size[1]) / 2
+      return (
+        <>
+          <mesh position={[0, 0, 0.004]}>
+            <ringGeometry args={[r * 0.72, r, 32]} />
+            <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
+          </mesh>
+          {value > 0 && (
+            <mesh position={[0, 0, 0.005]} rotation={[0, 0, Math.PI / 2]}>
+              <ringGeometry args={[r * 0.72, r, 32, 1, 0, -Math.PI * 2 * value]} />
+              <meshBasicMaterial color={tint} />
+            </mesh>
+          )}
+        </>
+      )
+    }
+
     const fillW = size[0] * value
     return (
       <mesh position={[-size[0] / 2 + fillW / 2, 0, 0.005]}>
         <shapeGeometry args={[roundedRectShape(fillW, size[1], Math.min(cornerRadius, size[1] / 2))]} />
-        <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+        <meshBasicMaterial color={tint} />
       </mesh>
     )
   })()
 
   // ---- Slider ----
   const sliderOverlay = panelType === 'slider' && (() => {
-    const value = Math.max(0, Math.min(1, panel.sliderValue ?? 0.5))
+    // `sliderValue` lives in the slider's own range, not in 0…1 — see
+    // `controlFraction`. The labels shrink the track the way SwiftUI's
+    // `minimumValueLabel:` / `maximumValueLabel:` slots do.
+    const value = controlFraction(panel.sliderValue ?? 0.5, panel.sliderMin, panel.sliderMax)
     const trackH = ptToUnits(4)
     const thumbR = ptToUnits(13)
-    const fillW = size[0] * value
+    const minLabel = panel.sliderMinLabel || ''
+    const maxLabel = panel.sliderMaxLabel || ''
+    const labelPt = ptToUnits(13)
+    const labelGap = ptToUnits(8)
+    const leadInset  = minLabel ? ptToUnits(minLabel.length * 7) + labelGap : 0
+    const trailInset = maxLabel ? ptToUnits(maxLabel.length * 7) + labelGap : 0
+    const trackW = Math.max(ptToUnits(20), size[0] - leadInset - trailInset)
+    const trackX0 = -size[0] / 2 + leadInset
+    const fillW = trackW * value
     // Preview: click/drag along the track sets the slider value from
     // the local-X intersect. Editor-mode keeps the panel passive so
     // the regular drag-to-reposition pipeline still works.
@@ -1773,8 +2157,10 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       if (!scene.previewMode) return
       e.stopPropagation()
       const local = e.eventObject.worldToLocal(e.point.clone())
-      const t = Math.max(0, Math.min(1, (local.x + size[0] / 2) / size[0]))
-      useStore.getState().updateItem(id, { sliderValue: t })
+      const t = Math.max(0, Math.min(1, (local.x - trackX0) / trackW))
+      useStore.getState().updateItem(id, {
+        sliderValue: valueFromFraction(t, panel.sliderMin, panel.sliderMax, panel.sliderStep)
+      })
     }
     return (
       <group
@@ -1792,18 +2178,36 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           try { e.target.releasePointerCapture(e.pointerId) } catch {}
         }}
       >
-        <mesh position={[0, 0, 0.003]}>
-          <planeGeometry args={[size[0], trackH]} />
+        <mesh position={[trackX0 + trackW / 2, 0, 0.003]}>
+          <planeGeometry args={[trackW, trackH]} />
           <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
         </mesh>
-        <mesh position={[-size[0] / 2 + fillW / 2, 0, 0.004]}>
+        <mesh position={[trackX0 + fillW / 2, 0, 0.004]}>
           <planeGeometry args={[fillW, trackH]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+          <meshBasicMaterial color={accentColor} />
         </mesh>
-        <mesh position={[-size[0] / 2 + fillW, 0, 0.006]}>
+        <mesh position={[trackX0 + fillW, 0, 0.006]}>
           <circleGeometry args={[thumbR, 32]} />
           <meshBasicMaterial color="#ffffff" />
         </mesh>
+        {minLabel && (
+          <Text
+            position={[-size[0] / 2, 0, 0.005]}
+            fontSize={labelPt}
+            color={resolveSemantic('secondary', scene)}
+            anchorX="left"
+            anchorY="middle"
+          >{minLabel}</Text>
+        )}
+        {maxLabel && (
+          <Text
+            position={[size[0] / 2, 0, 0.005]}
+            fontSize={labelPt}
+            color={resolveSemantic('secondary', scene)}
+            anchorX="right"
+            anchorY="middle"
+          >{maxLabel}</Text>
+        )}
       </group>
     )
   })()
@@ -1822,54 +2226,134 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const xPlus  = size[0] / 2 - CIRCLE_R - ptToUnits(4)
     const xMinus = xPlus - (CIRCLE_R * 2 + ptToUnits(12))
     const xValue = xMinus - ptToUnits(18)
+    // SwiftUI's Stepper moves by `step` and stops at the ends of `in:`.
+    // The canvas bumped by ±1 and ran past both bounds, so a stepper
+    // authored `0…10 by 5` counted 1, 2, 3 … here and 0, 5, 10 on device,
+    // and the buttons never went inert at the ends. AUDIT #17.
+    const lo = Number(panel.stepperMin ?? 0)
+    const hi = Number(panel.stepperMax ?? 10)
+    const stepBy = Number(panel.stepperStep) || 1
+    const current = Math.max(lo, Math.min(hi, Number(panel.stepperValue ?? 0)))
     const bump = (delta) => (e) => {
       if (!scene.previewMode) return
       e.stopPropagation()
-      useStore.getState().updateItem(id, { stepperValue: (panel.stepperValue ?? 0) + delta })
+      const next = Math.max(lo, Math.min(hi, current + delta * stepBy))
+      if (next !== current) useStore.getState().updateItem(id, { stepperValue: next })
     }
+    // Apple dims the button that can no longer do anything.
+    const atMin = current <= lo
+    const atMax = current >= hi
     return (
       <>
         {/* Leading label uses the panel's text rendering path above; the
             stepper-specific glyph + value live here. */}
         <Text position={[xValue, 0, 0.005]} fontSize={ptToUnits(14)} color={primary} anchorX="right" anchorY="middle" fontWeight="semibold">
-          {String(panel.stepperValue ?? 0)}
+          {String(current)}
         </Text>
         {/* Minus button */}
         <group position={[xMinus, 0, 0.004]} onPointerDown={bump(-1)}>
           <mesh>
             <circleGeometry args={[CIRCLE_R, 32]} />
-            <meshBasicMaterial color={buttonBg} />
+            <meshBasicMaterial color={buttonBg} transparent opacity={atMin ? 0.4 : 1} />
           </mesh>
-          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">−</Text>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} fillOpacity={atMin ? 0.4 : 1} anchorX="center" anchorY="middle">−</Text>
         </group>
         {/* Plus button */}
         <group position={[xPlus, 0, 0.004]} onPointerDown={bump(+1)}>
           <mesh>
             <circleGeometry args={[CIRCLE_R, 32]} />
-            <meshBasicMaterial color={buttonBg} />
+            <meshBasicMaterial color={buttonBg} transparent opacity={atMax ? 0.4 : 1} />
           </mesh>
-          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} anchorX="center" anchorY="middle">+</Text>
+          <Text position={[0, 0, 0.002]} fontSize={ptToUnits(16)} color={primary} fillOpacity={atMax ? 0.4 : 1} anchorX="center" anchorY="middle">+</Text>
         </group>
       </>
     )
   })()
 
-  // ---- Gauge (linear bar with label) ----
+  // ---- Gauge ----
+  // `value` sits in `gaugeMin…gaugeMax` (which defaults to 0…100, not 0…1),
+  // so the fraction has to be derived rather than read straight off the
+  // field. `gaugeStyle` picks between the linear-capacity bar and the
+  // accessory-circular dial, and `gaugeTintFrom/To` fills with the same
+  // two-stop gradient the exporter hands to `.tint(Gradient(...))`.
   const gaugeOverlay = panelType === 'gauge' && (() => {
-    const value = Math.max(0, Math.min(1, panel.value ?? 0.5))
+    const value = controlFraction(panel.value ?? 0.5, panel.gaugeMin, panel.gaugeMax)
     const primary = resolveSemantic('primary', scene)
+    const track = resolveSemantic('tertiary', scene)
+    const style = panel.gaugeStyle || 'automatic'
+    const circular = style === 'accessoryCircular' || style === 'accessoryCircularCapacity'
+    // A two-stop tint reads as a gradient on device; the canvas approximates
+    // it with the colour at the value's own position, which is the stop the
+    // eye lands on.
+    const tint = (panel.gaugeTintFrom && panel.gaugeTintTo)
+      ? mixHex(panel.gaugeTintFrom, panel.gaugeTintTo, value)
+      : (accentColor)
+    const minLabel = panel.gaugeMinLabel || ''
+    const maxLabel = panel.gaugeMaxLabel || ''
+    const labelPt = ptToUnits(11)
+
+    if (circular) {
+      const r = Math.min(size[0], size[1]) * 0.38
+      // Accessory-circular sweeps a 270° dial from the lower-left; the
+      // capacity variant closes the full ring.
+      const sweep = style === 'accessoryCircularCapacity' ? Math.PI * 2 : Math.PI * 1.5
+      const start = style === 'accessoryCircularCapacity' ? Math.PI / 2 : Math.PI * 1.25
+      return (
+        <>
+          <mesh position={[0, 0, 0.003]} rotation={[0, 0, start]}>
+            <ringGeometry args={[r * 0.74, r, 40, 1, 0, -sweep]} />
+            <meshBasicMaterial color={track} />
+          </mesh>
+          {value > 0 && (
+            <mesh position={[0, 0, 0.004]} rotation={[0, 0, start]}>
+              <ringGeometry args={[r * 0.74, r, 40, 1, 0, -sweep * value]} />
+              <meshBasicMaterial color={tint} />
+            </mesh>
+          )}
+          <Text
+            position={[0, 0, 0.005]}
+            fontSize={ptToUnits(16)}
+            color={primary}
+            fontWeight="bold"
+            anchorX="center"
+            anchorY="middle"
+          >{panel.text || ''}</Text>
+        </>
+      )
+    }
+
     const trackH = ptToUnits(6)
     const trackY = -size[1] * 0.25
+    // The value labels sit at the ends of the bar, so the bar gives way to
+    // them rather than running underneath.
+    const leadInset  = minLabel ? ptToUnits(minLabel.length * 6 + 6) : 0
+    const trailInset = maxLabel ? ptToUnits(maxLabel.length * 6 + 6) : 0
+    const barW = Math.max(ptToUnits(20), size[0] * 0.85 - leadInset - trailInset)
+    const barX0 = -size[0] * 0.425 + leadInset
     return (
       <>
-        <mesh position={[0, trackY, 0.003]}>
-          <planeGeometry args={[size[0] * 0.85, trackH]} />
-          <meshBasicMaterial color={resolveSemantic('tertiary', scene)} />
+        <mesh position={[barX0 + barW / 2, trackY, 0.003]}>
+          <planeGeometry args={[barW, trackH]} />
+          <meshBasicMaterial color={track} />
         </mesh>
-        <mesh position={[-size[0] * 0.425 + size[0] * 0.85 * value / 2, trackY, 0.004]}>
-          <planeGeometry args={[size[0] * 0.85 * value, trackH]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} />
+        <mesh position={[barX0 + barW * value / 2, trackY, 0.004]}>
+          <planeGeometry args={[barW * value, trackH]} />
+          <meshBasicMaterial color={tint} />
         </mesh>
+        {minLabel && (
+          <Text
+            position={[-size[0] * 0.425, trackY, 0.005]}
+            fontSize={labelPt} color={resolveSemantic('secondary', scene)}
+            anchorX="left" anchorY="middle"
+          >{minLabel}</Text>
+        )}
+        {maxLabel && (
+          <Text
+            position={[size[0] * 0.425, trackY, 0.005]}
+            fontSize={labelPt} color={resolveSemantic('secondary', scene)}
+            anchorX="right" anchorY="middle"
+          >{maxLabel}</Text>
+        )}
         <Text
           position={[0, size[1] * 0.1, 0.005]}
           fontSize={ptToUnits(22)}
@@ -1895,7 +2379,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
           <mesh key={i} position={[x, 0, 0.001]}>
             <circleGeometry args={[dotSize / 2, 16]} />
             <meshBasicMaterial
-              color={active ? (scene.tintColor || '#007aff') : resolveSemantic('tertiary', scene)}
+              color={active ? (accentColor) : resolveSemantic('tertiary', scene)}
             />
           </mesh>
         )
@@ -1907,11 +2391,18 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
 
   const labelOverlay = panelType === 'label' && (() => {
     const symbolName = panel.symbolName || 'info.circle'
-    // Empty-text labels are "icon-only" — used in templates as room/
-    // section glyphs without the SwiftUI `Label` text slot. We render
-    // just the icon (no tile, no placeholder "Label" text) so the row
-    // doesn't pick up an unintended blue chip + filler word.
-    const iconOnly = !panel.text
+    // `.labelStyle` decides which of the two slots a Label shows. It reached
+    // the export only: the canvas had its own parallel rule — an empty text
+    // slot means icon-only — which happens to agree with the field across
+    // every template, so nothing shipped diverges. But the two are separate
+    // mechanisms for one concept, and a label that carries text AND asks for
+    // `.iconOnly` drew the text here and hid it on device. The explicit field
+    // wins now; the empty-text rule stays as the fallback for `.automatic`,
+    // which is what a Label with nothing to say resolves to anyway.
+    // AUDIT #31.
+    const slots = labelSlots(panel.styles?.labelStyle, panel.text)
+    const iconOnly = slots.icon && !slots.title
+    const titleOnly = slots.title && !slots.icon
     // Apple's sidebar Label pattern (Settings.app): a coloured rounded-rect
     // tile behind the glyph instead of a circle. Driven by:
     //   iconTileColor  — fill color; null ⇒ classic circle fallback
@@ -1926,7 +2417,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const resolvedTile = tileColor
       ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scene))
       : null
-    const tileShape = resolvedTile && !iconOnly
+    const tileShape = resolvedTile && !iconOnly && !titleOnly
       ? roundedRectShape(tileSize, tileSize, tileRadius)
       : null
     // Icon-only labels drop the coloured chip and paint the glyph in
@@ -1938,30 +2429,36 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const glyphUnits = iconOnly ? finalFontSize : ptToUnits(18)
     return (
       <>
-        {!iconOnly && tileShape && (
+        {tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <shapeGeometry args={[tileShape]} />
             <meshBasicMaterial color={resolvedTile} />
           </mesh>
         )}
-        {!iconOnly && !tileShape && (
+        {!iconOnly && !titleOnly && !tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <circleGeometry args={[iconR, 32]} />
             <meshBasicMaterial color={panel.iconColor || '#007aff'} />
           </mesh>
         )}
-        <SymbolIcon3D
-          name={symbolName}
-          sizeUnits={glyphUnits}
-          color={glyphColor}
-          weight={panel.fontWeight || 'medium'}
-          imageScale={panel.imageScale || 'medium'}
-          variant={panel.symbolVariant || null}
-          renderingMode={panel.symbolRenderingMode || 'monochrome'}
-          position={[iconX, 0, 0.006]}
-        />
+        {!titleOnly && (
+          <SymbolIcon3D
+            name={symbolName}
+            sizeUnits={glyphUnits}
+            color={glyphColor}
+            weight={panel.fontWeight || 'medium'}
+            imageScale={panel.imageScale || 'medium'}
+            variant={panel.symbolVariant || null}
+            renderingMode={panel.symbolRenderingMode || 'monochrome'}
+            position={[iconX, 0, 0.006]}
+          />
+        )}
         {!iconOnly && (
-          <Text position={[textX, 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
+          <Text
+            position={[titleOnly ? -size[0] / 2 + ptToUnits(4) : textX, 0, 0.005]}
+            font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor}
+            anchorX="left" anchorY="middle" maxWidth={size[0] * (titleOnly ? 0.95 : 0.65)}
+          >
             {panel.text}
           </Text>
         )}
@@ -1986,9 +2483,36 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const textColor = showPlaceholder
       ? (panel.textColor || '#545454')
       : resolveSemantic('primary', scene)
+    // `TextField(..., axis: .vertical)` grows down instead of scrolling
+    // sideways, up to `lineLimit`. The canvas drew one clipped line whichever
+    // axis the designer picked, so a field authored to wrap previewed as a
+    // single-line field and grew on device. AUDIT #19.
+    const vertical = panel.axis === 'vertical'
+    const cap = Math.max(1, Number(panel.lineLimit) || 1)
+    // `.textFieldStyle(.roundedBorder)` draws a hairline border around the
+    // field; `.plain` drops the chrome entirely. `.automatic` is visionOS's
+    // recessed glass, which is what the panel's own fill already paints.
+    // Export-only until AUDIT #31.
+    const fieldStyle = panel.styles?.textFieldStyle || 'automatic'
     return (
       <>
-        <Text position={[-size[0] / 2 + ptToUnits(14), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={textColor} anchorX="left" anchorY="middle" maxWidth={size[0] - ptToUnits(28)}>
+        {fieldStyle === 'roundedBorder' && (
+          <mesh position={[0, 0, 0.004]}>
+            <shapeGeometry args={[rimRingShape(size[0], size[1], cornerRadius, ptToUnits(1))]} />
+            <meshBasicMaterial color={resolveSemantic('separator', scene)} />
+          </mesh>
+        )}
+        <Text
+          position={[
+            -size[0] / 2 + ptToUnits(14),
+            vertical ? size[1] / 2 - ptToUnits(12) : 0,
+            0.005
+          ]}
+          font={fontUrl} fontSize={finalFontSize} color={textColor}
+          anchorX="left" anchorY={vertical ? 'top' : 'middle'}
+          maxWidth={size[0] - ptToUnits(28)}
+          {...(vertical ? { maxLines: cap } : {})}
+        >
           {displayText}
         </Text>
       </>
@@ -2013,8 +2537,62 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
+  // A Picker only shows its options in the styles that lay them out — the
+  // menu styles keep them behind a tap, which a still canvas cannot open. So
+  // `.segmented`, `.wheel`, `.inline` and `.palette` draw `pickerOptions` and
+  // the rest draw the selected value with a chevron, which is what the canvas
+  // did for every style. AUDIT #19.
   const pickerOverlay = panelType === 'picker' && (() => {
     const primary = resolveSemantic('primary', scene)
+    const secondary = resolveSemantic('secondary', scene)
+    const opts = panel.pickerOptions || []
+    const style = panel.pickerStyle || 'automatic'
+    const laysOutOptions = PICKER_STYLES_SHOWING_OPTIONS.includes(style)
+
+    if (laysOutOptions && opts.length) {
+      const selected = panel.pickerValue
+      if (style === 'segmented' || style === 'palette') {
+        // A row of segments across the frame, the selected one raised.
+        const segW = size[0] / opts.length
+        return (
+          <>
+            {opts.map((o, i) => (
+              <group key={i} position={[-size[0] / 2 + segW * (i + 0.5), 0, 0.005]}>
+                {o === selected && (
+                  <mesh position={[0, 0, -0.001]}>
+                    <shapeGeometry args={[roundedRectShape(segW - ptToUnits(4), size[1] - ptToUnits(6), ptToUnits(7))]} />
+                    <meshBasicMaterial color={resolveSemantic('systemBackground', scene)} transparent opacity={0.95} />
+                  </mesh>
+                )}
+                <Text
+                  font={fontUrl} fontSize={ptToUnits(13)}
+                  color={o === selected ? primary : secondary}
+                  anchorX="center" anchorY="middle" maxWidth={segW * 0.9}
+                >{o}</Text>
+              </group>
+            ))}
+          </>
+        )
+      }
+      // `.wheel` and `.inline` stack the options vertically; the wheel dims
+      // everything but the selection, the way a spinning drum does.
+      const rowH = size[1] / Math.max(1, opts.length)
+      return (
+        <>
+          {opts.map((o, i) => (
+            <Text
+              key={i}
+              position={[0, size[1] / 2 - rowH * (i + 0.5), 0.005]}
+              font={fontUrl} fontSize={ptToUnits(14)}
+              color={o === selected ? primary : secondary}
+              fillOpacity={style === 'wheel' && o !== selected ? 0.45 : 1}
+              anchorX="center" anchorY="middle" maxWidth={size[0] * 0.9}
+            >{o}</Text>
+          ))}
+        </>
+      )
+    }
+
     return (
       <>
         <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.45}>
@@ -2030,16 +2608,94 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     )
   })()
 
-  const datepickerOverlay = panelType === 'datepicker' && (
-    <>
-      <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.4}>
-        {panel.text || 'Date'}
-      </Text>
-      <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={scene.tintColor || '#007aff'} anchorX="right" anchorY="middle">
-        {panel.dateValue || '2026-04-16'}
-      </Text>
-    </>
-  )
+  // `.datePickerStyle` and `displayedComponents` both reached the export
+  // only: the canvas drew the compact row with the raw ISO value whatever
+  // the designer picked, so a graphical picker previewed as a text field and
+  // a date-only picker still showed a time. AUDIT #19.
+  const datepickerOverlay = panelType === 'datepicker' && (() => {
+    const iso = panel.dateValue || '2026-04-16'
+    const comps = panel.displayedComponents || 'dateAndTime'
+    const style = panel.dateStyle || 'automatic'
+    const secondary = resolveSemantic('secondary', scene)
+    const primary = resolveSemantic('primary', scene)
+    // Show the parts `displayedComponents` asks for and no others. The stored
+    // value is a date; the time half is a fixed sample, since the canvas has
+    // no clock to read and the exported `Date()` has no literal either.
+    const datePart = (() => {
+      const d = new Date(`${iso}T00:00:00`)
+      if (Number.isNaN(d.getTime())) return iso
+      return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+    })()
+    const parts = dateComponentsParts(comps)
+    const timePart = parts.seconds ? '9:41:07 AM' : '9:41 AM'
+    const shown = [parts.date ? datePart : null, parts.time ? timePart : null]
+      .filter(Boolean).join(', ')
+
+    if (style === 'graphical') {
+      // A month grid — six columns of day cells with the selected one marked.
+      const cols = 7, rowsN = 5
+      const gw = size[0] * 0.86, gh = size[1] * 0.66
+      const cw = gw / cols, ch = gh / rowsN
+      const day = Number(iso.slice(8, 10)) || 1
+      return (
+        <>
+          <Text position={[0, size[1] / 2 - ptToUnits(14), 0.005]} font={getInterFont('semibold')} fontSize={ptToUnits(13)} color={primary} anchorX="center" anchorY="middle">
+            {datePart}
+          </Text>
+          {Array.from({ length: cols * rowsN }, (_, i) => {
+            const r = Math.floor(i / cols), c = i % cols
+            const n = i + 1
+            const on = n === day
+            return (
+              <group key={i} position={[-gw / 2 + cw * (c + 0.5), gh / 2 - ch * (r + 0.5) - ptToUnits(8), 0.005]}>
+                {on && (
+                  <mesh position={[0, 0, -0.001]}>
+                    <circleGeometry args={[Math.min(cw, ch) * 0.42, 20]} />
+                    <meshBasicMaterial color={accentColor} />
+                  </mesh>
+                )}
+                <Text fontSize={ptToUnits(9)} color={on ? '#ffffff' : secondary} anchorX="center" anchorY="middle">
+                  {n <= 31 ? String(n) : ''}
+                </Text>
+              </group>
+            )
+          })}
+        </>
+      )
+    }
+
+    if (style === 'wheel') {
+      // Three drum columns, the middle band selected.
+      const parts = shown.split(/[,\s]+/).filter(Boolean).slice(0, 3)
+      const cw = size[0] / Math.max(1, parts.length)
+      return (
+        <>
+          <mesh position={[0, 0, 0.004]}>
+            <planeGeometry args={[size[0] * 0.94, ptToUnits(28)]} />
+            <meshBasicMaterial color={resolveSemantic('systemFill', scene)} transparent opacity={0.6} />
+          </mesh>
+          {parts.map((p, i) => (
+            <Text key={i} position={[-size[0] / 2 + cw * (i + 0.5), 0, 0.005]} font={fontUrl} fontSize={ptToUnits(14)} color={primary} anchorX="center" anchorY="middle" maxWidth={cw * 0.9}>
+              {p}
+            </Text>
+          ))}
+        </>
+      )
+    }
+
+    // `.automatic` resolves to `.compact` on visionOS: label leading, the
+    // value in a tinted capsule trailing.
+    return (
+      <>
+        <Text position={[-size[0] / 2 + ptToUnits(12), 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.4}>
+          {panel.text || 'Date'}
+        </Text>
+        <Text position={[size[0] / 2 - ptToUnits(12), 0, 0.005]} font={getInterFont('medium')} fontSize={ptToUnits(14)} color={accentColor} anchorX="right" anchorY="middle" maxWidth={size[0] * 0.55}>
+          {shown}
+        </Text>
+      </>
+    )
+  })()
 
   const colorpickerOverlay = panelType === 'colorpicker' && (
     <>
@@ -2120,6 +2776,23 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     [panelType, hasStroke, size[0], size[1], strokeWidth]
   )
 
+  // `generateBox(size:cornerRadius:)` rounds every edge of the box, and the
+  // canvas drew a hard-edged cube whatever the radius said — the field changed
+  // the generated RealityKit call and nothing on screen. AUDIT #34.
+  //
+  // Built here rather than in the primitive branch below because a geometry is
+  // a GPU allocation: memoising it keeps one per box instead of one per frame,
+  // and the effect hands it back when the box changes shape.
+  const roundedBoxGeom = useMemo(() => {
+    if (panelType !== 'box') return null
+    const w = ptToUnits(panel.boxWidth  || 120)
+    const h = ptToUnits(panel.boxHeight || 120)
+    const d = ptToUnits(panel.boxDepth  || 120)
+    const r = roundedBoxRadius(ptToUnits(panel.boxCornerRadius || 0), [w, h, d])
+    return r > 0 ? new RoundedBoxGeometry(w, h, d, 4, r) : null
+  }, [panelType, panel.boxWidth, panel.boxHeight, panel.boxDepth, panel.boxCornerRadius])
+  useEffect(() => () => roundedBoxGeom?.dispose(), [roundedBoxGeom])
+
   const unevenShape = useMemo(
     () => panelType === 'unevenRoundedRect'
       ? unevenRoundedRectShape(
@@ -2185,6 +2858,58 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const hasShadow = !!shadowSummary
   const hasBorder = !!borderSummary
 
+  // ---- Decoration modifiers (AUDIT #5) ------------------------------------
+  // These all emitted correct Swift and drew nothing: the summary carried the
+  // values and no renderer read them, so `.background(.blue)` left the canvas
+  // untouched until export. They are read here, in the order SwiftUI composes
+  // them — background behind, then the view, then overlay in front.
+  //
+  // `.clipShape` decides the outline every one of them is painted into, which
+  // is why it is resolved first.
+  const modClipShape = modSummary.clipShape && modSummary.clipShape !== 'none'
+    ? modSummary.clipShape
+    : null
+  const decorShape = useMemo(() => {
+    const [w, h] = size
+    if (modClipShape === 'circle') {
+      const r = Math.min(w, h) / 2
+      return ellipseShape(r * 2, r * 2)
+    }
+    if (modClipShape === 'capsule') return roundedRectShape(w, h, Math.min(w, h) / 2)
+    if (modClipShape === 'roundedRect') return roundedRectShape(w, h, cornerRadius || ptToUnits(12))
+    return null
+  }, [modClipShape, size[0], size[1], cornerRadius])
+  // The shape the decoration layers use: the clip outline when one is set,
+  // otherwise the panel's own fill outline.
+  const paintShape = decorShape || fillShape
+
+  // `.background` takes a colour or a material tier; the summary stores
+  // whichever the designer picked, so a leading '#' is the discriminator.
+  const modBackground = (() => {
+    const bg = modSummary.background
+    if (!bg) return null
+    if (typeof bg !== 'string') return null
+    if (bg.startsWith('#')) return { color: bg, opacity: 1 }
+    const mat = resolveAnyMaterial(bg, scene)
+    return { color: mat?.color || resolveSemantic(bg, scene), opacity: mat?.opacity ?? 1 }
+  })()
+
+  // `.glassBackgroundEffect` is the app's signature material and was inert as
+  // a modifier. `displayMode: 'never'` is the one case that draws nothing.
+  const modGlass = (modSummary.glass && modSummary.glass.displayMode !== 'never')
+    ? resolveAnyMaterial('glass', scene)
+    : null
+
+  const modOverlay = modSummary.overlay && modSummary.overlay.color
+    ? modSummary.overlay
+    : null
+
+  // `.zIndex` is draw order. three.js sorts transparent meshes by depth, so a
+  // small z nudge plus `renderOrder` gives the same front-to-back control
+  // SwiftUI gets from the number, without disturbing the layout.
+  const modZIndex = Number(modSummary.zIndex)
+  const hasZIndex = Number.isFinite(modZIndex) && modZIndex !== 0
+
   // ---- Hover effect (visionOS .hoverEffect) ----
   // Resolved per-panel (own > inherit-from-window > automatic). When the
   // panel is being dragged we suppress hover so the lift doesn't fight the
@@ -2195,7 +2920,14 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // designer's mouse moving across the canvas isn't a gaze event — it's
   // a layout cursor — so we suppress the hover lift/highlight outside
   // Preview. Inside Preview, hover *is* the gaze proxy and re-engages.
-  const effectiveHover = resolveHoverEffect(panel, items)
+  // The modifier stack is the SwiftUI spelling, so `.hoverEffect(...)` wins
+  // over the stored `panel.hoverEffect` the inspector writes, and
+  // `.hoverEffectDisabled(true)` turns it off outright. Both used to be a
+  // second, ignored source for a thing the canvas already had its own path
+  // for — the pair diverged the moment the designer used the stack. AUDIT #5.
+  const effectiveHover = modSummary.hoverEffectDisabled
+    ? 'none'
+    : (modSummary.hoverEffect || resolveHoverEffect(panel, items))
   const hoverActive = hovered
                    && !dragData.current?.dragging
                    && effectiveHover !== 'none'
@@ -2267,8 +2999,12 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const groupRot = [rotX, rotY, rotZ]
     let geometryNode = null
     let halo = null
+    // The footprint `.frame(depth:)` reserves its Z-room around. Each branch
+    // fills it in with the object's own width and height. AUDIT #34.
+    let footprint = null
     if (panelType === 'sphere') {
       const r = ptToUnits(panel.radius || 80)
+      footprint = [r * 2, r * 2]
       geometryNode = <sphereGeometry args={[r, 32, 32]} />
       halo = isSelected && (
         <mesh>
@@ -2280,16 +3016,22 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       const w = ptToUnits(panel.boxWidth  || 120)
       const h = ptToUnits(panel.boxHeight || 120)
       const d = ptToUnits(panel.boxDepth  || 120)
-      geometryNode = <boxGeometry args={[w, h, d]} />
+      footprint = [w, h]
+      geometryNode = roundedBoxGeom
+        ? <primitive object={roundedBoxGeom} attach="geometry" />
+        : <boxGeometry args={[w, h, d]} />
       halo = isSelected && (
-        <mesh>
-          <boxGeometry args={[w * 1.04, h * 1.04, d * 1.04]} />
+        <mesh scale={1.04}>
+          {roundedBoxGeom
+            ? <primitive object={roundedBoxGeom} attach="geometry" />
+            : <boxGeometry args={[w, h, d]} />}
           <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.18} wireframe />
         </mesh>
       )
     } else if (panelType === 'plane') {
       const w = ptToUnits(panel.planeWidth || 200)
       const d = ptToUnits(panel.planeDepth || 140)
+      footprint = [w, d]
       geometryNode = <planeGeometry args={[w, d]} />
       halo = isSelected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -2300,6 +3042,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     } else if (panelType === 'cone') {
       const r = ptToUnits(panel.coneRadius || 70)
       const h = ptToUnits(panel.coneHeight || 180)
+      footprint = [r * 2, h]
       geometryNode = <coneGeometry args={[r, h, 32]} />
       halo = isSelected && (
         <mesh>
@@ -2310,6 +3053,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     } else if (panelType === 'cylinder') {
       const r = ptToUnits(panel.cylRadius || 70)
       const h = ptToUnits(panel.cylHeight || 180)
+      footprint = [r * 2, h]
       geometryNode = <cylinderGeometry args={[r, r, h, 32]} />
       halo = isSelected && (
         <mesh>
@@ -2384,9 +3128,26 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       )
     }
 
+    // `.frame(depth:)` reserves Z-room around the object and paints nothing —
+    // on device or here. So the canvas shows the box it reserves while the
+    // object is selected, which is the one moment a frame is a thing anyone
+    // looks at. Until AUDIT #34 the number reached the generated Swift and the
+    // canvas had no idea the field existed.
+    const frameDepthUnits = ptToUnits(panel.depth || 0)
+    const depthFrame = isSelected && frameDepthUnits > 0 && footprint && (
+      <mesh>
+        <boxGeometry args={[footprint[0], footprint[1], frameDepthUnits]} />
+        <meshBasicMaterial
+          color={resolveSemantic('secondary', scene)}
+          transparent opacity={0.3} wireframe
+        />
+      </mesh>
+    )
+
     return (
       <group ref={groupRef} position={groupPos} rotation={groupRot}>
         {halo}
+        {depthFrame}
         <mesh {...handlers}>
           {geometryNode}
           <meshStandardMaterial color={fillColor} metalness={0.1} roughness={0.55} />
@@ -2401,8 +3162,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       position={[
         (localPosition?.[0] || 0) + modOffX,
         (localPosition?.[1] || 0) + modOffY,
-        (localPosition?.[2] || 0) + hoverLift
+        // `.zIndex` lifts the view toward the viewer. A millimetre per unit
+        // is enough to win the depth test against siblings without reading
+        // as a physical offset, and `renderOrder` settles the transparent
+        // meshes that three sorts by distance rather than by depth buffer.
+        (localPosition?.[2] || 0) + hoverLift + (hasZIndex ? modZIndex * 0.001 : 0)
       ]}
+      renderOrder={hasZIndex ? modZIndex : undefined}
       scale={[modScaleX * hoverScale, modScaleY * hoverScale, 1]}
       rotation={[0, 0, modRot]}
     >
@@ -2422,6 +3188,34 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         <mesh position={[0, -0.004, -0.012]}>
           <shapeGeometry args={[fillShape]} />
           <meshBasicMaterial color="#000000" transparent opacity={0.12} />
+        </mesh>
+      )}
+      {/* Modifier: .glassBackgroundEffect — the app's signature material,
+          inert as a modifier until phase 1.1. Sits behind `.background` the
+          way SwiftUI stacks them, and behind the view's own fill. */}
+      {modGlass && (
+        <mesh position={[0, 0, -0.0016]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modGlass.color}
+            transparent
+            opacity={(modGlass.opacity ?? 0.5) * modOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
+      {/* Modifier: .background — the most reached-for modifier in the list,
+          and it drew nothing. Painted behind the view's own fill, clipped to
+          `.clipShape` when one is set. */}
+      {modBackground && (
+        <mesh position={[0, 0, -0.0008]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modBackground.color}
+            transparent
+            opacity={modBackground.opacity * modOpacity}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       )}
       {/* Modifier: shadow — rect shadow only for panels with a visible fill.
@@ -2546,7 +3340,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
               fixedSizeH:         !!modSummary.fixedSizeH,
               fixedSizeV:         !!modSummary.fixedSizeV,
               fontWeight: panel.fontWeight
-                || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
+                || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular'),
+              fontDesign
             })
           : null
         // Join the post-pipeline lines back with '\n' so drei's <Text>
@@ -2774,6 +3569,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       {navbarOverlay}
       {listOverlay}
       {tableOverlay}
+      {formOverlay}
+      {outlineOverlay}
       {menuOverlay}
       {progressOverlay}
       {sliderOverlay}
@@ -2892,6 +3689,21 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
             }}
           />
         </Html>
+      )}
+
+      {/* Modifier: .overlay — painted in FRONT of everything the view draws,
+          which is the half of the pair `.background` does behind. Clipped to
+          `.clipShape` when one is set, so the two agree about the outline. */}
+      {modOverlay && (
+        <mesh position={[0, 0, 0.03]}>
+          <shapeGeometry args={[paintShape]} />
+          <meshBasicMaterial
+            color={modOverlay.color}
+            transparent
+            opacity={(modOverlay.opacity ?? 0.2) * modOpacity}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
       )}
     </group>
   )

@@ -13,6 +13,7 @@ import {
   MODIFIERS, getAllowedModifiers,
   viewKind, makeModifier
 } from '../../modifiers/registry'
+import { FONT_DESIGN_OPTIONS } from '../../fonts'
 import { Section, Row, NumField, IntField, Slider, ColorRow, Select, SwiftWarning } from './primitives'
 import { validateSwiftFragment } from '../../export/swiftValidate'
 
@@ -208,12 +209,9 @@ function ModifierBody({ m, set }) {
           <Row label="Design">
             <Select
               value={m.value || 'rounded'}
-              options={[
-                { value: 'default',    label: 'Default (SF)' },
-                { value: 'serif',      label: 'Serif (NY)' },
-                { value: 'rounded',    label: 'Rounded' },
-                { value: 'monospaced', label: 'Monospaced' }
-              ]}
+              /* One list, from the table the canvas picks faces out of, so a
+                 design cannot be offered without a face behind it. */
+              options={FONT_DESIGN_OPTIONS}
               onChange={(v) => set({ value: v })}
             />
           </Row>

@@ -17,12 +17,13 @@
 import { useEffect, useMemo, Suspense } from 'react'
 
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { Text, useGLTF, Billboard } from '@react-three/drei'
 import { useStore } from '../store'
 import { isLoadableMeshUrl } from '../store/assets'
 import { getInterFont } from '../fonts'
 import { roundedRectShape } from '../shapes'
-import { resolveAttachmentStyle } from '../appleSystem'
+import { resolveAttachmentStyle, roundedBoxRadius } from '../appleSystem'
 import { ANCHOR_TARGETS } from '../realityKit/registry'
 import { useBehaviorRuntime, registerEntity } from '../behaviors/runtime'
 import { SymbolIcon3D } from './SymbolIcon3D'
@@ -193,12 +194,25 @@ function materialNode(mat, effectiveOpacity = 1, iblBoost = 0) {
 // type. Sizes are in metres; the surrounding `<group>` carries the
 // 1m-per-unit scale so we feed three.js metres directly.
 
+// A rounded box, in its own component so the geometry is allocated once per
+// shape rather than once per frame — `meshGeometry` is called from a render.
+function RoundedBoxGeom({ size, radius }) {
+  const [w, h, d] = size
+  const geom = useMemo(() => new RoundedBoxGeometry(w, h, d, 4, radius), [w, h, d, radius])
+  useEffect(() => () => geom.dispose(), [geom])
+  return <primitive object={geom} attach="geometry" />
+}
+
 function meshGeometry(entity) {
   const m = entity.meshType || 'box'
   if (m === 'box') {
     const [w, h, d] = entity.boxSize || [0.1, 0.1, 0.1]
-    // boxCornerRadius is intentionally not modelled by three.js
-    // BoxGeometry — we accept the slight visual mismatch for now.
+    // `generateBox(size:cornerRadius:)` rounds every edge of the box. The
+    // canvas drew a hard-edged cube whatever the radius said, so the number
+    // reached the generated RealityKit call and nothing on screen. A radius
+    // past half the shortest side has no cube left to round. AUDIT #34.
+    const r = roundedBoxRadius(entity.boxCornerRadius, [w, h, d])
+    if (r > 0) return <RoundedBoxGeom size={[w, h, d]} radius={r} />
     return <boxGeometry args={[w, h, d]} />
   }
   if (m === 'sphere') {

@@ -3,7 +3,8 @@
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
 import {
-  ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight
+  ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight,
+  applyAspectRatio, toolbarZoneOf
 } from './appleSystem'
 import { summarizeModifiers } from './modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from './text'
@@ -13,6 +14,11 @@ import { measureSwiftUIText, singleLineWidth } from './text'
 // `measureSwiftUIText` the same numbers — what's reserved must match
 // what's rendered.
 export function textMetrics(item, modSummary) {
+  // Read the summary through a plain object rather than `modSummary?.`. The
+  // two are the same code; the difference is that the parity scan matches
+  // `mod.field` as text and an optional chain as nothing, so the `?.` form
+  // quietly reported every modifier read here as unread. AUDIT #5.
+  const mod = modSummary || {}
   const fontSize = item.textStyle
     ? ptToUnits(TEXT_STYLES[item.textStyle]?.pt ?? 17)
     : (item.fontSize || ptToUnits(17))
@@ -23,19 +29,25 @@ export function textMetrics(item, modSummary) {
   // applies (visionOS body resolves to medium, titles to bold).
   const fontWeight = item.fontWeight
     || (item.textStyle ? textStyleDefaultWeight(item.textStyle) : 'regular')
+  // `.fontDesign(_:)` picks one of four faces, and each one has its own
+  // advances — measuring a serif heading as Inter wraps it in the wrong place.
+  // The modifier wins over the panel's own field, the way `.navigationTitle`
+  // wins over `navTitle`: the modifier is the SwiftUI spelling and it is what
+  // the exporter emits. AUDIT #5.
+  const fontDesign = mod.fontDesign || item.fontDesign || 'default'
   // tracking + kerning both widen inter-character space in SwiftUI;
   // they're additive in the layout too so measurement matches render.
-  const trackingPt    = (modSummary?.tracking || 0) + (modSummary?.kerning || 0)
-  const lineSpacingPt = modSummary?.lineSpacing || 0
-  const lineLimit     = modSummary?.lineLimit ?? null
-  const truncationMode = modSummary?.truncationMode || 'tail'
-  const minimumScaleFactor = modSummary?.minimumScaleFactor ?? 1
-  const allowsTightening   = !!modSummary?.allowsTightening
-  const fixedSizeH = !!modSummary?.fixedSizeH
-  const fixedSizeV = !!modSummary?.fixedSizeV
+  const trackingPt    = (mod.tracking || 0) + (mod.kerning || 0)
+  const lineSpacingPt = mod.lineSpacing || 0
+  const lineLimit     = mod.lineLimit ?? null
+  const truncationMode = mod.truncationMode || 'tail'
+  const minimumScaleFactor = mod.minimumScaleFactor ?? 1
+  const allowsTightening   = !!mod.allowsTightening
+  const fixedSizeH = !!mod.fixedSizeH
+  const fixedSizeV = !!mod.fixedSizeV
   return {
-    fontSize, fontWeight, trackingPt, lineSpacingPt, lineLimit, truncationMode,
-    minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
+    fontSize, fontWeight, fontDesign, trackingPt, lineSpacingPt, lineLimit,
+    truncationMode, minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
   }
 }
 
@@ -54,7 +66,12 @@ const stackSpacing = (s) =>
 
 // ---- padding helpers ----
 
-function resolvePadding(item) {
+// Per-edge padding in scene units, with the uniform `padding` as the
+// fallback. Exported because the renderer needs the same four numbers to
+// size a scroller's viewport, and a second copy of the `paddingEdges ??
+// padding` fallback is exactly the kind of drift this codebase keeps
+// finding.
+export function resolvePadding(item) {
   if (item.paddingEdges) {
     const e = item.paddingEdges
     return {
@@ -68,8 +85,84 @@ function resolvePadding(item) {
   return { top: p, bottom: p, leading: p, trailing: p }
 }
 
+// ---- layout priority (AUDIT #15) ------------------------------------------
+//
+// SwiftUI: "a view with a higher layout priority is allocated space before
+// views with lower priority". Among the children that want to grow — Spacers
+// and fill-axis stacks — the highest priority present takes the slack and the
+// rest fall back to their intrinsic size. That is what happens on device when
+// one of two Spacers carries `.layoutPriority(1)`: it absorbs the gap and the
+// other collapses.
+//
+// `.layoutPriority` wrote nothing into the modifier summary until phase 1.1,
+// so it emitted real Swift and changed neither side's layout — a no-op on
+// BOTH. This is the one consumer, shared by `layoutStack` and
+// `resolvedChildSizes` so the space one reserves is the space the other draws.
+function layoutPriorityOf(item) {
+  const mod = summarizeModifiers(item?.modifiers)
+  return mod.layoutPriority ?? 0
+}
+
+// Who receives the slack on this axis, and how much each gets.
+function resolveFlex(children, isFlex, remaining) {
+  const flex = children.filter(isFlex)
+  if (flex.length === 0) return { share: 0, takesSlack: () => false }
+  const top = Math.max(...flex.map(layoutPriorityOf))
+  const winners = flex.filter((c) => layoutPriorityOf(c) === top)
+  const ids = new Set(winners.map((c) => c.id))
+  return { share: remaining / winners.length, takesSlack: (c) => ids.has(c.id) }
+}
+
 function padW(pad) { return pad.leading + pad.trailing }
 function padH(pad) { return pad.top + pad.bottom }
+
+// Container types that bring their own scrolling semantics. Each one returns
+// early in the exporter's `renderStack` and never gets a ScrollView wrapper,
+// so none of them scrolls on the canvas either — the two sides have to agree
+// about WHICH views scroll before they can agree about how far.
+const SELF_SCROLLING_STACK_TYPES = new Set([
+  'toolbar', 'toolbarItem', 'toolbarItemGroup', 'tab', 'section', 'disclosure'
+])
+
+// `.environment(\.layoutDirection, .rightToLeft)` mirrors leading and
+// trailing. The canvas previews it on the container that declares it — the
+// bulk of what a designer is checking when they flip to RTL — while SwiftUI
+// inherits the value further down the tree than this mirrors. The limit is
+// recorded in `parity.baseline.js` rather than left for someone to discover.
+//
+// The whole Environment section was editable in the inspector and read by
+// NOBODY until phase 1.5; the other four values are export-only by nature.
+// AUDIT #13.
+export function mirroredAlignment(alignment, environment) {
+  if (environment?.layoutDirection !== 'rightToLeft') return alignment
+  if (alignment === 'leading') return 'trailing'
+  if (alignment === 'trailing') return 'leading'
+  return alignment
+}
+
+// Which axes a stack scrolls on, mirroring `scrollViewOpener` in
+// `export/swiftui.js` exactly: the `scrollView` stack TYPE always scrolls,
+// any other plain stack scrolls when the `scrollable` FLAG is set, and the
+// axis comes from `scrollAxis` on both sides (default `.vertical`).
+//
+// The axis is read literally rather than inferred from the stack's main
+// axis. An HStack marked scrollable with the default vertical axis exports
+// `ScrollView { HStack { … } }` — a vertical scroller — so that is what the
+// canvas has to draw, however odd it looks. Guessing the "sensible" axis
+// here would put the canvas back out of step with the file it generates.
+export function scrollAxesOf(stack) {
+  const none = { vertical: false, horizontal: false }
+  if (!stack || stack.type !== 'stack') return none
+  if (stack.splitStyle) return none
+  if (SELF_SCROLLING_STACK_TYPES.has(stack.stackType)) return none
+  const isScroller = stack.stackType === 'scrollView' || stack.scrollable === true
+  if (!isScroller) return none
+  const axis = stack.scrollAxis || 'vertical'
+  return {
+    vertical:   axis === 'vertical'   || axis === 'both',
+    horizontal: axis === 'horizontal' || axis === 'both'
+  }
+}
 
 // Column count for a `grid` stack. Mirrors SwiftUI's two `GridItem` flavours:
 //   gridMode === 'fixed'    → `GridItem(.fixed(size), count: N)` — uses
@@ -133,7 +226,7 @@ function textIntrinsicSize(item, wrapBound = null) {
     ptToUnits(40),
     hardLines.reduce((acc, l) => Math.max(
       acc,
-      singleLineWidth(l, m.fontSize, m.trackingPt || 0, 1, m.fontWeight)
+      singleLineWidth(l, m.fontSize, m.trackingPt || 0, 1, m.fontWeight, m.fontDesign)
     ), 0)
   )
 
@@ -151,7 +244,10 @@ function textIntrinsicSize(item, wrapBound = null) {
   return [Math.min(intrinsicW, wrapBound), r.height]
 }
 
-export function computeSize(item, items) {
+// Intrinsic size, before `.aspectRatio` reshapes it. Not exported: every
+// caller goes through `computeSize` so the ratio is applied exactly once and
+// in exactly one place.
+function computeIntrinsicSize(item, items) {
   if (!item) return [0, 0]
 
   // Spacer: minimal size (layout engine expands it later).
@@ -304,15 +400,39 @@ export function computeSize(item, items) {
 
   let w, h
 
-  if (item.stackType === 'hstack' || item.stackType === 'lazyhstack') {
+  // A ToolbarItem's closure and a ToolbarItemGroup both hand the bar a run of
+  // views, and a bar draws a run side by side. They used to fall through to
+  // the VStack default and stack into a column. AUDIT #33.
+  if (item.stackType === 'hstack' || item.stackType === 'lazyhstack' ||
+      item.stackType === 'toolbarItem' || item.stackType === 'toolbarItemGroup') {
     w = sizes.reduce((s, [cw]) => s + cw, 0) + gap * Math.max(0, fixedChildren.length - 1) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
-  } else if (item.stackType === 'zstack' || item.stackType === 'viewThatFits') {
-    // ViewThatFits behaves like a ZStack at design-time: we lay out the
-    // first child at the parent size. Spec §1.24 — the runtime picks the
-    // first child that fits; on a static canvas all children stack.
+  } else if (item.stackType === 'zstack') {
     w = (sizes.length ? Math.max(...sizes.map(([cw]) => cw)) : 0) + padW(pad)
     h = (sizes.length ? Math.max(...sizes.map(([, ch]) => ch)) : 0) + padH(pad)
+  } else if (item.stackType === 'viewThatFits') {
+    // A ViewThatFits is the size of the branch it chose, not the union of
+    // every branch it considered. With no proposal from above, each axis is
+    // unconstrained and everything fits, so the first candidate wins — which
+    // is also what the runtime does with an unconstrained proposal. A fixed
+    // frame on either axis IS the proposal for that axis, so a stack sized
+    // 200pt wide measures (and later draws) the branch that fits in 200pt.
+    const propW = fixedW != null ? fixedW - padW(pad) : Infinity
+    const propH = fixedH != null ? fixedH - padH(pad) : Infinity
+    const pick = viewThatFitsIndex(item.fitsAxes, sizes, propW, propH)
+    const [cw, ch] = sizes[pick] || [0, 0]
+    w = cw + padW(pad)
+    h = ch + padH(pad)
+  } else if (item.stackType === 'toolbar') {
+    // A bar is as wide as its three runs side by side and as tall as the
+    // tallest item in each row it draws. AUDIT #33.
+    const spans = toolbarZoneSpans(fixedChildren, sizes, gap)
+    const { barH, bottomH } = toolbarRowHeights(spans)
+    const runs = [spans.leading, spans.principal, spans.trailing].filter((r) => r.indices.length)
+    const barW = runs.reduce((acc, r) => acc + r.w, 0) + gap * Math.max(0, runs.length - 1)
+    const rows = [barH, bottomH].filter((x) => x > 0)
+    w = Math.max(barW, spans.bottom.w) + padW(pad)
+    h = rows.reduce((acc, x) => acc + x, 0) + gap * Math.max(0, rows.length - 1) + padH(pad)
   } else if (item.stackType === 'scrollView') {
     // ScrollView's intrinsic size mirrors its content along the cross axis
     // and 0 on the scroll axis (the parent decides). For canvas we treat
@@ -344,6 +464,75 @@ export function computeSize(item, items) {
   }
 
   return [fixedW ?? w, fixedH ?? h]
+}
+
+// ---------------------------------------------------------------------------
+// ViewThatFits: which branch the runtime would show (AUDIT #33)
+//
+// `ViewThatFits(in:)` proposes the available space to each candidate in turn
+// and takes the FIRST whose ideal size fits along the declared axes; if none
+// fit, the last one is used anyway. The canvas used to Z-stack every candidate
+// so the designer could see them all, which meant a container built to show
+// one of three layouts drew all three on top of each other and nothing on the
+// canvas answered the only question the container exists to ask: which one
+// ships at this size.
+//
+// An axis the `in:` set leaves out is not measured, so everything fits on it —
+// that is what `in: .horizontal` means, and it is why the parameter is worth
+// having at all.
+export function viewThatFitsIndex(fitsAxes, sizes, proposalW, proposalH) {
+  if (sizes.length === 0) return -1
+  const axes = fitsAxes || 'both'
+  const checksW = axes === 'both' || axes === 'horizontal'
+  const checksH = axes === 'both' || axes === 'vertical'
+  for (let i = 0; i < sizes.length; i++) {
+    const [cw, ch] = sizes[i]
+    if (checksW && cw > proposalW + 1e-9) continue
+    if (checksH && ch > proposalH + 1e-9) continue
+    return i
+  }
+  return sizes.length - 1
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar zones: where each item sits in the bar (AUDIT #33)
+//
+// Groups a toolbar's children by the zone their `toolbarPlacement` names and
+// measures each group as a run. The bar draws leading | principal | trailing
+// on one row and the off-bar placements on a second; see `TOOLBAR_PLACEMENTS`
+// for why that second row exists.
+function toolbarZoneSpans(children, sizes, gap) {
+  const of = { leading: [], principal: [], trailing: [], bottom: [] }
+  children.forEach((c, i) => { of[toolbarZoneOf(c.toolbarPlacement)].push(i) })
+  const span = (idx) => ({
+    indices: idx,
+    w: idx.reduce((s, i) => s + sizes[i][0], 0) + gap * Math.max(0, idx.length - 1),
+    h: idx.length ? Math.max(...idx.map((i) => sizes[i][1])) : 0
+  })
+  return {
+    leading: span(of.leading),
+    principal: span(of.principal),
+    trailing: span(of.trailing),
+    bottom: span(of.bottom)
+  }
+}
+
+// The two rows a toolbar reserves: the bar itself, and anything placed off it.
+function toolbarRowHeights(spans) {
+  const barH = Math.max(spans.leading.h, spans.principal.h, spans.trailing.h)
+  return { barH, bottomH: spans.bottom.h }
+}
+
+// The size every caller should use: intrinsic, reshaped by `.aspectRatio`.
+//
+// SwiftUI applies the ratio to whatever frame the view would otherwise have,
+// so it belongs after the type-specific measurement rather than inside it.
+// Both the layout engine and the renderer run this — a box the stack reserves
+// and a box the panel paints have to be the same box, which is the agreement
+// `layout.test.js` exists to pin.
+export function computeSize(item, items) {
+  const mod = summarizeModifiers(item?.modifiers)
+  return applyAspectRatio(computeIntrinsicSize(item, items), mod.aspectRatio)
 }
 
 // Returns a Map<childId, [width, height]> of the *resolved* child sizes this
@@ -396,7 +585,11 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
     return out
   }
   // ScrollView contributes to fill-resolution along its scroll axis only.
+  // A toolbar is a horizontal bar, so a fill-width item in it takes a share of
+  // the slack rather than the whole width and flattening the other zones.
   const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   stack.stackType === 'toolbar' || stack.stackType === 'toolbarItem' ||
+                   stack.stackType === 'toolbarItemGroup' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
                    stack.stackType === 'section' || stack.stackType === 'disclosure' ||
@@ -412,22 +605,27 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
   const isTextLikeItem = (c) =>
     c.type === 'panel' && (c.panelType === 'text' || c.panelType === 'link')
   let flexShareW = 0, flexShareH = 0
+  // A flex child that loses the priority contest keeps its intrinsic size —
+  // a Spacer collapses to nothing, which is what SwiftUI does to the loser.
+  let takesSlackW = () => true, takesSlackH = () => true
   if (isHStack) {
     const isFlex = (c) => c.isSpacer ||
       ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedW = intrinsicSizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
-    flexShareW = flexCount > 0 ? remaining / flexCount : 0
+    const flex = resolveFlex(children, isFlex, remaining)
+    flexShareW = flex.share
+    takesSlackW = flex.takesSlack
   }
   if (isVStack) {
     const isFlex = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedH = intrinsicSizes.reduce((s, [, ch], i) => s + (isFlex(children[i]) ? 0 : ch), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerH - fixedH - totalGap)
-    flexShareH = flexCount > 0 ? remaining / flexCount : 0
+    const flex = resolveFlex(children, isFlex, remaining)
+    flexShareH = flex.share
+    takesSlackH = flex.takesSlack
   }
 
   for (let i = 0; i < children.length; i++) {
@@ -440,15 +638,15 @@ export function resolvedChildSizes(stack, items, outerSize = null) {
     if (isTextLike && c.widthMode === 'fill') {
       // Cross-axis fill (a VStack column) stretches to the full inner width;
       // main-axis fill (an HStack row) takes only its share of the leftover.
-      rw = isHStack ? flexShareW : innerW
+      rw = isHStack ? (takesSlackW(c) ? flexShareW : cw) : innerW
     }
     if (isStack) {
       // Main-axis fill gets the flex share; cross-axis fill stretches fully.
       if (c.widthMode === 'fill') {
-        rw = isHStack ? flexShareW : innerW
+        rw = isHStack ? (takesSlackW(c) ? flexShareW : cw) : innerW
       }
       if (c.heightMode === 'fill') {
-        rh = isVStack ? flexShareH : innerH
+        rh = isVStack ? (takesSlackH(c) ? flexShareH : ch) : innerH
       }
     }
     // Text height honours the wrap bound once it's known. Without this,
@@ -626,9 +824,10 @@ export function layoutStack(stack, items, outerSize = null) {
   // remaining space with siblings). We mark main-axis-fill children here
   // and expand them later, the same way spacers are expanded.
   // ScrollView lays out like a VStack/HStack along its scroll axis — so
-  // we treat it as one for child positioning. ViewThatFits collapses to
-  // its first child (we render it ZStack-style on the canvas).
+  // we treat it as one for child positioning. ViewThatFits and toolbar
+  // stacks have branches of their own further down.
   const isHStack = stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+                   stack.stackType === 'toolbarItem' || stack.stackType === 'toolbarItemGroup' ||
                    (stack.stackType === 'scrollView' && (stack.scrollAxis || 'vertical') === 'horizontal')
   const isVStack = stack.stackType === 'vstack' || stack.stackType === 'lazyvstack' ||
                    stack.stackType === 'section' || stack.stackType === 'disclosure' ||
@@ -711,21 +910,23 @@ export function layoutStack(stack, items, outerSize = null) {
     return out
   }
 
-  // ---- HStack / LazyHStack ----
-  if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack') {
+  // ---- HStack / LazyHStack / ToolbarItem / ToolbarItemGroup ----
+  if (stack.stackType === 'hstack' || stack.stackType === 'lazyhstack' ||
+      stack.stackType === 'toolbarItem' || stack.stackType === 'toolbarItemGroup') {
     // Spacer expansion — a fill-width stack OR Text child is flexible like a
     // spacer on this axis, sharing what is left rather than claiming it all.
     const isFlex = (c) => c.isSpacer ||
       ((c.type === 'stack' || isTextLikeItem(c)) && c.widthMode === 'fill')
-    const flexCount = children.filter(isFlex).length
     const fixedW = sizes.reduce((s, [cw], i) => s + (isFlex(children[i]) ? 0 : cw), 0)
     const totalGap = gap * Math.max(0, children.length - 1)
     const remaining = Math.max(0, innerW - fixedW - totalGap)
-    const flexW = flexCount > 0 ? remaining / flexCount : 0
+    // Same split `resolvedChildSizes` makes, from the same helper: the slack
+    // goes to the highest layout priority among the flexible children.
+    const { share: flexW, takesSlack } = resolveFlex(children, isFlex, remaining)
 
     const effectiveSizes = sizes.map(([cw, ch], i) => {
       const c = children[i]
-      if (!isFlex(c)) return [cw, ch]
+      if (!isFlex(c) || !takesSlack(c)) return [cw, ch]
       // A Text narrowed to its flex share may wrap to more lines, so its
       // height has to be re-measured at the width it actually gets — the same
       // bound `resolvedChildSizes` hands the renderer.
@@ -736,7 +937,10 @@ export function layoutStack(stack, items, outerSize = null) {
       return [flexW, ch]
     })
     const totalW = effectiveSizes.reduce((s, [cw]) => s + cw, 0) + totalGap
-    let x = -totalW / 2
+    // Leading-anchor a horizontal scroller, for the same reason the vertical
+    // path top-anchors: the content is wider than the box, so centring it
+    // puts the first child off the leading edge. See the note there.
+    let x = -(scrollAxesOf(stack).horizontal ? innerW : totalW) / 2
     for (let i = 0; i < children.length; i++) {
       const [cw, ch] = effectiveSizes[i]
       let y = 0
@@ -749,10 +953,49 @@ export function layoutStack(stack, items, outerSize = null) {
     return out
   }
 
-  // ---- ZStack / ViewThatFits ----
-  // ViewThatFits picks one child at runtime — we Z-stack on canvas so all
-  // candidates remain visible to the designer.
-  if (stack.stackType === 'zstack' || stack.stackType === 'viewThatFits') {
+  // ---- ViewThatFits ----
+  // One branch is drawn, the one the runtime would keep: the first whose ideal
+  // size fits the space this stack was handed, measured only on the axes the
+  // `in:` set names. The rest are not positioned, so they are not rendered.
+  // AUDIT #33.
+  if (stack.stackType === 'viewThatFits') {
+    const ideals = children.map((c) => computeSize(c, items))
+    const pick = viewThatFitsIndex(stack.fitsAxes, ideals, innerW, innerH)
+    const chosen = children[pick]
+    if (chosen) out.set(chosen.id, [0, 0, 0])
+    return out
+  }
+
+  // ---- Toolbar ----
+  // Items go where their placement says, not where the tree put them: the bar
+  // runs leading | principal | trailing, and anything placed off the bar gets
+  // the row underneath. AUDIT #33.
+  if (stack.stackType === 'toolbar') {
+    const spans = toolbarZoneSpans(children, sizes, gap)
+    const { barH, bottomH } = toolbarRowHeights(spans)
+    const rows = [barH, bottomH].filter((x) => x > 0)
+    const totalH = rows.reduce((acc, x) => acc + x, 0) + gap * Math.max(0, rows.length - 1)
+    // The content band centres in the box, so a bar given more height than it
+    // needs sits in the middle of it rather than clinging to the top edge.
+    const barY = totalH / 2 - barH / 2
+    const bottomY = totalH / 2 - barH - gap - bottomH / 2
+    const placeRun = (run, x0, rowY) => {
+      let x = x0
+      for (const i of run.indices) {
+        const cw = sizes[i][0]
+        out.set(children[i].id, [x + cw / 2, rowY, 0])
+        x += cw + gap
+      }
+    }
+    placeRun(spans.leading,   -innerW / 2,                   barY)
+    placeRun(spans.principal, -spans.principal.w / 2,        barY)
+    placeRun(spans.trailing,  innerW / 2 - spans.trailing.w, barY)
+    placeRun(spans.bottom,    -spans.bottom.w / 2,           bottomY)
+    return out
+  }
+
+  // ---- ZStack ----
+  if (stack.stackType === 'zstack') {
     for (let i = 0; i < children.length; i++) {
       const [cw, ch] = sizes[i]
       let x = 0, y = 0
@@ -770,22 +1013,35 @@ export function layoutStack(stack, items, outerSize = null) {
 
   // Spacer expansion — fill-height stack children expand like spacers.
   const isFlexV = (c) => c.isSpacer || (c.type === 'stack' && c.heightMode === 'fill')
-  const flexCount = children.filter(isFlexV).length
   const fixedH = sizes.reduce((s, [, ch], i) => s + (isFlexV(children[i]) ? 0 : ch), 0)
   const totalGap = gap * Math.max(0, children.length - 1)
   const available = innerH - headerH - footerH
   const remaining = Math.max(0, available - fixedH - totalGap)
-  const flexH = flexCount > 0 ? remaining / flexCount : 0
+  const { share: flexH, takesSlack: takesSlackV } = resolveFlex(children, isFlexV, remaining)
 
   const effectiveSizes = sizes.map(([cw, ch], i) =>
-    isFlexV(children[i]) ? [cw, flexH] : [cw, ch]
+    (isFlexV(children[i]) && takesSlackV(children[i])) ? [cw, flexH] : [cw, ch]
   )
   const totalH = effectiveSizes.reduce((s, [, ch]) => s + ch, 0) + totalGap
-  let y = totalH / 2 + headerH / 2 - footerH / 2
+  // A vertical scroller lays its content out from the TOP of the viewport
+  // rather than around the viewport's centre. Centring is right for a stack
+  // that hugs its children — the two heights are equal and the distinction
+  // is invisible — but a ScrollView's content is taller than its box by
+  // definition, and centring it hid the first screenful above the top edge
+  // and the last below the bottom: the `settings` template opened mid-page
+  // with its own title unreachable. Substituting the available height for
+  // the content height pins the content's top edge to the box's top edge,
+  // which is where SwiftUI puts it, and lets `scrollY` walk the rest into
+  // view. Short content top-anchors too, which is also what a ScrollView
+  // does. AUDIT #4.
+  const anchorH = scrollAxesOf(stack).vertical ? available : totalH
+  let y = anchorH / 2 + headerH / 2 - footerH / 2
 
   // Offset for asymmetric padding
   const padOffsetX = (pad.leading - pad.trailing) / 2
   const padOffsetY = (pad.top - pad.bottom) / 2
+  // Leading and trailing swap under a right-to-left layout direction.
+  const align = mirroredAlignment(stack.alignment, stack.environment)
 
   for (let i = 0; i < children.length; i++) {
     const c = children[i]
@@ -803,9 +1059,9 @@ export function layoutStack(stack, items, outerSize = null) {
       x = -innerW / 2 + cw / 2 + padOffsetX
     } else if (rightAnchored) {
       x = innerW / 2 - cw / 2 + padOffsetX
-    } else if (stack.alignment === 'leading') {
+    } else if (align === 'leading') {
       x = -innerW / 2 + cw / 2 + padOffsetX
-    } else if (stack.alignment === 'trailing') {
+    } else if (align === 'trailing') {
       x = innerW / 2 - cw / 2 + padOffsetX
     } else {
       x = padOffsetX                                    // center (default)

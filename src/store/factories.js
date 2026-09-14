@@ -50,14 +50,24 @@ export const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?
 // (`.automatic` resolves to the visionOS-tuned look). Where the spec gives
 // a different concrete default than `.automatic`, we keep the `.automatic`
 // alias so the exporter can elide the `.xxxStyle()` modifier entirely.
+// Three style fields, each read by both sides since AUDIT #31.
+//
+// Four more used to live here and were removed rather than wired, because
+// each was a SECOND home for a concept that already had one:
+//
+//   pickerStyle        The picker's own inspector row writes the TOP-LEVEL
+//                      field, which is what the emitter and the canvas read.
+//                      The copy in here was written by the Styles section and
+//                      read by nobody — a live control wired to nothing.
+//   tableStyle         Same shape: the table emitter reads the top-level field.
+//   buttonBorderShape  Phase 2.3 settled buttons on the top-level field.
+//   controlSize        Buttons already read the top-level one (2.3); only the
+//                      toggle emitter read this copy. Collapsed onto the same
+//                      top-level field, with a migration for saved projects.
 export const DEFAULT_STYLES = {
   toggleStyle: 'automatic',     // → .switch on visionOS
-  pickerStyle: 'automatic',     // → .menu on visionOS
   labelStyle: 'automatic',      // icon+title in body, icon-only in toolbars
-  textFieldStyle: 'automatic',  // → recessed glass (.thickMaterial) on visionOS
-  controlSize: 'regular',
-  tableStyle: 'automatic',
-  buttonBorderShape: 'automatic'
+  textFieldStyle: 'automatic'   // → recessed glass (.thickMaterial) on visionOS
 }
 
 export const DEFAULT_ANIMATION = {
@@ -152,11 +162,21 @@ export const makeWindow = (overrides = {}) => ({
   blur: null,
   blurAmount: null,
   padding: 14,             // pt — default inner padding for the window content
+  // visionOS spatial behaviour. Both survivors are read: `hoverEffect` is the
+  // window-level default a panel inherits (store/helpers.js), and
+  // `windowResizability` is emitted as a Scene modifier on the WindowGroup.
+  //
+  // Two siblings were removed in phase 1.5 rather than wired, because neither
+  // had anywhere to go. `immersionStyle` is a SCENE property — the Scene tab
+  // already owns it and the exporter already emits it from there — so the
+  // per-window copy was a second source for one concept, of exactly the kind
+  // phase 2.3 spent itself removing, and it happened to be the dead one.
+  // `gestures` was a list of gesture names with no SwiftUI API behind it:
+  // there is no window-level "these gestures are allowed" declaration to emit
+  // it as. Stale keys in older saved projects are simply ignored. AUDIT #13.
   spatial: {
-    immersionStyle: 'mixed',
     hoverEffect: 'automatic',
-    windowResizability: 'automatic',
-    gestures: ['tap', 'drag']
+    windowResizability: 'automatic'
   },
   // visionOS window-style metadata (spec §3.1, §3.2). Defaults match
   // Apple's `.automatic` glass plate; `.volumetric` enables the rest of
@@ -242,6 +262,12 @@ export const makeStack = (overrides = {}) => ({
   // default to true. Both feed the SwiftUI exporter.
   scrollAxis: 'vertical',     // 'vertical' | 'horizontal' | 'both'
   scrollShowsIndicators: true,
+  // Live scroll offset of the preview, in scene units, clamped to the
+  // overflow. Not a document property — the exporter has nothing to emit
+  // for it — but it lives on the item rather than in component state so it
+  // round-trips through undo and serialization like the window's own.
+  scrollY: 0,
+  scrollX: 0,
   // ViewThatFits — `in:` axes; default both.
   fitsAxes: 'both',           // 'both' | 'horizontal' | 'vertical'
   // Section-specific

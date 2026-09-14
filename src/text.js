@@ -71,20 +71,20 @@ export function glyphAdvanceUnits(fontSize, trackingPt = 0, tightenFactor = 1) {
 // letter-spacing the designer asked for. With the uniform measurer this is
 // algebraically identical to the old `length × advance`, so installing a
 // real measurer is the only thing that changes any number.
-export function singleLineWidth(text, fontSize, trackingPt = 0, tightenFactor = 1, weight) {
+export function singleLineWidth(text, fontSize, trackingPt = 0, tightenFactor = 1, weight, design) {
   if (!text) return 0
-  return measureNatural(text, fontSize, weight) * tightenFactor
+  return measureNatural(text, fontSize, weight, design) * tightenFactor
        + text.length * ptToUnits(trackingPt || 0)
 }
 
 // Longest line by rendered width. Picking by `String.length` instead is the
 // classic proportional-font bug: the longest string is very often not the
 // widest one.
-function widestLine(lines, fontSize, trackingPt, tightenFactor, weight) {
+function widestLine(lines, fontSize, trackingPt, tightenFactor, weight, design) {
   let best = ''
   let bestW = -1
   for (const l of lines) {
-    const w = singleLineWidth(l, fontSize, trackingPt, tightenFactor, weight)
+    const w = singleLineWidth(l, fontSize, trackingPt, tightenFactor, weight, design)
     if (w > bestW) { bestW = w; best = l }
   }
   return { line: best, width: Math.max(0, bestW) }
@@ -94,13 +94,13 @@ function widestLine(lines, fontSize, trackingPt, tightenFactor, weight) {
 // keeps this O(log n) measurements rather than one per character, which
 // matters once a real measurer is installed and each call touches a canvas.
 // `fromEnd` searches suffixes instead of prefixes.
-function fitCharCount(text, fontSize, maxWidth, trackingPt, tightenFactor, weight, fromEnd = false) {
+function fitCharCount(text, fontSize, maxWidth, trackingPt, tightenFactor, weight, design, fromEnd = false) {
   const slice = (n) => fromEnd ? text.slice(text.length - n) : text.slice(0, n)
   let lo = 0
   let hi = text.length
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2)
-    if (singleLineWidth(slice(mid), fontSize, trackingPt, tightenFactor, weight) <= maxWidth) lo = mid
+    if (singleLineWidth(slice(mid), fontSize, trackingPt, tightenFactor, weight, design) <= maxWidth) lo = mid
     else hi = mid - 1
   }
   return lo
@@ -113,10 +113,10 @@ function fitCharCount(text, fontSize, maxWidth, trackingPt, tightenFactor, weigh
 // character level (SwiftUI's UAX-14 fallback).
 //
 // Returns an array of strings (one per visual line).
-export function wrapLines(text, fontSize, maxWidth, trackingPt = 0, tightenFactor = 1, weight) {
+export function wrapLines(text, fontSize, maxWidth, trackingPt = 0, tightenFactor = 1, weight, design) {
   if (!text) return ['']
   if (fontSize <= 0 || maxWidth <= 0) return [text]
-  const width = (s) => singleLineWidth(s, fontSize, trackingPt, tightenFactor, weight)
+  const width = (s) => singleLineWidth(s, fontSize, trackingPt, tightenFactor, weight, design)
   const out = []
 
   // Honour hard newlines first — each '\n' starts a new visual line and
@@ -140,7 +140,7 @@ export function wrapLines(text, fontSize, maxWidth, trackingPt = 0, tightenFacto
         if (line) { out.push(line); line = '' }
         let rest = tok
         while (rest) {
-          const n = fitCharCount(rest, fontSize, maxWidth, trackingPt, tightenFactor, weight)
+          const n = fitCharCount(rest, fontSize, maxWidth, trackingPt, tightenFactor, weight, design)
           // Always consume at least one character, or a glyph wider than the
           // whole bound would spin here forever.
           const take = Math.max(1, n)
@@ -163,9 +163,9 @@ export function wrapLines(text, fontSize, maxWidth, trackingPt = 0, tightenFacto
 // Truncate a single line to fit `maxWidth` at the given metrics, inserting
 // an ellipsis per `mode` (.head | .middle | .tail). Returns the truncated
 // string. If the line already fits, returns it unchanged.
-function truncateLine(text, fontSize, maxWidth, mode, trackingPt = 0, tightenFactor = 1, weight) {
+function truncateLine(text, fontSize, maxWidth, mode, trackingPt = 0, tightenFactor = 1, weight, design) {
   if (fontSize <= 0 || maxWidth <= 0) return text
-  const width = (s) => singleLineWidth(s, fontSize, trackingPt, tightenFactor, weight)
+  const width = (s) => singleLineWidth(s, fontSize, trackingPt, tightenFactor, weight, design)
   if (width(text) <= maxWidth) return text
 
   const ELLIPSIS = '…'
@@ -175,21 +175,21 @@ function truncateLine(text, fontSize, maxWidth, mode, trackingPt = 0, tightenFac
   const budget = Math.max(0, maxWidth - width(ELLIPSIS))
 
   if (mode === 'head') {
-    const keep = fitCharCount(text, fontSize, budget, trackingPt, tightenFactor, weight, true)
+    const keep = fitCharCount(text, fontSize, budget, trackingPt, tightenFactor, weight, design, true)
     return ELLIPSIS + text.slice(text.length - Math.max(1, keep))
   }
   if (mode === 'middle') {
     // Split the budget evenly by width, not by character count — the two
     // halves of a proportional string rarely cost the same.
     const half = budget / 2
-    const head = fitCharCount(text, fontSize, half, trackingPt, tightenFactor, weight)
-    const tail = fitCharCount(text, fontSize, half, trackingPt, tightenFactor, weight, true)
+    const head = fitCharCount(text, fontSize, half, trackingPt, tightenFactor, weight, design)
+    const tail = fitCharCount(text, fontSize, half, trackingPt, tightenFactor, weight, design, true)
     const h = Math.max(1, head)
     const t = Math.max(1, Math.min(tail, text.length - h))
     return text.slice(0, h) + ELLIPSIS + text.slice(text.length - t)
   }
   // 'tail' (default)
-  const keep = fitCharCount(text, fontSize, budget, trackingPt, tightenFactor, weight)
+  const keep = fitCharCount(text, fontSize, budget, trackingPt, tightenFactor, weight, design)
   return text.slice(0, Math.max(1, keep)) + ELLIPSIS
 }
 
@@ -232,7 +232,12 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
     // measurer needs it: bold Inter is materially wider than regular at the
     // same size, so measuring a heading as regular under-reserves its space
     // and the canvas wraps a line later than the device does.
-    fontWeight = 'regular'
+    fontWeight = 'regular',
+    // Font design ('default' | 'rounded' | 'serif' | 'monospaced'). Same
+    // reason as the weight: each design is a different face with different
+    // advances, so measuring them all as Inter breaks lines in the wrong
+    // places. AUDIT #5.
+    fontDesign = 'default'
   } = options
 
   const safeText = text || ''
@@ -247,7 +252,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
   // hard-line; height is the count of hard-lines.
   if (fixedSizeH) {
     const hardLines = safeText.split('\n')
-    const longest = widestLine(hardLines, fontSize, trackingPt, 1, fontWeight).width
+    const longest = widestLine(hardLines, fontSize, trackingPt, 1, fontWeight, fontDesign).width
     const h = hardLines.length * fontSize * lineHeightFactor + lineGap * Math.max(0, hardLines.length - 1)
     return {
       lines: hardLines,
@@ -266,7 +271,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
   // (the typical max SwiftUI applies before falling back to scale/wrap).
   let tightenFactor = 1
   if (allowsTightening) {
-    const intrinsic = widestLine(safeText.split('\n'), fontSize, trackingPt, 1, fontWeight).width
+    const intrinsic = widestLine(safeText.split('\n'), fontSize, trackingPt, 1, fontWeight, fontDesign).width
     if (intrinsic > maxWidth && intrinsic <= maxWidth * (1 / 0.95)) {
       tightenFactor = Math.max(0.95, maxWidth / intrinsic)
     }
@@ -277,7 +282,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
   // fits — or we hit the floor, in which case wrap takes over.
   let scale = 1
   if (minimumScaleFactor < 1) {
-    const intrinsic = widestLine(safeText.split('\n'), fontSize, trackingPt, tightenFactor, fontWeight).width
+    const intrinsic = widestLine(safeText.split('\n'), fontSize, trackingPt, tightenFactor, fontWeight, fontDesign).width
     if (intrinsic > maxWidth) {
       const need = maxWidth / intrinsic
       scale = Math.max(minimumScaleFactor, Math.min(1, need))
@@ -286,7 +291,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
   const effFontSize = fontSize * scale
 
   // Step 3 — wrap.
-  const wrapped = wrapLines(safeText, effFontSize, maxWidth, trackingPt, tightenFactor, fontWeight)
+  const wrapped = wrapLines(safeText, effFontSize, maxWidth, trackingPt, tightenFactor, fontWeight, fontDesign)
 
   // Step 4 — truncate. When `lineLimit` is positive and the wrap produced
   // more lines than allowed, slice down and re-truncate the boundary line
@@ -298,7 +303,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
     if (truncationMode === 'head') {
       // Drop leading lines, ellipsis-prefix the first kept line.
       const kept = wrapped.slice(wrapped.length - lineLimit)
-      kept[0] = truncateLine('… ' + kept[0], effFontSize, maxWidth, 'tail', trackingPt, tightenFactor, fontWeight)
+      kept[0] = truncateLine('… ' + kept[0], effFontSize, maxWidth, 'tail', trackingPt, tightenFactor, fontWeight, fontDesign)
       final = kept
     } else if (truncationMode === 'middle') {
       if (lineLimit === 1) {
@@ -307,7 +312,7 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
         // SwiftUI's `.truncationMode(.middle) + .lineLimit(1)` which
         // drops glyphs from the middle of the joined string.
         const joined = safeText.replace(/\s+/g, ' ').trim()
-        final = [truncateLine(joined, effFontSize, maxWidth, 'middle', trackingPt, tightenFactor, fontWeight)]
+        final = [truncateLine(joined, effFontSize, maxWidth, 'middle', trackingPt, tightenFactor, fontWeight, fontDesign)]
       } else {
         const half = Math.floor(lineLimit / 2)
         const head = wrapped.slice(0, half)
@@ -318,13 +323,13 @@ export function measureSwiftUIText(text, fontSize, maxWidth, options = {}) {
       // 'tail' (default) — keep first N lines, add ellipsis on the last.
       const kept = wrapped.slice(0, lineLimit)
       const last = kept[kept.length - 1] + ' '
-      kept[kept.length - 1] = truncateLine(last + (wrapped[lineLimit] || ''), effFontSize, maxWidth, 'tail', trackingPt, tightenFactor, fontWeight)
+      kept[kept.length - 1] = truncateLine(last + (wrapped[lineLimit] || ''), effFontSize, maxWidth, 'tail', trackingPt, tightenFactor, fontWeight, fontDesign)
       final = kept
     }
   }
 
   // Measure final block.
-  const width = widestLine(final, effFontSize, trackingPt, tightenFactor, fontWeight).width
+  const width = widestLine(final, effFontSize, trackingPt, tightenFactor, fontWeight, fontDesign).width
   const height = final.length * effFontSize * lineHeightFactor + lineGap * Math.max(0, final.length - 1)
 
   return { lines: final, scale, tightenFactor, width, height, truncated, fontSize: effFontSize }

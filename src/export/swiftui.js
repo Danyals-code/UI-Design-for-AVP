@@ -14,7 +14,8 @@
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
-import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS } from '../appleSystem'
+import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS, isPresentationPanel,
+  resolveSemantic } from '../appleSystem'
 import {
   emitPanel, isInteractivePanel, compileTapAction,
   panelFrameMode, panelHeightIsDerived
@@ -220,6 +221,29 @@ function escapeString(s) {
 
 // Stable, Swift-safe state-var name from any item id.
 function stateVarName(id) { return `showing_${String(id).replace(/[^A-Za-z0-9]/g, '_')}` }
+
+// The Environment section — Font / Foreground / Tint / Direction / Locale —
+// on a stack or a window. Every one of the five is a real SwiftUI modifier,
+// and not one of them was emitted: the section was editable in the inspector
+// and read by NOBODY, on either side. AUDIT #13.
+//
+// `layoutDirection` is the one the canvas also previews (it mirrors the
+// declaring container's own alignment), so the two sides now agree about it
+// at that level; SwiftUI inherits it further down the tree than the canvas
+// mirrors, which is noted in `parity.baseline.js`.
+function environmentModifiers(item) {
+  const env = item?.environment
+  if (!env) return []
+  const out = []
+  if (env.font) out.push(`.environment(\\.font, .${env.font})`)
+  if (env.foregroundStyle) out.push(`.foregroundStyle(${swiftColor(env.foregroundStyle, null)})`)
+  if (env.tint) out.push(`.tint(${swiftColor(env.tint, null)})`)
+  if (env.layoutDirection === 'rightToLeft') {
+    out.push(`.environment(\\.layoutDirection, .rightToLeft)`)
+  }
+  if (env.locale) out.push(`.environment(\\.locale, Locale(identifier: "${env.locale}"))`)
+  return out
+}
 
 function swiftColor(token, hex) {
   // Map our semantic tokens to SwiftUI's `Color` convenience values.
@@ -488,6 +512,17 @@ function renderPanel(panel, items, pad, out) {
     lookupItem: (id) => items.find((it) => it.id === id) || null
   })
 
+  // `.symbolVariant` — the `.fill` / `.circle` / `.square` / `.slash` form of
+  // an SF Symbol. The canvas swaps the actual glyph for it (see the symbol
+  // map in `icons.jsx`) and the export dropped it, so a filled icon on screen
+  // came back outlined in Xcode. Emitted here rather than inside each
+  // symbol-bearing emitter because the field is universal — every panel type
+  // carries it — and guarded on the panel actually having a symbol, so it
+  // never lands on a view with no glyph to vary. AUDIT #20.
+  if (panel.symbolName && panel.symbolVariant) {
+    out.push(`${indent(pad)}    .symbolVariant(.${panel.symbolVariant})`)
+  }
+
   renderModifiers(panel, out, pad)
 
   // Panel sizing, after the user's own modifier chain so the frame bounds
@@ -552,7 +587,13 @@ function emitPresentationModifier(p, pad, out, stateBag) {
     // the code compiles unchanged on iPadOS / macOS.
     const arrow = p.popoverArrowEdge && p.popoverArrowEdge !== 'automatic'
       ? `, arrowEdge: .${p.popoverArrowEdge}` : ''
-    out.push(`${ind}.popover(isPresented: $${stateName}${arrow}) {`)
+    // `attachmentAnchor:` defaults to `.rect(.bounds)`, so it is emitted only
+    // when the designer picked the point anchor. It was read by neither side
+    // before phase 1.3 — a live control wired to nothing — and the canvas now
+    // draws a narrower arrow for it, so the code has to carry it too.
+    const anchor = p.popoverAnchor === 'point'
+      ? ', attachmentAnchor: .point(.center)' : ''
+    out.push(`${ind}.popover(isPresented: $${stateName}${anchor}${arrow}) {`)
     out.push(`${ind}    Text("${escapeString(p.text || 'Popover')}")`)
     out.push(`${ind}        .padding()`)
     out.push(`${ind}}`)
@@ -619,6 +660,10 @@ function emitPresentationModifier(p, pad, out, stateBag) {
     }
   }
 }
+
+// The scene handed to `exportSwiftUI`, for emissions that need a resolved
+// colour rather than a token. See the note at the call site. AUDIT #35.
+let exportScene = {}
 
 // ---------- stack rendering ----------
 
@@ -784,7 +829,11 @@ function renderStack(stack, items, pad, out, stateBag) {
   if (stack.stackType === 'disclosure') {
     const label = stack.disclosureLabel || 'Section'
     const stateVar = `isExpanded_${String(stack.id).replace(/[^A-Za-z0-9]/g, '_')}`
-    stateBag.push(stateVar)
+    // Seed the state from the authored value. A bare string in the bag
+    // becomes `= false`, so a DisclosureGroup the designer opened on the
+    // canvas used to export closed — the field was canvas-only for want of
+    // three words. AUDIT #33.
+    stateBag.push({ name: stateVar, type: 'Bool', default: String(!!stack.expanded) })
     out.push(`${ind}DisclosureGroup(isExpanded: $${stateVar}) {`)
     const kids = items.filter((c) => c.parentId === stack.id)
     for (const c of kids) {
@@ -870,13 +919,20 @@ function renderStack(stack, items, pad, out, stateBag) {
   const f = frameModifier(stack)
   if (f) out.push(`${boxMod}${f}`)
   if (stack.background) {
-    const mat = swiftMaterial(stack.background)
+    // SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by
+    // definition. So a stack whose blur toggle is OFF — a flat plate on the
+    // canvas — used to export as a frosted one, describing a surface nobody
+    // had asked for. With the toggle off we emit the colour the canvas
+    // resolved the token to instead, which is the plate that is actually on
+    // screen. The blur RADIUS beside the toggle stays canvas-only: Materials
+    // are fixed tiers and carry no radius anywhere in SwiftUI. AUDIT #35.
+    const mat = stack.blur ? swiftMaterial(stack.background) : null
     if (mat) {
       out.push(`${boxMod}.background(${mat})`)
     } else {
       const bg = stack.background.startsWith('#')
         ? swiftColor(null, stack.background)
-        : swiftColor(stack.background, null)
+        : swiftColor(stack.background, resolveSemantic(stack.background, exportScene))
       out.push(`${boxMod}.background(${bg})`)
     }
   }
@@ -884,6 +940,7 @@ function renderStack(stack, items, pad, out, stateBag) {
     const cr = unitsToPt(stack.cornerRadius)
     out.push(`${boxMod}.clipShape(RoundedRectangle(cornerRadius: ${cr}, style: .continuous))`)
   }
+  for (const line of environmentModifiers(stack)) out.push(`${boxMod}${line}`)
   if (stack.navTitle) out.push(`${boxMod}.navigationTitle("${escapeString(stack.navTitle)}")`)
   if (stack.ornament) {
     out.push(`${boxMod}.ornament(attachmentAnchor: .scene(.${stack.ornament})) {`)
@@ -985,9 +1042,8 @@ function renderWindow(win, items, pad, out, stateBag) {
   // Spec §1.25 — every panel type that attaches as a `.xxx(...)` modifier
   // on the parent view, not as an inline child. We separate them so they
   // can ride along after the body and emit matching `@State` declarations.
-  const presentationTypes = new Set(['sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'])
   const ownChildren = items.filter((c) => c.parentId === win.id)
-  const presentationKids = ownChildren.filter((c) => c.type === 'panel' && presentationTypes.has(c.panelType))
+  const presentationKids = ownChildren.filter((c) => c.type === 'panel' && isPresentationPanel(c.panelType))
   const ornamentKids = ownChildren.filter((c) => c.type === 'stack' && c.ornament)
   // Spec §1.26 — every Toolbar child becomes a `.toolbar { … }` modifier
   // on the window body. Direct children with stackType 'toolbar' route
@@ -1074,6 +1130,18 @@ function renderWindow(win, items, pad, out, stateBag) {
     out.push(`${ind}    .ornament(attachmentAnchor: ${anchor}${visibility}${alignment}) {`)
     renderStack(o, items, pad + 2, out, stateBag)
     out.push(`${indent(pad + 2)}    .glassBackgroundEffect()`)
+    // `.ornament` has no offset parameter, so the distance from the window
+    // edge belongs on the content — which is where the canvas applies it too.
+    // Read by NEITHER side until phase 1.5. AUDIT #14.
+    const ornOff = Number(o.ornamentOffset) || 0
+    if (ornOff) {
+      const edge = o.ornament
+      const expr = edge === 'leading'  ? `x: ${-ornOff}`
+                 : edge === 'trailing' ? `x: ${ornOff}`
+                 : edge === 'bottom'   ? `y: ${ornOff}`
+                 : `y: ${-ornOff}`
+      out.push(`${indent(pad + 2)}    .offset(${expr})`)
+    }
     out.push(`${ind}    }`)
   }
 
@@ -1244,8 +1312,15 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
       // when the user provided a depth, plus the world-scaling/baseplate
       // /alignment/viewpoints modifiers.
       sceneLines.push(`        .windowStyle(.volumetric)`)
+      // A volume is the window's own width and height plus the declared
+      // depth. This used to emit the depth three times, so a volume authored
+      // 0.9 x 0.6 shipped as a cube — the canvas drew the authored box and the
+      // file asked for a different one. Scene units are metres already.
+      // AUDIT #32.
       const depth = firstWindow.volumeDepthMeters ?? 1.0
-      sceneLines.push(`        .defaultSize(width: ${depth}, height: ${depth}, depth: ${depth}, in: .meters)`)
+      const [volW, volH] = Array.isArray(firstWindow.size) ? firstWindow.size : [depth, depth]
+      const m = (v) => Number(v.toFixed(3))
+      sceneLines.push(`        .defaultSize(width: ${m(volW)}, height: ${m(volH)}, depth: ${depth}, in: .meters)`)
       if (firstWindow.worldScalingBehavior && firstWindow.worldScalingBehavior !== 'automatic') {
         sceneLines.push(`        .defaultWorldScalingBehavior(.${firstWindow.worldScalingBehavior})`)
       }
@@ -1269,6 +1344,14 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
     const winH = unitsToPt(firstWindow.size?.[1] || 0)
     if (winW > 0 && winH > 0 && (firstWindow.windowStyle !== 'volumetric' && mode !== 'volume')) {
       sceneLines.push(`        .defaultSize(width: ${winW}, height: ${winH})`)
+    }
+    // `.windowResizability` is a Scene modifier, which is why the canvas has
+    // nowhere to preview it: there is no window chrome on a design surface to
+    // drag. It was editable in the inspector and read by nobody until phase
+    // 1.5. AUDIT #13.
+    const resize = firstWindow.spatial?.windowResizability
+    if (resize && resize !== 'automatic') {
+      sceneLines.push(`        .windowResizability(.${resize})`)
     }
   }
 
@@ -1311,6 +1394,11 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
 // ---------- public entry point ----------
 
 export function exportSwiftUI(items, appName = 'MyApp', scene = {}) {
+  // The scene's colour table, for the one emission that needs a resolved
+  // colour rather than a token: an unfrosted stack plate (AUDIT #35). Module
+  // state rather than a parameter threaded through every renderStack call,
+  // which is how `pendingBehaviorPlans` above already works.
+  exportScene = scene
   const tabs = items.filter((i) => i.type === 'tab')
   const files = []
   for (const tab of tabs) {

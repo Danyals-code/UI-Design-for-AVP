@@ -238,8 +238,14 @@ export const BUTTON_TEXT_INSET_PT = 12
 // with the 12pt side padding intact. The 0.58-glyph-advance fallback is
 // only used during SSR / when `document` isn't available — the renderer
 // always runs in the browser so the canvas path is the live one.
+//
+// `family` is a CSS font-family list, for the three `.fontDesign(_:)` faces
+// that are not Inter. It arrives as a string rather than as a design name so
+// this module stays free of `fonts.js` and its 32 asset imports — the caller
+// that knows about designs does the lookup. AUDIT #5.
+const DEFAULT_MEASURE_FAMILY = 'Inter, system-ui, sans-serif'
 let _btnMeasureCanvas = null
-export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
+export function measureTextWidthPt(text, fontSizePt, weight = 'regular', family = DEFAULT_MEASURE_FAMILY) {
   if (!text) return 0
   if (typeof document === 'undefined') return text.length * fontSizePt * 0.58
   if (!_btnMeasureCanvas) _btnMeasureCanvas = document.createElement('canvas')
@@ -248,7 +254,7 @@ export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
   const cssWeight = weight === 'bold' ? 700
     : weight === 'semibold' ? 600
     : weight === 'medium' ? 500 : 400
-  ctx.font = `${cssWeight} ${fontSizePt}px Inter, system-ui, sans-serif`
+  ctx.font = `${cssWeight} ${fontSizePt}px ${family || DEFAULT_MEASURE_FAMILY}`
   return ctx.measureText(text).width
 }
 
@@ -1916,12 +1922,348 @@ export const NAVBAR_STYLE_SPECS = {
   backCapsuleTrailingButtons: { leading: 'backCapsule',  trailing: 'buttons', titleAlign: 'center', leadingEditable: false, trailingEditable: true  }
 }
 
-// SwiftUI ToolbarItem placements.
+// ---------------------------------------------------------------------------
+// Toolbar placements and the zones they name (AUDIT #33)
+//
+// `.toolbar { ToolbarItem(placement:) ... }` does not draw its items in the
+// order they were written. Each placement names a zone of a bar, and the bar
+// fills its zones leading -> principal -> trailing regardless of the order the
+// items appear in the closure. The canvas had no toolbar layout at all, so a
+// toolbar stack fell through to the VStack path and drew its items in a
+// vertical column in creation order: a Cancel authored after a Done sat below
+// it on the canvas and to its left on device.
+//
+// `bottom` is the zone for the three placements that name a surface a single
+// bar is not: `.bottomBar` and `.keyboard` sit at the far end of the screen and
+// `.bottomOrnament` floats below the window entirely. The canvas has one bar to
+// draw, so it draws those in a row beneath it rather than inside it - which at
+// least keeps them out of the top bar, where they were plainly wrong.
+//
+// Order here is the order the inspector lists them in; the list and the zone
+// table are the same object so a placement cannot be offered without a zone.
+export const TOOLBAR_ZONES = ['leading', 'principal', 'trailing', 'bottom']
+
 export const TOOLBAR_PLACEMENTS = {
-  topBarLeading:     { label: 'Top Bar Leading' },
-  topBarTrailing:    { label: 'Top Bar Trailing' },
-  principal:         { label: 'Principal (center)' },
-  bottomBar:         { label: 'Bottom Bar' },
-  confirmationAction:{ label: 'Confirmation Action' },
-  cancellationAction:{ label: 'Cancellation Action' }
+  // `.automatic` resolves per context. In a top bar it lands on the trailing
+  // edge, which is where the canvas draws it.
+  automatic:          { label: 'Automatic',           zone: 'trailing'  },
+  principal:          { label: 'Principal (center)',  zone: 'principal' },
+  topBarLeading:      { label: 'Top Bar Leading',     zone: 'leading'   },
+  topBarTrailing:     { label: 'Top Bar Trailing',    zone: 'trailing'  },
+  navigation:         { label: 'Navigation',          zone: 'leading'   },
+  bottomBar:          { label: 'Bottom Bar',          zone: 'bottom'    },
+  bottomOrnament:     { label: 'Bottom Ornament',     zone: 'bottom'    },
+  primaryAction:      { label: 'Primary Action',      zone: 'trailing'  },
+  secondaryAction:    { label: 'Secondary Action',    zone: 'trailing'  },
+  confirmationAction: { label: 'Confirmation Action', zone: 'trailing'  },
+  cancellationAction: { label: 'Cancellation Action', zone: 'leading'   },
+  destructiveAction:  { label: 'Destructive Action',  zone: 'trailing'  },
+  status:             { label: 'Status',              zone: 'principal' },
+  title:              { label: 'Title',               zone: 'principal' },
+  subtitle:           { label: 'Subtitle',            zone: 'principal' },
+  keyboard:           { label: 'Keyboard',            zone: 'bottom'    }
+}
+
+// The zone a placement draws in. An unrecognised placement is treated the way
+// `.automatic` is - the trailing edge is where a bar puts what it was not told
+// where to put.
+export function toolbarZoneOf(placement) {
+  return TOOLBAR_PLACEMENTS[placement]?.zone || 'trailing'
+}
+
+// ---------------------------------------------------------------------------
+// Control ranges (AUDIT #17)
+//
+// SwiftUI's Slider, Gauge and ProgressView each take a value inside a declared
+// range and paint how far through that range it sits. The canvas used to clamp
+// the raw value to 0…1 and paint *that*, which is only right when the range
+// happens to be 0…1: a slider authored `0…100` at `50` drew hard right here and
+// centred on device, and a Gauge — whose own default range is `0…100` — drew a
+// full bar for a value that reads as 0.7% in Swift.
+//
+// `controlFraction` is the one place that conversion happens. Bounds are read
+// with the same fallbacks the exporter uses (`min ?? 0`, `max ?? 1`) so the two
+// sides resolve missing bounds identically rather than each guessing. A
+// zero-width range has no meaningful fraction — SwiftUI draws those empty — so
+// it maps to 0 rather than dividing by zero.
+export function controlFraction(value, min, max) {
+  const lo = Number(min ?? 0)
+  const hi = Number(max ?? 1)
+  const v = Number(value)
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || !Number.isFinite(v)) return 0
+  if (hi === lo) return 0
+  return Math.max(0, Math.min(1, (v - lo) / (hi - lo)))
+}
+
+// Two-stop colour mix, for the gauge's `.tint(Gradient(colors: [from, to]))`.
+// The canvas paints the gauge fill as one colour, so it samples the gradient
+// at the value's own position — the stop the eye actually lands on. Falls
+// back to the first colour if either side isn't a 6-digit hex.
+export function mixHex(from, to, t) {
+  const parse = (h) => /^#[0-9a-f]{6}$/i.test(h || '')
+    ? [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
+    : null
+  const a = parse(from)
+  const b = parse(to)
+  if (!a || !b) return from || to || '#007aff'
+  const k = Math.max(0, Math.min(1, t))
+  const ch = (i) => Math.round(a[i] + (b[i] - a[i]) * k).toString(16).padStart(2, '0')
+  return `#${ch(0)}${ch(1)}${ch(2)}`
+}
+
+// The inverse, for the preview's drag-to-set: a 0…1 position along the track
+// becomes a value in the control's own range, snapped to `step` when the
+// designer set one (SwiftUI treats step 0 as continuous).
+export function valueFromFraction(t, min, max, step) {
+  const lo = Number(min ?? 0)
+  const hi = Number(max ?? 1)
+  let v = lo + t * (hi - lo)
+  const s = Number(step)
+  if (Number.isFinite(s) && s > 0) v = lo + Math.round((v - lo) / s) * s
+  return Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), v))
+}
+
+// SwiftUI `.aspectRatio(_:contentMode:)` reshapes the frame to a width/height
+// ratio. `.fit` shrinks the box so it fits inside the proposal; `.fill` grows
+// it so it covers. Both the layout engine and the renderer run this, because
+// a frame the stack reserves and a frame the panel paints have to be the same
+// box — that agreement is what `layout.test.js` exists to pin.
+export function applyAspectRatio(size, aspect) {
+  if (!aspect) return size
+  const [w, h] = size
+  const r = Number(aspect.ratio ?? aspect)
+  if (!Number.isFinite(r) || r <= 0 || !(w > 0) || !(h > 0)) return size
+  const fill = aspect.contentMode === 'fill'
+  const current = w / h
+  if (Math.abs(current - r) < 1e-9) return size
+  // Too wide for the target ratio: fitting narrows the width, filling raises
+  // the height. Too tall is the mirror of that.
+  if (current > r) return fill ? [w, w / r] : [h * r, h]
+  return fill ? [h * r, h] : [w, w / r]
+}
+
+// Panel types that are not laid out as children at all: in SwiftUI each one
+// attaches to its PARENT as a `.sheet(…)` / `.alert(…)` / `.confirmationDialog(…)`
+// / `.inspector(…)` modifier, so it is presented over the view rather than
+// flowing inside it.
+//
+// This lived in three places — the exporter, the canvas and the modifier
+// registry — and two of them disagreed: the canvas knew about three types and
+// the exporter about five. A `confirmationdialog` or an `inspector` was
+// therefore laid out as an ordinary child on screen and emitted as a modal
+// modifier in the code: the wrong *place*, not merely the wrong pixels. It
+// lives here, in the vocabulary both sides already import, because the token
+// module is the one layer with no cycle to worry about. AUDIT #7.
+const PRESENTATION_PANEL_TYPES = new Set([
+  'sheet', 'popover', 'alert', 'confirmationdialog', 'inspector'
+])
+
+export const isPresentationPanel = (panelType) => PRESENTATION_PANEL_TYPES.has(panelType)
+
+// How wide an `.inspector(…)` column is. This mirrors the precedence the
+// exporter emits — an exact `.inspectorColumnWidth(n)` wins outright,
+// otherwise `.inspectorColumnWidth(min:ideal:max:)` clamps the ideal (falling
+// back to the panel's stored width) between the bounds — so the column the
+// canvas draws and the column the generated code asks for are the same box.
+// It lives beside the other metric resolvers rather than in the renderer so
+// that precedence can be pinned by a test; all four fields reached the export
+// only until phase 1.3, because the canvas had no inspector presentation at
+// all to apply them to. AUDIT #7.
+// ---------------------------------------------------------------------------
+// Rounded box radius (AUDIT #34)
+//
+// `MeshResource.generateBox(size:cornerRadius:)` rounds every edge of the box.
+// The canvas drew a hard-edged cube whatever the radius said, so the number
+// reached the generated RealityKit call and nothing on screen.
+//
+// The clamp is the part worth pinning: a radius past half the shortest side
+// has no cube left to round, and three.js does not stop you asking — it hands
+// back inside-out geometry. Both the panel primitive and the entity mesh go
+// through here so they cannot drift, and the number arrives already in the
+// units its caller works in (points for panels, metres for entities).
+export function roundedBoxRadius(radius, [w, h, d]) {
+  const r = Number(radius) || 0
+  if (r <= 0) return 0
+  return Math.min(r, Math.min(w, h, d) / 2)
+}
+
+// ---------------------------------------------------------------------------
+// Ornament content alignment (AUDIT #29)
+//
+// `.ornament(attachmentAnchor:contentAlignment:)` aligns the ornament's content
+// against the anchor POINT, the way every SwiftUI alignment does: the named
+// edge of the content is the edge that lands on the point. A bottom-anchored
+// ornament aligned `.leading` therefore starts at the window's bottom centre
+// and runs to the right of it, rather than straddling it.
+//
+// The canvas centred every ornament on its anchor whatever the field said, so
+// nine alignments drew one picture. The offset is half the ornament's own size
+// in the named direction — which is exactly what "put this edge on the point"
+// works out to.
+export const ORNAMENT_CONTENT_ALIGNMENTS = [
+  'center', 'leading', 'trailing', 'top', 'bottom',
+  'topLeading', 'topTrailing', 'bottomLeading', 'bottomTrailing'
+]
+
+export function ornamentContentOffset(alignment, [ornamentW, ornamentH]) {
+  const a = alignment || 'center'
+  // Scene space is x-right / y-up, so aligning the content's LEADING edge to
+  // the point pushes its centre right, and its TOP edge pushes the centre down.
+  const dx = a === 'leading' || a === 'topLeading' || a === 'bottomLeading' ? ornamentW / 2
+    : a === 'trailing' || a === 'topTrailing' || a === 'bottomTrailing' ? -ornamentW / 2
+    : 0
+  const dy = a === 'top' || a === 'topLeading' || a === 'topTrailing' ? -ornamentH / 2
+    : a === 'bottom' || a === 'bottomLeading' || a === 'bottomTrailing' ? ornamentH / 2
+    : 0
+  return [dx, dy]
+}
+
+// Whether the canvas draws an ornament at all. `.hidden` takes it away on
+// device and took nothing away here until AUDIT #29; `.automatic` is the
+// system's choice, which for an ornament that exists is to show it.
+export function ornamentIsDrawn(ornamentVisibility) {
+  return ornamentVisibility !== 'hidden'
+}
+
+// ---------------------------------------------------------------------------
+// Sheet detents and sheet chrome (AUDIT #30)
+//
+// `.presentationDetents([…])` names the height a sheet rests at, measured from
+// the bottom of the container it is presented over. The canvas sized every
+// sheet from the panel's own stored `size` and only nudged `.medium` downward,
+// so `.fraction(0.3)` and `.height(200)` — two sheets a device draws at
+// visibly different heights — were the same box on screen. The detent decided
+// nothing except how far down the box sat.
+//
+// The fraction and height defaults are the exporter's own (`?? 0.5`, `?? 320`)
+// so a sheet missing the field resolves to the same number on both sides.
+// `MODAL_INSET` is the 8% margin the canvas already gives every modal; no
+// sheet is drawn taller than the window minus that, because the canvas has
+// nowhere to put the overflow.
+export const MODAL_INSET = 0.08
+
+export function sheetDetentHeight({ detent, fraction, heightPt }, containerH) {
+  const cap = containerH * (1 - MODAL_INSET)
+  const clamp = (x) => Math.min(cap, Math.max(0, x))
+  switch (detent) {
+    case 'medium':
+      return clamp(containerH * 0.5)
+    case 'fraction':
+      return clamp(containerH * (Number.isFinite(fraction) ? fraction : 0.5))
+    case 'height':
+      return clamp(ptToUnits(Number.isFinite(heightPt) ? heightPt : 320))
+    // `.large` and anything unrecognised: as tall as the canvas will draw.
+    default:
+      return cap
+  }
+}
+
+// Whether the canvas draws the grabber at the top of a sheet.
+//
+// `.automatic` lets the system decide, and what it decides from is the number
+// of detents: one detent, nothing to drag to, no grabber. Every sheet here
+// carries exactly one detent, so automatic resolves to hidden — and the
+// exporter says the same thing by emitting nothing for it.
+export function sheetDragIndicatorVisible(presentationDragIndicator) {
+  return presentationDragIndicator === 'visible'
+}
+
+// Takes the four widths rather than the panel, so the caller spells each
+// field at the call site — the same shape `controlFraction` uses, and what
+// keeps the parity scan able to see that the canvas reads them.
+export function inspectorColumnWidth({ exact, ideal, min, max, stored }, windowW) {
+  const pt = (v) => (v == null ? null : ptToUnits(v))
+  const exactU = pt(exact)
+  if (exactU != null) return Math.min(exactU, windowW)
+  let width = pt(ideal) ?? (stored ?? ptToUnits(320))
+  const minU = pt(min)
+  const maxU = pt(max)
+  if (minU != null) width = Math.max(width, minU)
+  if (maxU != null) width = Math.min(width, maxU)
+  // However wide it asks to be, it still has to fit the window it splits.
+  return Math.max(ptToUnits(40), Math.min(width, windowW * 0.8))
+}
+
+// Which `outlinegroup` rows are on screen, given that a collapsed row hides
+// everything beneath it. The inspector stores the tree flattened to
+// (title, indent, expanded), and `indent` is the row's depth — the same rule
+// the `outlinegroup` emitter above uses to rebuild the recursive
+// `OutlineNode` model, so the shape the canvas walks and the shape the export
+// writes are read from the field the same way.
+//
+// Returns the visible rows, each tagged with its nesting `level` and whether
+// it `isParent` (the next row sits deeper). `expanded` is a preview
+// affordance rather than a document property: SwiftUI's OutlineGroup owns its
+// expansion state at runtime, so the export carries the tree and not which
+// parts of it happen to be open.
+export function outlineVisibleRows(rows) {
+  const out = []
+  if (!Array.isArray(rows)) return out
+  let hiddenBelow = null          // level of the collapsed ancestor, if any
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || {}
+    const level = r.indent ?? 0
+    if (hiddenBelow != null) {
+      if (level > hiddenBelow) continue
+      hiddenBelow = null
+    }
+    const next = rows[i + 1]
+    const isParent = !!next && (next.indent ?? 0) > level
+    out.push({ ...r, level, isParent })
+    if (isParent && !r.expanded) hiddenBelow = level
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Per-type style vocabularies the canvas branches on (AUDIT #19)
+//
+// These name style cases in string literals, which is exactly the shape that
+// rots quietly: a misspelled case never matches and the canvas silently keeps
+// its default treatment — the very defect #19 was about. They live here, next
+// to the vocabularies they draw from, so a test can check each name is a real
+// case of its own picker.
+// ---------------------------------------------------------------------------
+
+// Picker styles that lay their options out on screen. The menu-ish styles
+// keep them behind a tap, which a still canvas cannot open, so those draw the
+// selected value and a chevron instead.
+export const PICKER_STYLES_SHOWING_OPTIONS = ['segmented', 'wheel', 'inline', 'palette']
+
+// Menu styles that collapse the menu to its label, revealing the items only
+// once opened.
+export const MENU_STYLES_AS_BUTTON = ['button', 'borderlessButton']
+
+// Which parts of a date a `displayedComponents` value asks for. The exporter
+// maps the same four values onto `.date` / `.hourAndMinute` /
+// `[.date, .hourAndMinute]` / `.hourMinuteAndSecond`, so this is the canvas
+// half of one decision: show the parts the generated picker will show, and no
+// others. Before phase 1.8 the canvas printed the raw stored ISO date
+// whatever was chosen, so a time-only picker still previewed a date.
+export function dateComponentsParts(components) {
+  switch (components) {
+    case 'date':                return { date: true,  time: false, seconds: false }
+    case 'hourAndMinute':       return { date: false, time: true,  seconds: false }
+    case 'hourMinuteAndSecond': return { date: false, time: true,  seconds: true  }
+    default:                    return { date: true,  time: true,  seconds: false }
+  }
+}
+
+// Which of a Label's two slots are drawn, given `.labelStyle` and whether the
+// label has any text to show.
+//
+// `.automatic` is the interesting case: SwiftUI resolves it by context, and
+// the canvas's own long-standing rule — a Label with an empty text slot is
+// icon-only — is the same judgement for the one context a design surface has.
+// So the explicit style wins and the empty-text rule is what `.automatic`
+// falls back to. Before AUDIT #31 there was no explicit path at all: the
+// field reached the export only and the canvas had just the fallback, which
+// meant a Label carrying text AND asking for `.iconOnly` drew the text here
+// and hid it on device.
+export function labelSlots(labelStyle, hasText) {
+  const style = labelStyle || 'automatic'
+  if (style === 'iconOnly')  return { icon: true,  title: false }
+  if (style === 'titleOnly') return { icon: false, title: true }
+  if (style === 'titleAndIcon') return { icon: true, title: true }
+  return { icon: true, title: !!hasText }        // automatic
 }

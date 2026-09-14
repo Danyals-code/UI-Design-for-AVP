@@ -30,7 +30,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import {
   STACK, WINDOW, PANEL, MODIFIER_VISIBILITY, KNOWN_INVALID_EMISSIONS,
-  KNOWN_MISSING_SCROLLVIEWS, DEBT_CEILING, EXEMPT, DEBT, MIRROR
+  KNOWN_MISSING_SCROLLVIEWS, DEBT_CEILING, EXEMPT, DEBT, MIRROR, SHADOWED
 } from './parity.baseline'
 import { makeTab, makeWindow, makeStack, makePanel } from './store/factories'
 import {
@@ -61,7 +61,14 @@ const CANVAS = [
   './components/SceneTree.jsx',
   './components/Entity3D.jsx',
   './layout.js',
-  './text.js'
+  './text.js',
+  // Renderer-side resolution that happens to live in the store folder:
+  // `resolveHoverEffect` walks up to the owning window for its
+  // `spatial.hoverEffect` default and is imported by Panel3D alone. Without
+  // it the scan reported `spatial` as export-only the moment the exporter
+  // started emitting `.windowResizability` — which would have been false,
+  // and would have had someone 'fix' a field the canvas already honours.
+  './store/helpers.js'
 ].map(read).join('\n')
 
 const EXPORT = [
@@ -107,11 +114,18 @@ function explain(missing, stale, ledgerName) {
   return '\n  ' + parts.join('\n\n  ')
 }
 
+// A field name another item type reads on BOTH sides is invisible to this
+// scan: the corpus is one blob of text and `.blur` is `.blur` whoever the
+// receiver is. Those entries declare themselves SHADOWED and are excluded from
+// the stale check — but only if the name really is two-sided, which is
+// asserted separately, so the tier cannot be used to park a live divergence.
+const isShadowed = (ledger, f) => ledger[f]?.tier === SHADOWED
+
 function checkLedger(fields, ledger, ledgerName) {
   const actual = asymmetricFields(fields)
   const declared = Object.keys(ledger)
   const missing = actual.filter((f) => !declared.includes(f))
-  const stale = declared.filter((f) => !actual.includes(f))
+  const stale = declared.filter((f) => !actual.includes(f) && !isShadowed(ledger, f))
   expect(missing.length + stale.length, explain(missing, stale, ledgerName)).toBe(0)
 }
 
@@ -134,11 +148,29 @@ describe('field parity', () => {
     checkLedger(allPanelFields(), PANEL, 'parity.baseline.js → PANEL')
   })
 
+  it('every shadowed entry is really shadowed', () => {
+    // The tier's one job is to record a divergence the scan cannot see. If the
+    // name is NOT read on both sides, the scan can see it after all and the
+    // entry has to go back to being a normal one — otherwise SHADOWED becomes
+    // the drawer anything inconvenient gets put in.
+    for (const [name, ledger] of [['STACK', STACK], ['WINDOW', WINDOW], ['PANEL', PANEL]]) {
+      for (const [field, entry] of Object.entries(ledger)) {
+        if (entry.tier !== SHADOWED) continue
+        expect(entry.by?.length, `${name}.${field} does not say what shadows it`).toBeGreaterThan(0)
+        expect(
+          CANVAS.includes(`.${field}`) && EXPORT.includes(`.${field}`),
+          `${name}.${field} is marked SHADOWED but the scan can see it — ` +
+          `give it a real tier`
+        ).toBe(true)
+      }
+    }
+  })
+
   it('every ledger entry carries a tier and a reason', () => {
     for (const [name, ledger] of [['STACK', STACK], ['WINDOW', WINDOW], ['PANEL', PANEL],
       ['MODIFIER_VISIBILITY', MODIFIER_VISIBILITY]]) {
       for (const [field, entry] of Object.entries(ledger)) {
-        expect([EXEMPT, DEBT, MIRROR], `${name}.${field} has no valid tier`).toContain(entry.tier)
+        expect([EXEMPT, DEBT, MIRROR, SHADOWED], `${name}.${field} has no valid tier`).toContain(entry.tier)
         expect(entry.why?.length, `${name}.${field} has no reason`).toBeGreaterThan(10)
       }
     }
@@ -435,6 +467,39 @@ describe('emission sanity', () => {
 // 'a scrollable stack exports a real ScrollView' above.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Presentation routing
+//
+// Five panel types attach to their PARENT as a modifier instead of flowing
+// inside it. That list was hand-maintained in three places and two of them
+// disagreed — the canvas knew about three types, the exporter about five — so
+// a `confirmationdialog` sat inline on screen and presented modally in the
+// code. The fix was a single set, and these two guard the property that makes
+// it a fix rather than a patch: nobody keeps a private copy.
+// ---------------------------------------------------------------------------
+describe('presentation routing', () => {
+  it('both sides ask the same function which views present', () => {
+    for (const [name, src] of [['canvas', CANVAS], ['export', EXPORT]]) {
+      expect(src.includes('isPresentationPanel'),
+        `the ${name} side no longer consults isPresentationPanel — if the ` +
+        'routing moved, point this test at the new seam rather than deleting it'
+      ).toBe(true)
+    }
+  })
+
+  it('neither side keeps its own copy of the list', () => {
+    // The original bug in one regex: an inline array or Set carrying the
+    // presentation vocabulary, maintained by hand alongside the real one.
+    const ownList = /\[[^\]]*'sheet'[^\]]*'alert'[^\]]*\]/
+    for (const [name, src] of [['canvas', CANVAS], ['export', EXPORT]]) {
+      expect(ownList.test(src),
+        `the ${name} side declares its own presentation-type list; there is ` +
+        'one set in appleSystem.js and a second copy is how these drifted apart'
+      ).toBe(false)
+    }
+  })
+})
+
 describe('containment', () => {
   it('no non-scrollable content exceeds its window', () => {
     const overflows = []
@@ -473,7 +538,9 @@ function debtInventory() {
   const rows = []
   const collect = (label, ledger) => {
     for (const [field, entry] of Object.entries(ledger)) {
-      if (entry.tier === EXEMPT) continue
+      // EXEMPT is settled; SHADOWED is settled too — it is an exemption the
+      // scan happens to be unable to observe, not work anyone owes.
+      if (entry.tier === EXEMPT || entry.tier === SHADOWED) continue
       rows.push({
         group: label,
         field,
@@ -534,5 +601,37 @@ describe('parity debt', () => {
     ]
     console.log(lines.join('\n'))
     expect(rows.length).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The styles bag (AUDIT #31)
+//
+// The ledger keys this bag as one field, so a single surviving read keeps it
+// looking symmetric while the others quietly stop drawing. That is how these
+// three got to export-only in the first place. Check each by name.
+// ---------------------------------------------------------------------------
+describe('per-control style fields', () => {
+  const BAG = ['toggleStyle', 'labelStyle', 'textFieldStyle']
+  // Match the READ, not the name: `styles?.labelStyle`. The bare name appears
+  // in the comments beside each of these, so a looser check passes on prose
+  // while the code that used to do the reading is gone — which is exactly
+  // what happened the first time this test was written.
+  const reads = (src, key) => src.includes(`styles?.${key}`) || src.includes(`styles.${key}`)
+
+  it('the canvas reads every field the bag still carries', () => {
+    for (const key of BAG) {
+      expect(
+        reads(CANVAS, key),
+        `the canvas no longer reads styles.${key} — the ledger keys the whole ` +
+        'bag as one field, so a surviving read of its siblings hides this'
+      ).toBe(true)
+    }
+  })
+
+  it('and the export still emits each of them', () => {
+    for (const key of BAG) {
+      expect(reads(EXPORT, key), `the export no longer emits styles.${key}`).toBe(true)
+    }
   })
 })

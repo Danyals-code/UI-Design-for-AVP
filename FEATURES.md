@@ -13,7 +13,7 @@ Three docs at the repo root work together:
   view *do* and what are its defaults" map. Update whenever you add or
   change a view type, default, or design-system constant.
 
-> **Last updated:** 2026-05-30 *(Materials & Colors overhaul: clickable material browser, picker dropdown that follows the canvas selection, stacked colour layers in the material editor; SwiftUI-style segmented control with a Material tier picker)*
+> **Last updated:** 2026-09-14 *(font designs: `.fontDesign(.serif/.rounded/.monospaced)` now draw and measure through bundled faces rather than falling back to Inter)*
 
 ---
 
@@ -193,7 +193,8 @@ Tab (page)
 │   │   ├── Entity       (3D primitive / model / attachment)
 │   │   └── ...
 │   ├── Stack (ornament: leading / trailing / top / bottom)
-│   └── Panel (presentation: sheet / popover / alert)
+│   └── Panel (presentation: sheet / popover / alert /
+│                     confirmationDialog / inspector)
 └── Tab (...) more pages
 ```
 
@@ -243,7 +244,7 @@ Each stack carries: alignment, spacing (or auto / nil), padding (number
 or per-edge), width/height mode (`fit` / `fixed` / `fill`), optional
 background + corner radius + per-corner radii (`cornerRadii: [tl, tr,
 br, bl]` - matches SwiftUI's `UnevenRoundedRectangle`), ornament anchor,
-scrollable flag, modifiers.
+scrollable flag + axis + live scroll offset, modifiers.
 
 ### Panels
 Every SwiftUI primitive lives here (~55 types - full list and per-type
@@ -284,6 +285,14 @@ defaults in [VIEWS.md](VIEWS.md), source in
   don't reach the exporter - generated Swift keeps `text: .constant("")`.
 - **Controls:** button, toggle, segmented, picker, datepicker,
   colorpicker, slider, stepper, gauge, progress, texteditor
+  - **Slider, Gauge, Stepper and ProgressView honour the range you
+    declare.** A slider set to `0…100` with value `50` draws at its
+    midpoint, not hard right; a Stepper moves by its Step and stops at
+    its bounds (the button that can do nothing dims); a ProgressView
+    measures its value against Total. Gauges also draw their
+    `accessoryCircular` styles as a dial and their tint gradient, and
+    ProgressView draws `.circular` as a ring. Slider and Gauge value
+    labels render at the ends of the track.
   - **Button** is sized by a `Size` picker (Small `65×32` / Regular
     `86×44` / Large `101×52` pt) and a `Style` picker (Capsule - 100pt
     radius, or Rounded Rect - 16pt radius). Width/height are not
@@ -314,8 +323,30 @@ defaults in [VIEWS.md](VIEWS.md), source in
   placeholder fill, so the canvas matches the device. `cornerRadius`
   is only exposed for Rectangle (single radius) and
   UnevenRoundedRectangle (four per-corner radii).
+- **Collections:** list, form, groupbox, outlinegroup, table
+  - **Form and Outline Group draw their rows**, not just a plate: a
+    Form is the grouped card with separators (or the two-column
+    layout under `.columns`), an Outline Group is the indented
+    disclosure tree, and a collapsed row hides its whole subtree.
+  - **The per-type Style pickers change the canvas, not only the
+    export.** A List honours row separators (visible / hidden, and
+    their tint), row spacing and item tint; a Table drawn `.inset`
+    swaps its grid rules for alternating row fills; a Menu set to
+    `.button` collapses to its label with an optional chevron; a
+    Picker lays its options out in the styles that lay them out
+    (`.segmented`, `.wheel`, `.inline`, `.palette`) and shows the
+    selected value with a chevron in the menu-ish ones; a Date Picker
+    draws a month grid for `.graphical` and drum columns for `.wheel`,
+    and shows only the components it was asked for; and a Text Field
+    with a vertical axis grows down to its line limit instead of
+    clipping one line.
 - **Presentation:** sheet, popover, alert, confirmationdialog,
   inspector, navigationlink, contentUnavailable
+  - **These present over the window rather than flowing inside it**,
+    and each in its own way: sheets, alerts and confirmation dialogs
+    sit centred over a dimmed plate; a popover hangs off the edge its
+    arrow points from; an inspector is a trailing column with a
+    divider and no dimming, narrowing the body the modals centre in.
 - **3D primitives (RealityKit):** sphere, box, plane, cone, cylinder,
   text3d, mesh, realityview, canvas
 
@@ -383,6 +414,12 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
 
 ### Object - Window
 - **Window:** name, Group ID, Tab Icon, Primary (this/auto), Scrollable.
+  **Behaviour** carries Hover and Resize. Resize is a WindowGroup
+  Scene modifier - it reaches the export, and the inspector says so,
+  because there is no window chrome on the canvas to preview it
+  against. The Immersion picker and Gestures chips that used to sit
+  here are gone: immersion is a scene property the Scene tab already
+  owns and exports, and "allowed gestures" has no SwiftUI API.
   When **Scrollable** is on, the canvas wires a wheel handler that
   scrolls content inside the plate; world-space clip planes keep
   off-bounds content hidden regardless of the toggle (no leaks past
@@ -412,6 +449,17 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   (number or 4-edge), grid / scrollView / viewThatFits options per
   type, Size sub-block (W/H mode: Fit / Fixed / Fill, with pt values
   when Fixed), Scroll sub-block (Scrollable On/Off).
+  **Scrollable stacks scroll on the canvas.** The stack's frame becomes
+  a viewport, its content anchors to the top (or the leading edge for a
+  horizontal axis) instead of centring, the wheel moves it, and content
+  is clipped to the stack's own box — composed with the window's, so a
+  scroller nested in a plate stays inside both. The indicator on the
+  trailing edge is sized to the visible fraction and tracks position;
+  `.scrollIndicators(.hidden)` hides it and `.scrollDisabled(true)`
+  turns the gesture off, exactly as they do on device. A `ScrollView`
+  stack scrolls on its own; Section, DisclosureGroup, Tab bodies,
+  toolbars and NavigationSplitView bring their own scrolling and are
+  left alone, which is also where the exporter draws the line.
 - **Section / Disclosure / Navigation / TabView / Tab / ToolbarItem**
   (shown only when applicable): header/footer text, expanded state,
   title, active index, placement.
@@ -448,9 +496,30 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   `allowsTightening`, `multilineTextAlignment`, `fontDesign`,
   `monospacedDigit`, …) for textual views and the `frame` /
   `fixedSize` entries the width picker manages.
-- **Styles:** control-size + per-control style picker (toggleStyle,
-  pickerStyle, …). Hidden for buttons and toggles whose own inspector
-  already includes Size + Style.
+  **The stack draws what it exports.** `.background`, `.overlay`,
+  `.foregroundStyle`, `.clipShape`, `.glassBackgroundEffect`,
+  `.containerBackground`, `.tint`, `.aspectRatio`, `.zIndex`,
+  `.navigationTitle`, `.toolbarBackground`, `.hoverEffect`,
+  `.hoverEffectDisabled` and `.layoutPriority` all change the canvas,
+  not just the generated Swift. Where a modifier and a stored field
+  describe the same thing — `.foregroundStyle` vs the Color well,
+  `.navigationTitle` vs the NavStack's Title, `.hoverEffect` vs the
+  Hover section, `.tint` vs the scene tint — the modifier wins, because
+  it is the SwiftUI spelling. `.fontDesign` is one of them: all four
+  designs draw, in Inter / Nunito / Source Serif 4 / Roboto Mono, and
+  each is measured through its own face so lines wrap where the device
+  wraps them. One exception draws nothing and says so:
+  `.monospacedDigit` — tabular figures are an OpenType feature the 3D
+  text renderer will not apply, and faking the advances would break
+  layout/render agreement.
+- **Styles:** control-size + per-control style picker (Toggle, Label,
+  TextField). All three change the canvas as well as the export: a
+  Toggle set to `.button` draws as a button rather than a switch, a
+  Label honours Icon Only / Title Only, and a TextField draws a rounded
+  border or drops its chrome for `.plain`. Hidden for buttons and
+  toggles whose own inspector already includes Size + Style. The
+  Picker row that used to sit here is gone — the picker's own Style
+  row is the one that works.
 - **Hover** (interactive controls): effect, disabled, default, group
   binding.
 - **SF Symbol** (types that support it - buttons, labels, links,
@@ -572,6 +641,13 @@ trigger + ordered actions. Implementation lives in
 `tap`, `hover`, `drag`, `pinch`, `rotateGesture`, `sceneStart`, `timer`,
 `proximity`, `collision`, `inView`, `animationFinished`, `eventReceived`.
 
+All twelve fire in Preview. The two **device-only** gestures have no mouse
+equivalent, so the wheel stands in for both: **scroll wheel** magnifies
+(`pinch`) and **shift + scroll wheel** twists (`rotateGesture`). The Behaviors
+inspector names which one it is on the trigger you picked. Both carry
+Begins / Changes / Ends, and a wheel burst produces all three — the first tick
+opens the gesture, later ticks change it, and a pause closes it.
+
 ### Actions (15)
 `scaleTo`, `moveTo`, `rotateTo`, `lookAt`, `follow`, `orbit`, `showHide`,
 `setMaterial`, `shaderEffect`, `spawn`, `destroy`, `playAnimation`, `wait`,
@@ -654,9 +730,18 @@ The exporter ([src/export/swiftui.js](src/export/swiftui.js)) emits:
   width/height, or `maxWidth: .infinity` for a Fill axis — plus per-edge
   `.padding(.top, …)` where the edges differ.
 - **Scrolling**: a stack marked Scrollable becomes a real `ScrollView`, with
-  the frame on the viewport and the padding on the scrolling content.
+  the frame on the viewport and the padding on the scrolling content — the
+  same split the canvas now uses, so what scrolls on screen scrolls on
+  device. `scrollAxis` and `scrollShowsIndicators` are read by both sides.
 - **Free placement**: a control dragged around a window plate exports the
   matching `.offset(x:y:)`.
+- **The canvas-side visuals too**: the SF Symbol variant (`.fill` /
+  `.circle` / …), an input field's pill-or-rounded edge, a Text
+  Editor's line count, and a Label's tinted icon tile - colour, size
+  and corner radius, via the explicit `Label { } icon: { }` form.
+  An Image names its asset or emits an `AsyncImage` for a remote URL,
+  rather than the `photo` placeholder it used to emit whatever you had
+  put in the frame.
 
 Modifier order follows how the canvas composes a container — content inset,
 then box sized, then box painted — so `.padding()` precedes `.frame()`

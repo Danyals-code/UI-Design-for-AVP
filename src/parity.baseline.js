@@ -29,6 +29,14 @@
 //           standing trap — close it by unifying on one field, not by
 //           teaching both sides about both.
 //
+//   SHADOWED  Still one-sided, but the scan cannot see it any more: another
+//           item type uses the same field NAME and reads it on both sides.
+//           The scan matches `.field` as text across one corpus, so it cannot
+//           tell `win.blur` from `stack.blur`. A SHADOWED entry says which
+//           item type shadows it and keeps the reason on the record; the test
+//           checks the name really is two-sided, so the tier cannot be used
+//           to park an ordinary divergence. Does NOT count as debt.
+//
 // Reasons are written for the person who has to fix the entry, so they say
 // what diverges, not just that something does. `AUDIT.md` §8 carries the
 // numbered defect index referenced below.
@@ -36,11 +44,13 @@
 export const EXEMPT = 'EXEMPT'
 export const DEBT = 'DEBT'
 export const MIRROR = 'MIRROR'
+export const SHADOWED = 'SHADOWED'
 
 // Shorthand builders, so the tables below stay readable.
 const ex = (why) => ({ tier: EXEMPT, why })
 const debt = (why, defect = null) => ({ tier: DEBT, why, defect })
 const mirror = (why, defect = null) => ({ tier: MIRROR, why, defect })
+const shadowed = (why, by) => ({ tier: SHADOWED, why, by })
 
 // ---------------------------------------------------------------------------
 // Stack fields
@@ -51,27 +61,45 @@ export const STACK = {
   activeChild: ex('canvas-only: which ViewThatFits branch the preview shows'),
   activeTab: ex('canvas-only: selected in-window tab, a preview affordance'),
   collapsed: ex('neither: layers-tree disclosure state, pure editor chrome'),
+  scrollY: ex('canvas-only: live scroll offset of the preview, not a document property'),
+  scrollX: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
   // -- material -------------------------------------------------------------
-  blur: debt('canvas-only: frosted-glass toggle on a stack background is not emitted'),
-  blurAmount: debt('canvas-only: blur radius is not emitted'),
+  blurAmount: ex('canvas-only: SwiftUI Materials are fixed tiers with no radius control, so the tier is the only granularity that round-trips; the canvas exposes a continuous knob because three.js can render one'),
 
   // -- disclosure -----------------------------------------------------------
-  expanded: debt('canvas-only: export emits DisclosureGroup(isExpanded: $state) without seeding it from the authored value'),
 
   // -- ornaments ------------------------------------------------------------
-  ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()'),
-  ornamentContentAlignment: debt('export-only: canvas ignores ornament content alignment'),
-  ornamentVisibility: debt('export-only: canvas always draws the ornament regardless of visibility'),
-  ornamentOffset: debt('neither: read by no one — either wire it or delete the field', 14),
+  // `.scene(…)` and `.parent(…)` name the same rectangle here. Both sides only
+  // ever hang an ornament off a WINDOW — `renderWindow`'s ornamentKids and
+  // `Window3D`'s ornamentChildren are the only two places either side looks —
+  // and a window's root view fills its scene, so the two anchors resolve to one
+  // box. The canvas has no second rect to draw the difference against. AUDIT #29.
+  ornamentAnchorMode: ex('both anchors resolve to the window frame, which is the only place either side puts an ornament'),
+  // `ornamentOffset` left this table in phase 1.5 (AUDIT #14). It was read by
+  // NEITHER side — the number in the inspector moved nothing and reached no
+  // file. The canvas now pushes the ornament that far out along the edge it
+  // hangs from, and the export carries the matching `.offset` on the ornament
+  // content, because `.ornament` itself has no offset parameter.
 
   // -- scrolling / chrome ---------------------------------------------------
-  scrollShowsIndicators: debt('export-only: blocked behind real stack scrolling', 4),
-  toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement'),
-  fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes'),
+  // `scrollShowsIndicators` left this table in phase 1.4: a scrollable stack
+  // now draws a real scroll thumb, and both sides read the field to decide
+  // whether to show it.
 
-  // -- environment: a whole inspector section nothing reads (AUDIT #13) -----
-  environment: debt('neither: Font / Foreground / Locale / LTR-RTL are editable in StackProps and read by no one', 13)
+  // -- environment ----------------------------------------------------------
+  // The whole section left this table in phase 1.5 (AUDIT #13). Font,
+  // Foreground, Tint, Direction and Locale were editable in the inspector and
+  // read by NOBODY, on either side. All five now emit — each is a real
+  // SwiftUI modifier — and `layoutDirection` is previewed as well: the canvas
+  // mirrors the declaring container's own alignment.
+  //
+  // One limit worth stating rather than leaving to be discovered: SwiftUI
+  // inherits `\.layoutDirection` down the whole subtree, while the canvas
+  // mirrors it at the container that declares it. A nested stack with its own
+  // alignment will read left-to-right on the canvas and right-to-left on
+  // device. Closing that means threading an inherited environment through
+  // `layoutStack`, which is a bigger change than this phase.
 }
 
 // ---------------------------------------------------------------------------
@@ -82,17 +110,52 @@ export const WINDOW = {
   collapsed: ex('neither: layers-tree disclosure state, pure editor chrome'),
   scrollY: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
-  fillOpacity: debt('canvas-only: plate fill opacity is not carried into the emitted material'),
-  blur: debt('canvas-only: window backdrop blur toggle is not emitted'),
-  blurAmount: debt('canvas-only: blur radius is not emitted'),
+  // The window plate is SYSTEM glass on visionOS — a WindowGroup's surface is
+  // drawn by the shell, and the exporter emits no background for it at all.
+  // `.windowStyle(.plain)` removes the plate entirely and that is the whole
+  // API; there is nothing to set its opacity or its blur to. The canvas
+  // paints one because it has to draw something, and these three tune what it
+  // paints. Nothing to carry.
+  fillOpacity: ex('canvas-only: the window plate is system-drawn glass, with no SwiftUI control over its opacity'),
+  // A window's blur is still canvas-only, for the reason above. The scan
+  // stopped being able to see that in #35, when a STACK's `blur` began
+  // deciding whether its plate exports as a Material or as a flat colour: the
+  // scan matches `.blur` as text across one corpus and cannot tell the two
+  // receivers apart. SHADOWED keeps the reason on the record without claiming
+  // the scan proved it. `blurAmount` is NOT shadowed — nothing emits it on
+  // either item type — so it stays an ordinary exemption.
+  blur: shadowed('canvas-only: the shell draws the window surface, so there is no backdrop-blur toggle to emit', 'stack'),
+  blurAmount: ex('canvas-only: same, and Materials carry no radius anywhere in SwiftUI'),
 
-  volumeDepthMeters: debt('export-only: canvas derives volume depth from the window size instead'),
-  worldScalingBehavior: debt('export-only: no canvas equivalent'),
-  volumeWorldAlignment: debt('export-only: no canvas equivalent'),
-  supportedVolumeViewpoints: debt('export-only: no canvas equivalent'),
+  // The three below are runtime behaviours rather than geometry: how a volume
+  // rescales as the wearer walks toward it, how it re-orients to gravity, and
+  // which viewpoints its content is designed to be seen from. The canvas has a
+  // fixed world and a camera the designer drives, so there is no such behaviour
+  // for it to show — it always renders at true scale in a world that never
+  // re-orients, with no wearer whose viewpoint can change.
+  worldScalingBehavior: ex('export-only: a runtime rescaling behaviour; the canvas always renders at true scale'),
+  volumeWorldAlignment: ex('export-only: a runtime re-orientation; the canvas world never re-orients'),
+  // This audit's own triage said Preview could bound the orbit for this one.
+  // It could, and it would be wrong: `.supportedVolumeViewpoints` does not
+  // fence the wearer in. It declares which viewpoints the content is built
+  // for, so the system can tell the app when the wearer moves to another and
+  // let it re-face its content. Clamping a camera would model a restriction
+  // the API does not impose. AUDIT #32.
+  supportedVolumeViewpoints: ex('export-only: declares which viewpoints the content supports so the runtime can report a change; a still canvas has no wearer to report'),
 
-  spatial: debt('neither: Immersion / Resizability / Gestures are editable in WindowProps and read by no one', 13),
-  environment: debt('neither: same environment section as stacks, read by no one', 13)
+  // `spatial` and `environment` left this table in phase 1.5 (AUDIT #13).
+  //
+  // `spatial` lost two of its four fields rather than gaining renderers for
+  // them. `immersionStyle` is a SCENE property that the Scene tab already
+  // owns and the exporter already emits — the per-window copy was a second
+  // source for one concept, and the dead one. `gestures` was a list of
+  // gesture names with no SwiftUI API to emit it as. What is left is read by
+  // both sides: `hoverEffect` by the canvas (via `resolveHoverEffect`) and
+  // `windowResizability` by the exporter, as a Scene modifier on the
+  // WindowGroup — which is why the canvas has nowhere to preview it, and why
+  // the inspector now says so instead of implying one.
+  //
+  // `environment` is the same section stacks carry; see the note there.
 }
 
 // ---------------------------------------------------------------------------
@@ -137,77 +200,97 @@ export const PANEL = {
   // canvas deriving its metrics from that one field instead of from a
   // mirrored copy the inspector had to keep in sync.
 
-  // -- control ranges: canvas treats every value as normalised 0..1 ---------
-  sliderMin: debt('export-only: canvas clamps sliderValue to 0..1 and ignores the range'),
-  sliderMax: debt('export-only: canvas clamps sliderValue to 0..1 and ignores the range'),
-  sliderStep: debt('export-only: canvas drag is continuous'),
-  sliderMinLabel: debt('export-only: canvas draws no range labels'),
-  sliderMaxLabel: debt('export-only: canvas draws no range labels'),
-  gaugeMin: debt('export-only: canvas clamps value to 0..1 and ignores the range'),
-  gaugeMax: debt('export-only: canvas clamps value to 0..1 and ignores the range'),
-  gaugeMinLabel: debt('export-only: canvas draws no range labels'),
-  gaugeMaxLabel: debt('export-only: canvas draws no range labels'),
-  gaugeStyle: debt('export-only: canvas always draws the linear-capacity gauge'),
-  gaugeTintFrom: debt('export-only: canvas ignores the gauge gradient'),
-  gaugeTintTo: debt('export-only: canvas ignores the gauge gradient'),
-  stepperMin: debt('export-only: canvas bumps by ±1 with no clamping'),
-  stepperMax: debt('export-only: canvas bumps by ±1 with no clamping'),
-  stepperStep: debt('export-only: canvas bumps by ±1 regardless of step'),
-  total: debt('export-only: canvas treats progress value as already normalised'),
-  indeterminate: debt('export-only: canvas always draws a determinate bar'),
-  progressViewStyle: debt('export-only: canvas always draws the linear style'),
+  // The control-range block left this table in phase 1.7 (AUDIT #17). Slider,
+  // Gauge, Stepper and ProgressView each took a value inside a declared range
+  // and the canvas clamped it to 0..1 instead, so a slider authored 0..100 at
+  // 50 drew hard right here and centred on device. `controlFraction` in
+  // Panel3D now derives the fraction from the authored bounds, the value
+  // labels and per-type styles draw, and the Stepper steps by `stepperStep`
+  // and stops at its ends. 18 entries, all closed.
 
   // -- style pickers the canvas does not act on -----------------------------
-  formStyle: debt('export-only: form has no canvas rendering at all', 6),
-  rowHeight: debt('neither: form and outlinegroup row height is read by no one', 6),
-  groupBoxStyle: debt('export-only: canvas draws one groupbox treatment'),
-  listItemTint: debt('export-only: canvas ignores per-row tint'),
-  listRowSeparator: debt('export-only: canvas always draws separators'),
-  listRowSeparatorTint: debt('export-only: canvas separator colour is fixed'),
-  listRowSpacing: debt('export-only: canvas row spacing comes from the list style'),
-  menuStyle: debt('export-only: canvas draws one menu treatment'),
-  menuIndicator: debt('export-only: canvas always draws the indicator'),
-  tableStyle: debt('export-only: canvas draws one table treatment'),
-  headerProminence: debt('export-only: canvas header styling is fixed'),
-  pickerOptions: debt('export-only: canvas draws the picker without its options'),
-  dateStyle: debt('export-only: canvas date rendering is fixed'),
-  displayedComponents: debt('export-only: canvas always draws the same date-picker fields'),
-  axis: debt('export-only: canvas TextEditor / scroll axis is fixed'),
+  // AUDIT #6 emptied in phase 1.2. `form` and `outlinegroup` draw their rows
+  // now, so `formStyle` picks between the grouped card and the two-column
+  // layout, and `rowHeight` — which reached NEITHER side — lays the rows out
+  // on the canvas and rides along as `.frame(minHeight:)` on each generated
+  // row.
+  // AUDIT #19 emptied in phase 1.8. Eleven of the thirteen now change the
+  // canvas: the list row family, both menu fields, the table style, the
+  // picker's options in the styles that lay them out, both date-picker
+  // fields, and the text field's growth axis.
+  //
+  // The two below stay, and neither is a rendering gap — both are inert on
+  // BOTH sides, which is why wiring a renderer would have been theatre:
+  //
+  //   `groupBoxStyle`  SwiftUI ships exactly one GroupBoxStyle, `.automatic`,
+  //                    so GROUP_BOX_STYLES has a single option and the
+  //                    emitter elides it at that value. The field can never
+  //                    hold anything else and never reaches the file. The
+  //                    honest fix is to drop the one-option picker from the
+  //                    inspector, not to invent a second treatment.
+  //
+  //   headerProminence `.headerProminence` styles SECTION headers, and the
+  //                    list panel does not model sections — so the emitted
+  //                    modifier lands on a `List` with no `Section` in it and
+  //                    does nothing on device either. It belongs on the
+  //                    `section` stack type, which has a real header, rather
+  //                    than on `list`.
+  groupBoxStyle: ex('neither: one-case vocabulary, elided at its only value - see the note above'),
+  headerProminence: ex('neither: styles Section headers and the list panel has no sections - see the note above'),
 
   // -- presentation metrics -------------------------------------------------
-  presentationCornerRadius: debt('export-only: canvas uses the panel corner radius'),
-  presentationDragIndicator: debt('export-only: canvas draws no drag indicator'),
-  sheetFraction: debt('export-only: canvas honours sheetDetent only'),
-  sheetHeight: debt('export-only: canvas honours sheetDetent only'),
-  titleVisibility: debt('export-only: canvas always draws the dialog title'),
-  popoverArrowEdge: debt('export-only: canvas draws no popover arrow', 7),
-  popoverAnchor: debt('neither: popover anchor is read by no one', 7),
-  dialogIcon: debt('export-only: confirmationdialog has no canvas presentation', 7),
-  dialogSeverity: debt('export-only: confirmationdialog has no canvas presentation', 7),
-  inspectorColumnWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorIdealWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorMinWidth: debt('export-only: inspector has no canvas presentation', 7),
-  inspectorMaxWidth: debt('export-only: inspector has no canvas presentation', 7),
+  // AUDIT #7 emptied in phase 1.3. `confirmationdialog` and `inspector` are
+  // routed as presentations now rather than laid out as ordinary children, so
+  // the fields that describe them finally have something to describe:
+  // `titleVisibility`, `dialogIcon` and `dialogSeverity` draw on the dialog,
+  // the four inspector widths size its column, and the popover draws an arrow
+  // on `popoverArrowEdge`. `popoverAnchor` was read by NEITHER side; the
+  // canvas now narrows the arrow for a point anchor and the exporter emits
+  // the matching `attachmentAnchor:`.
 
   // -- typography and 3D ----------------------------------------------------
-  fontDesign: debt('export-only: canvas never swaps the rendered face', 5),
-  monospacedDigit: debt('export-only: canvas does not use tabular figures', 5),
-  boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges'),
-  depth: debt('export-only: canvas ignores .frame(depth:)'),
-  iconName: debt('export-only: contentUnavailable icon is not drawn'),
-  styles: debt('export-only: the shared styles bag (controlSize and friends) reaches the export only'),
+  // `fontDesign` left this table in #5: the three faces it needed are bundled
+  // now and the canvas draws all four designs. `monospacedDigit` did not, and
+  // the blocker turned out not to be the one recorded — see its twin in
+  // MODIFIER_VISIBILITY.
+  monospacedDigit: debt('export-only: tabular figures are an OpenType feature the canvas text renderer will not apply; see the note in MODIFIER_VISIBILITY', 5),
+  // `styles` left this table in phase #31. The bag now holds exactly the
+  // three fields both sides read — `toggleStyle`, `labelStyle` and
+  // `textFieldStyle` — and the four that were second homes for concepts with
+  // one are gone: `pickerStyle` and `tableStyle` (the emitters read the
+  // top-level fields; the copies here were written by a live inspector row
+  // and read by nobody), `buttonBorderShape` and `controlSize` (phase 2.3
+  // settled both on the top level). Saved projects carrying the old
+  // `styles.controlSize` are migrated on load.
 
   // -- canvas-only visuals the export drops ---------------------------------
-  fieldShape: debt('canvas-only: pill vs rounded field shape is not emitted'),
-  imageUrl: debt('canvas-only: export emits a placeholder Image(systemName:) instead of the asset'),
-  symbolVariant: debt('canvas-only: .fill / .circle variant is drawn but not emitted'),
-  selectedColorToken: debt('canvas-only: colour-picker selection is not emitted'),
-  dotCount: debt('canvas-only: slideshow dot count is not emitted'),
-  lineCount: debt('canvas-only: ticker line count is not emitted'),
-  iconColor: debt('canvas-only: label icon colour is not emitted'),
-  iconTileColor: debt('canvas-only: label icon tile is a canvas-side treatment'),
-  iconTileRadius: debt('canvas-only: label icon tile is a canvas-side treatment'),
-  iconTileSize: debt('canvas-only: label icon tile is a canvas-side treatment')
+  //
+  // AUDIT #20 emptied in phase 1.9. This group ran the other way from the
+  // rest of Stage 1 — the canvas drew these and the EXPORT dropped them — so
+  // the work was in the emitters. Eight now reach the file: the field shape
+  // as a `.clipShape`, the image as a named asset or an `AsyncImage` rather
+  // than a `photo` placeholder, the symbol variant as `.symbolVariant`, the
+  // editor's line count as `.lineLimit`, and the Label's icon tile as the
+  // explicit two-closure `Label { } icon: { }` form that can carry a colour,
+  // a size and a corner radius.
+  //
+  // The two below have no SwiftUI API behind them, so emitting anything
+  // would have been invention rather than translation:
+  //
+  //   selectedColorToken  The raised pill in a segmented control is drawn by
+  //                       `.pickerStyle(.segmented)` itself, and SwiftUI
+  //                       exposes no way to re-material it. The canvas has to
+  //                       paint something there, so it uses the tier; the
+  //                       export has nowhere to put it.
+  //
+  //   dotCount            How many bullets the editor draws in an EMPTY
+  //                       SecureField, so the field reads as a password field
+  //                       before anything is typed. On device SecureField
+  //                       masks the real value and there is no
+  //                       placeholder-dot API; the placeholder is the prompt
+  //                       string, which is already emitted.
+  selectedColorToken: ex('canvas-only: the segmented selection pill is system-drawn - see the note above'),
+  dotCount: ex('canvas-only: placeholder bullets in an empty SecureField - see the note above')
 }
 
 // ---------------------------------------------------------------------------
@@ -221,24 +304,32 @@ export const MODIFIER_VISIBILITY = {
   contentShape: ex('hit-testing only — correctly invisible'),
   customModifier: ex('raw Swift, uninterpretable by design'),
 
-  background: debt('the most reached-for modifier in the list draws nothing', 5),
-  overlay: debt('draws nothing', 5),
-  foregroundStyle: debt('canvas colours text from panel.textColor and ignores the modifier', 5),
-  clipShape: debt('clipping is invisible until export', 5),
-  glassBackgroundEffect: debt('the signature material is inert as a modifier', 5),
-  containerBackground: debt('draws nothing', 5),
-  tint: debt('control accent colour is ignored', 5),
-  aspectRatio: debt('changes the frame in Swift, not on the canvas', 5),
-  zIndex: debt('draw order follows tree order only', 5),
-  fontDesign: debt('never swaps the rendered face', 5),
-  monospacedDigit: debt('no tabular figures', 5),
-  navigationTitle: debt('canvas reads stack.navTitle instead — two sources for one thing', 5),
-  toolbarBackground: debt('draws nothing', 5),
-  scrollIndicators: debt('blocked behind real stack scrolling', 4),
-  scrollDisabled: debt('blocked behind real stack scrolling', 4),
-  hoverEffect: debt('canvas has its own hover path off panel.hoverEffect', 5),
-  hoverEffectDisabled: debt('canvas has its own hover path off panel.hoverEffect', 5),
-  layoutPriority: debt('writes nothing to the summary at all — a no-op on BOTH sides', 15)
+  // Phase 1.1 emptied most of this table. `background`, `overlay`,
+  // `foregroundStyle`, `clipShape`, `glassBackgroundEffect`,
+  // `containerBackground`, `tint`, `aspectRatio`, `zIndex`,
+  // `toolbarBackground`, `navigationTitle`, `hoverEffect`,
+  // `hoverEffectDisabled` and `layoutPriority` all draw now.
+  //
+  // `fontDesign` was blocked on assets and is closed: Nunito, Source Serif 4
+  // and Roboto Mono are bundled beside Inter and the canvas draws all four
+  // designs, measuring each through its own face so a serif heading wraps
+  // where the device wraps it. See `fonts.js`.
+  //
+  // `monospacedDigit` was filed under the same blocker and that was wrong.
+  // Inter already HAS tabular figures — they are the `tnum` OpenType feature,
+  // and no font this app could ship would help, because the blocker is the
+  // renderer. troika-three-text applies a fixed whitelist of GSUB features
+  // (liga, mset, isol, init, fina, medi, half, pres, blws, ccmp) with no prop
+  // to extend it, so `tnum` is unreachable and there is no per-glyph advance
+  // API to place digits by hand either. The one thing the canvas must NOT do
+  // is widen digits in measurement alone: this app's whole invariant is that
+  // the box a stack reserves and the text drawn into it are the same box.
+  // Closing this needs a text renderer that can apply a font feature.
+  monospacedDigit: debt('export-only: tabular figures are the `tnum` OpenType feature, and troika applies a fixed GSUB whitelist that excludes it; measuring digits wider than they draw would break layout/render agreement', 5),
+  // `scrollIndicators` and `scrollDisabled` left this table in phase 1.4.
+  // Both had an empty `summarize()` and so wrote nothing for any renderer to
+  // read; both now write, and Stack3D reads them to hide the scroll thumb
+  // and to refuse the wheel respectively.
 }
 
 // ---------------------------------------------------------------------------
@@ -278,4 +369,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 100
+export const DEBT_CEILING = 2

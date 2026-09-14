@@ -105,6 +105,68 @@ Modifier order is part of the contract too. The canvas composes a container as
 `.padding()` before `.frame()` before `.background()`. Reversing the first two
 turns a 640pt box with inset content into a 688pt box.
 
+3. **A modifier beats a stored field for the same concept.** Where both exist
+   — `.foregroundStyle` vs `textColor`, `.navigationTitle` vs `navTitle`,
+   `.hoverEffect` vs `panel.hoverEffect`, `.tint` vs the scene tint — the
+   modifier wins on the canvas, because it is the spelling the exporter
+   emits. This is rule 1 in the cases where collapsing to one field was not
+   an option: the modifier stack and the inspector well are both legitimate
+   ways to say it, so the canvas resolves the precedence rather than letting
+   the two disagree.
+
+   Every modifier that reaches the canvas does so through
+   `summarizeModifiers()`, which reduces the ordered stack to a flat
+   last-write-wins struct. A modifier whose `summarize()` writes nothing is
+   invisible by construction — that was how `navigationTitle`,
+   `toolbarBackground` and `layoutPriority` stayed inert while emitting
+   correct Swift. `parity.test.js` runs every `summarize()` against a
+   recording proxy and fails when nothing a renderer reads comes out.
+
+   One modifier is declared invisible on purpose: `.monospacedDigit`. Tabular
+   figures are the `tnum` OpenType feature — Inter already has them — and the
+   canvas's text renderer applies a fixed whitelist of GSUB features that
+   excludes it, with no per-glyph advance API to place digits by hand. Widening
+   digits in measurement alone would break the one invariant this file is
+   about, so there is nothing honest to draw.
+
+   `.fontDesign` used to sit beside it and no longer does: Nunito, Source
+   Serif 4 and Roboto Mono are bundled beside Inter, so all four designs draw
+   — and are measured through their own face, which is the half that matters
+   for wrapping.
+
+The per-control **Styles** section is part of it as well. `toggleStyle`,
+`labelStyle` and `textFieldStyle` now change the canvas, and the bag holds
+only those three: `pickerStyle`, `tableStyle`, `buttonBorderShape` and
+`controlSize` were second homes for concepts that already had a top-level
+field, and the copies were read by nobody (`pickerStyle` even had its own live
+inspector row wired to nothing). A Label's two slots are decided by
+`labelSlots()` in `appleSystem.js`, where `.automatic` falls back to the
+canvas's own rule that a Label with no text is icon-only.
+
+Per-type **Style** pickers are part of the contract too: where a style changes
+what a view looks like, the canvas switches on it as well as the exporter. The
+names the renderer branches on live in `appleSystem.js`
+(`PICKER_STYLES_SHOWING_OPTIONS`, `MENU_STYLES_AS_BUTTON`,
+`dateComponentsParts`) rather than as string literals in the renderer, because
+a misspelled case never matches and the canvas silently keeps its default -
+which is the defect, reappearing in the form it was fixed from.
+
+Four fields are deliberately one-sided and say so in the ledger, because the
+other side has nowhere to put them: `selectedColorToken` (the segmented
+selection pill is drawn by `.pickerStyle(.segmented)` and SwiftUI exposes no
+way to re-material it) and `dotCount` (placeholder bullets in an empty
+SecureField, which has no placeholder-dot API on device) are canvas-only; and
+two style fields are inert on **both** sides: `groupBoxStyle` (SwiftUI ships one `GroupBoxStyle`, so the picker has
+one option and the emitter elides it) and `headerProminence` (it styles
+`Section` headers and the list panel has no sections, so the emitted modifier
+does nothing on device either).
+
+Two modifiers change geometry rather than paint, so they live in the layout
+engine and not the renderer: `.aspectRatio` reshapes a frame (applied once, in
+`computeSize`) and `.layoutPriority` decides which flexible child receives a
+stack's slack (applied by `layoutStack` and `resolvedChildSizes` from one
+shared helper, so the two cannot disagree).
+
 `AUDIT.md` tracks what still diverges, and `npm test` prints the open count.
 
 ---
@@ -134,7 +196,7 @@ turns a 640pt box with inset content into a 688pt box.
 | `windowStyle` | `'automatic'` | `'automatic'` \| `'plain'` \| `'volumetric'` - drives `.windowStyle()` on export. |
 | `scrollable` | `false` | When true the canvas wires a wheel handler that drives `scrollY`, and the SwiftUI exporter wraps content in `ScrollView`. |
 | `scrollY` | `0` (units) | Vertical scroll offset of the content sub-group. Only consulted when `scrollable` is true. Bounds-clamped to `[0, contentHeight − innerHeight]`. |
-| `volumeDepthMeters` | `0.6` | `.defaultSize` depth in metres when volumetric. |
+| `volumeDepthMeters` | `0.6` | `.defaultSize` depth in metres when volumetric. The canvas draws the volume's bounds from it — faintly, as editor chrome, since visionOS paints no wall around a volume. The width and height of `.defaultSize` come from the window's own size, not from this. |
 | `worldScalingBehavior` | `'automatic'` | `.defaultWorldScalingBehavior(...)`. |
 | `volumeBaseplateVisibility` | `'automatic'` | `'automatic'` \| `'visible'` \| `'hidden'`. |
 | `volumeWorldAlignment` | `'adaptive'` | visionOS 2+ default; or `'gravityAligned'`. |
@@ -285,10 +347,10 @@ superset of all stack-type fields; the inspector and exporter consult
 | `grid` | 2D grid; `columns` + `gridMode` ('fixed' \| 'adaptive'). |
 | `lazyvstack`, `lazyhstack`, `lazyVGrid`, `lazyHGrid` | Lazy variants. |
 | `scrollView` | `scrollAxis`, `scrollShowsIndicators`. |
-| `viewThatFits` | `fitsAxes`: `'both'` \| `'horizontal'` \| `'vertical'`. |
+| `viewThatFits` | `fitsAxes`: `'both'` \| `'horizontal'` \| `'vertical'`. Both sides measure with it: the canvas draws the one branch that fits, as the runtime would. |
 | `section`, `disclosure` | Section header/footer, disclosure expanded state. |
 | `navigationStack`, `tabView`, `tab` | `activeChild` / `activeTab` / `tabLabel` / `tabIcon`. |
-| `toolbar`, `toolbarItem`, `toolbarItemGroup` | `toolbarPlacement` per `TOOLBAR_PLACEMENTS`. |
+| `toolbar`, `toolbarItem`, `toolbarItemGroup` | `toolbarPlacement` per `TOOLBAR_PLACEMENTS`, which also carries the zone the canvas draws the item in. A bar runs leading \| principal \| trailing regardless of tree order. |
 
 ### Defaults (superset)
 
@@ -302,22 +364,23 @@ superset of all stack-type fields; the inspector and exporter consult
 | `fixedWidth`, `fixedHeight` | `null` | Used when mode is `'fixed'`. |
 | `material` | `'regular'` | Background material tier. |
 | `background` | `null` | Optional fill (`{ token, color }`). |
-| `scrollable` | `false` | Wraps content in `ScrollView`. |
+| `scrollable` | `false` | Wraps content in `ScrollView` on export; makes the stack's frame a scrolling viewport on the canvas. |
+| `scrollY`, `scrollX` | `0`, `0` (units) | Live scroll offset of the content sub-group, clamped to the overflow. Preview state, not a document property — the exporter emits nothing for it. |
 | `columns` | `2` | Grid columns. |
 | `gridMode` | `'fixed'` | `'fixed'` \| `'adaptive'`. |
 | `minColumnWidth` | `140pt` | Adaptive grid minimum. |
-| `scrollAxis` | `'vertical'` | ScrollView axis. |
-| `scrollShowsIndicators` | `true` | |
-| `fitsAxes` | `'both'` | ViewThatFits axes. |
+| `scrollAxis` | `'vertical'` | ScrollView axis. Read literally by both sides — an HStack marked scrollable with the default axis scrolls *vertically*, because that is what it exports. |
+| `scrollShowsIndicators` | `true` | Shows the scroll thumb on the canvas and `showsIndicators:` on export. |
+| `fitsAxes` | `'both'` | ViewThatFits axes, measured on the canvas as well as emitted. An axis outside the set is not measured, so everything fits on it. |
 | `sectionHeader`, `sectionFooter` | `''`, `''` | Section text. |
-| `expanded` | `false` | Disclosure default. |
+| `expanded` | `false` | Disclosure default. The canvas lays the group out from it and the export seeds `@State private var isExpanded_…` from it, so an opened group ships open. |
 | `activeChild`, `activeTab` | `0`, `0` | NavStack / TabView active index. |
 | `ornament` | `null` | Anchor edge name when this stack is an ornament. |
-| `ornamentAnchorMode` | `'scene'` | `'scene'` \| `'parent'`. |
-| `ornamentContentAlignment` | `'center'` | |
-| `ornamentVisibility` | `'automatic'` | |
+| `ornamentAnchorMode` | `'scene'` | `'scene'` \| `'parent'`. Export-only by exemption: both anchors name the window frame, and a window is the only place either side puts an ornament, so the canvas has one box for the two of them. |
+| `ornamentContentAlignment` | `'center'` | Aligns the content against the anchor *point* — the named edge of the ornament is the edge that lands on it, so a bottom ornament aligned `leading` runs right from the window's bottom centre. |
+| `ornamentVisibility` | `'automatic'` | `hidden` takes the ornament off the canvas and out of its edge's stacking order, as it is off the device. `automatic` shows it, which is why the exporter elides it. |
 | `ornamentOffset` | `0` | |
-| `toolbarPlacement` | `'automatic'` | Drives `ToolbarItem(placement: …)`. |
+| `toolbarPlacement` | `'automatic'` | Drives `ToolbarItem(placement: …)` and the bar zone the canvas draws the item in. `.bottomBar` / `.bottomOrnament` / `.keyboard` name a surface the canvas's single bar is not; it draws them in a row beneath it. |
 | `environment` | `DEFAULT_ENVIRONMENT` | Per-stack environment overrides. |
 | `modifiers` | `[]` | |
 
@@ -326,10 +389,10 @@ superset of all stack-type fields; the inspector and exporter consult
 - **Stack** - name + kind picker (or **Navigation Split View** for split layouts).
 - **Layout** - alignment, spacing, padding, per-type fields (Grid columns, ScrollView axis, …).
 - **Size** - width/height mode (Fit / Fixed / Fill, pt values when Fixed).
-- **Scroll** - Scrollable toggle.
+- **Scroll** - Scrollable toggle, axis, indicators.
 - **Section / Disclosure / Navigation / TabView / Tab / ToolbarItem** - only shown for the matching `stackType`.
 - **Ornament** - anchor mode, edge, alignment, visibility, offset, background, material.
-- **Environment** - font, foreground, direction, locale.
+- **Environment** - font, foreground, tint, direction, locale. All five emit as their SwiftUI modifiers; `layoutDirection` is previewed too, mirroring the declaring container's own alignment (`mirroredAlignment()` in `layout.js`). SwiftUI inherits it further down the subtree than the canvas mirrors - noted in `parity.baseline.js`.
 - **Modifiers** - modifier stack.
 
 ---
@@ -430,11 +493,13 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 - **Default:** 280×60, sliderValue `0.5`, min `0`, max `1`, step `0`, optional min/max labels.
 - **Inspector:** Value · Min · Max · Step + Min/Max labels.
 - **Emit:** `Slider(value: .constant(0.5), in: 0...1)`.
+- **Range:** `sliderValue` lives in `sliderMin…sliderMax`, not in `0…1`. The canvas maps it through `controlFraction` and drag-to-set writes back in that range, snapped to `sliderStep`. The value labels shrink the track the way SwiftUI's `minimumValueLabel:` / `maximumValueLabel:` slots do.
 
 #### `stepper`
 - **Default:** 280×36 (fill width), stepperValue `5`, min `0`, max `10`, step `1`, text `'Stepper'`.
 - **Inspector:** Label, Value, Min, Max, Step.
 - **Emit:** `Stepper("...", value: .constant(5), in: 0...10)`.
+- **Range:** the ± buttons move by `stepperStep` and stop at `stepperMin` / `stepperMax`; the button that can no longer do anything dims, as it does on device.
 
 #### `picker`
 - **Default:** 260×36, text `'Selection'`, pickerOptions `['Option 1', 'Option 2', 'Option 3']`, pickerValue `'Option 1'`, `pickerStyle: 'automatic'` (→ `.menu` on visionOS).
@@ -457,14 +522,16 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 - **Emit:** `ColorPicker("...", selection: .constant(...), supportsOpacity: true)`.
 
 #### `gauge`
-- **Default:** 140×80, value `0.7`, min `0`, max `100`, `gaugeStyle: 'automatic'`, optional min/max labels, optional tint gradient (`gaugeTintFrom`/`To`).
+- **Default:** 140×80, value `70`, min `0`, max `100`, `gaugeStyle: 'automatic'`, optional min/max labels, optional tint gradient (`gaugeTintFrom`/`To`).
 - **Inspector:** Value, Range, Style, Tint gradient, Labels.
-- **Emit:** `Gauge(value: 0.7, in: 0...100) { ... } currentValueLabel: { ... }.gaugeStyle(...)`.
+- **Emit:** `Gauge(value: 70, in: 0...100) { ... } currentValueLabel: { ... }.gaugeStyle(...)`.
+- **Range:** `value` sits in `gaugeMin…gaugeMax`, which defaults to `0…100` — so a gauge reading "70" holds `70`, not `0.7`. It was seeded `0.7` until phase 1.7, which looked right only because the canvas clamped every value to `0…1`. The `accessoryCircular` styles draw a dial rather than a bar, and a two-stop tint is sampled at the value's own position.
 
 #### `progress`
 - **Default:** 240×8, value `0.65`, total `1.0`, indeterminate `false`.
 - **Inspector:** Value / Total / Indeterminate (Yes/No segmented).
 - **Emit:** `ProgressView(value: 0.65, total: 1.0).progressViewStyle(...)`.
+- **Range:** `value` is measured against `total`, not against 1. `.circular` draws a ring; `indeterminate` gets the position-unknown treatment, since the canvas is a still frame and a spinner is time-based.
 
 > **Inputs group.** `textfield`, `securefield` and `search` share one
 > "Input Type" variant switcher in the inspector (see
@@ -523,7 +590,8 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 #### `form`
 - **Default:** 360×300, color `secondarySystemBackground`, rows `[3]`, `formStyle: 'automatic'`.
 - **Inspector:** Style picker (variant switch with list / form / groupbox).
-- **Emit:** `Form { Text(...) } .formStyle(...)`.
+- **Emit:** `Form { Text(...).frame(minHeight: rowHeight) } .formStyle(...)`.
+- **Canvas:** `.automatic` / `.grouped` draw the inset card with hairline separators, title leading and value (`subtitle`) trailing; `.columns` draws the two-column layout, labels trailing-aligned in a leading gutter. Rows are laid out at `rowHeight`, which the export carries as `minHeight` — a Form row grows for its content, so the authored number is a floor.
 
 #### `groupbox`
 - **Default:** 300×160, text `'Settings'`, textStyle `headline`, `groupBoxStyle: 'automatic'`.
@@ -533,7 +601,8 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 #### `outlinegroup`
 - **Default:** 320×240, rows = nested tree with `indent` + `expanded`.
 - **Inspector:** Title + rows tree.
-- **Emit:** Generates an `OutlineNode` struct + `OutlineGroup` with recursive children.
+- **Emit:** Generates an `OutlineNode` struct + `OutlineGroup` with recursive children, each row carrying `.frame(minHeight: rowHeight)`.
+- **Canvas:** the disclosure tree, indented by `indent`, with a chevron on rows that have children. A collapsed row hides its whole subtree, not just its immediate children - see `outlineVisibleRows()` in `appleSystem.js`, which reads `indent` by the same rule the emitter uses to rebuild the tree. `expanded` is a preview affordance rather than a document property: SwiftUI's OutlineGroup owns its expansion state at runtime, so the export carries the tree and not which parts of it happen to be open.
 
 ### Media
 
@@ -629,29 +698,63 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 
 ### Presentation (modifier-emitted)
 
-These panels never render in the parent's child list at export - they
-attach as modifiers on the parent.
+These panels never render in the parent's child list - they attach to the
+parent as `.sheet(…)` / `.popover(…)` / `.alert(…)` /
+`.confirmationDialog(…)` / `.inspector(…)` modifiers, and the canvas presents
+them over the window rather than flowing them inside it.
+
+The set lives in `appleSystem.js` (`isPresentationPanel`) and is imported by
+the canvas, the exporter and the modifier registry alike. It used to be
+hand-maintained in each: the canvas knew about three types and the exporter
+about five, so a `confirmationdialog` or an `inspector` was laid out as an
+ordinary child on screen and presented modally in the code - the wrong
+*place*, not merely the wrong pixels. `parity.test.js` now fails if any side
+stops consulting the shared set or starts keeping its own copy.
+
+They are not all presented the same way, so the canvas does not place them the
+same way: **modals** (sheet, alert, confirmationdialog) sit over a dimmed
+plate - alerts and dialogues centred, a **sheet** resting at the height its
+detent names, measured up from the bottom edge; a **popover** hangs off the
+edge its `popoverArrowEdge` points
+from, with an arrow drawn there (narrower for a `point` anchor); an
+**inspector** is a trailing column with a divider and no dimming, because it
+is not modal - and it narrows the body the modals centre in, the way a real
+split view does.
 
 #### `sheet`
-- **Default:** 600×400, `sheetDetent: 'large'`, `sheetFraction: 0.7`, material `'regular'`, optional `presentationDragIndicator`, `presentationCornerRadius`, `interactiveDismissDisabled`.
+- **Default:** 600×400, `sheetDetent: 'large'`, `sheetFraction: 0.5`, `sheetHeight: 320`, material `'regular'`, optional `presentationDragIndicator`, `presentationCornerRadius`, `interactiveDismissDisabled`.
 - **Emit:** Attached as `.sheet(isPresented: ...) { … }` on the parent view.
+- **Detents size the sheet on both sides.** The detent is a height measured
+  from the bottom of the container - `.medium` is half of it, `.fraction(f)` is
+  `f` of it, `.height(n)` is `n` points, `.large` is as tall as the canvas
+  draws a modal. The fraction and height fallbacks are the exporter's own
+  (`?? 0.5`, `?? 320`) so a sheet missing the field resolves to the same number
+  either way.
+- **`presentationDragIndicator`** draws the grabber when it is `visible`.
+  `automatic` draws none: the system decides from the number of detents and a
+  sheet here carries one - the same reason the exporter emits nothing for it.
+- **`presentationCornerRadius`** rounds the plate; `0` means no override.
 
 #### `popover`
-- **Default:** 260×180, color `'systemBackground'`, material `'thick'`, `popoverAnchor: 'rectBounds'`.
-- **Emit:** `.popover(isPresented: ...) { … }`.
+- **Default:** 260×180, color `'systemBackground'`, material `'thick'`, `popoverAnchor: 'rectBounds'`, `popoverArrowEdge: 'automatic'`.
+- **Emit:** `.popover(isPresented: ..., attachmentAnchor: ..., arrowEdge: ...) { … }` - both arguments elided at their defaults.
+- **Canvas:** anchored to the named arrow edge with an arrow drawn there; `automatic` centres it. A `point` anchor draws the narrower arrow. visionOS ignores `arrowEdge`, but the same document targets iPadOS and macOS, where it is the difference between a menu above the button and below it.
 
 #### `alert`
-- **Default:** 300×180, text `'Alert Title'`, `alertMessage: 'Are you sure?'`, `alertButtons: ['Cancel', 'OK']`.
+- **Default:** 300×180, text `'Alert Title'`, `alertMessage: 'Are you sure?'`, `alertButtons: ['Cancel', 'OK']`, `dialogSeverity: 'automatic'`, `dialogIcon: ''`.
+- **Canvas:** `dialogIcon` draws a glyph above the title, tinted red when `dialogSeverity` is `critical`.
 - **Auto-roles:** Buttons named `'Cancel' / 'Delete' / 'Remove'` get `.cancel` / `.destructive` automatically.
 - **Emit:** `.alert("...", isPresented: ...) { Button(...) { } } message: { Text(...) }`.
 
 #### `confirmationdialog`
 - **Default:** 300×180, text `'Are you sure?'`, `alertButtons: ['Delete', 'Cancel']`, `titleVisibility: 'automatic'`.
 - **Emit:** `.confirmationDialog("...", isPresented: ..., titleVisibility: ...) { Button(role: .destructive, ...) }`.
+- **Canvas:** shares the alert's renderer - title, message, roled buttons - because SwiftUI presents the two the same way. `titleVisibility` is honoured, including `.automatic`'s rule that the title shows only when there is a message to caption it.
 
 #### `inspector`
-- **Default:** 320×480, text `'Inspector content'`, material `'regular'`, width metrics (`inspectorColumnWidth: 320pt`, min/ideal/max).
+- **Default:** 320×480, text `'Inspector content'`, material `'regular'`, width metrics (`inspectorColumnWidth`, min/ideal/max - all `null` = system default).
 - **Emit:** `.inspector(isPresented: ...) { … }.inspectorColumnWidth(min:..., ideal:..., max:...)`.
+- **Canvas:** a trailing column at the width `inspectorColumnWidth()` (`appleSystem.js`) resolves, mirroring the exporter's precedence - an exact width wins outright, otherwise the ideal (falling back to the stored frame) is clamped between min and max, and the result still has to fit the window it splits.
 
 ### Navigation & misc
 
@@ -682,13 +785,18 @@ RealityKit code.
 | Type | Default frame | Key fields | Emit |
 | --- | --- | --- | --- |
 | `sphere` | 160×160 / depth 160 | `radius` | `RealityView { content in MeshResource.generateSphere(radius:) … }` |
-| `box` | 160×160 / depth 160 | `boxWidth/Height/Depth`, `boxCornerRadius` | `MeshResource.generateBox(width: height: depth:)` |
+| `box` | 160×160 / depth 160 | `boxWidth/Height/Depth`, `boxCornerRadius` (rounds every edge on both sides) | `MeshResource.generateBox(width: height: depth: cornerRadius:)` |
 | `plane` | 200×140 / depth 40 | `planeWidth`, `planeDepth` | `MeshResource.generatePlane(width: depth:)` |
 | `cone` | 140×180 / depth 180 | `coneHeight`, `coneRadius` | `MeshResource.generateCone(height: radius:)` |
 | `cylinder` | 140×180 / depth 180 | `cylHeight`, `cylRadius` | `MeshResource.generateCylinder(height: radius:)` |
 | `text3d` | 220×80 / depth 60 | `text`, `textStyle`, `fontWeight`, `extrusionDepth` (20pt) | `Text3D("...").extrusionDepth(...).frame(depth:)` |
 | `mesh` | 220×220 / depth 200 | `meshAsset` (e.g. `'Earth'`) | `Model3D(named: "...").frame(depth:)` |
 | `realityview` | 360×360 | `cameraMode`, `showAnchorAxes` | `RealityView { content in /* TODO */ }` |
+
+Each of these also carries a `depth`, which is its `.frame(depth:)` — the
+Z-room the view reserves around the object, not the object's own size. A frame
+paints nothing, on device or on the canvas, so the canvas draws the box it
+reserves only while the object is selected.
 
 ---
 
@@ -928,6 +1036,21 @@ text, panels, gradients can never leak past the plate edges. When
 `scrollY` (clamped to the content overflow); the group translates by
 `scrollY` while the clip planes stay pinned, so off-bounds content is
 discarded.
+
+A **scrollable stack** does the same thing one level down, and the two
+compose. `scrollAxesOf` (`layout.js`) decides which stacks scroll, and
+mirrors the exporter exactly: the `scrollView` TYPE always, any other
+plain stack on the `scrollable` FLAG, and never the containers that
+return early in `renderStack` (toolbars, NavigationSplitView, Tab,
+Section, DisclosureGroup). `layoutStack` anchors a scroller's content to
+the leading edge of its axis rather than centring it, because a
+ScrollView's content is taller than its box by definition. Clip rects
+**compose rather than replace**: `ClipContext` passes an ancestor's
+planes down, each clipper concatenates its own and assigns the
+combination across its subtree, and marks its group `userData.ownsClip`
+so the ancestor's walk stops at that boundary. Padding rides with the
+scrolling content and the frame sizes the viewport — the same split the
+exporter uses.
 
 ### Lists (`LIST_STYLES`)
 

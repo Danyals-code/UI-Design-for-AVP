@@ -8,7 +8,9 @@ import { VStackIcon, HStackIcon, ZStackIcon } from '../icons'
 import {
   STACK_TYPES,
   TEXT_STYLES,
-  TEXT_STYLE_ORDER
+  TEXT_STYLE_ORDER,
+  TOOLBAR_PLACEMENTS,
+  ORNAMENT_CONTENT_ALIGNMENTS
 } from '../../appleSystem'
 import {
   Row,
@@ -399,22 +401,11 @@ export function StackProps({ item }) {
               onChange={(e) => updateItem(item.id, { toolbarPlacement: e.target.value })}
               className="field flex-1 cursor-pointer"
             >
-              <option value="automatic">Automatic</option>
-              <option value="principal">Principal (center)</option>
-              <option value="topBarLeading">Top Bar Leading</option>
-              <option value="topBarTrailing">Top Bar Trailing</option>
-              <option value="navigation">Navigation</option>
-              <option value="bottomBar">Bottom Bar</option>
-              <option value="bottomOrnament">Bottom Ornament</option>
-              <option value="primaryAction">Primary Action</option>
-              <option value="secondaryAction">Secondary Action</option>
-              <option value="confirmationAction">Confirmation Action</option>
-              <option value="cancellationAction">Cancellation Action</option>
-              <option value="destructiveAction">Destructive Action</option>
-              <option value="status">Status</option>
-              <option value="title">Title</option>
-              <option value="subtitle">Subtitle</option>
-              <option value="keyboard">Keyboard</option>
+              {/* One list, from the same table the canvas zones by, so a
+                  placement cannot be offered here without somewhere to draw. */}
+              {Object.entries(TOOLBAR_PLACEMENTS).map(([value, { label }]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
           </Row>
           <div className="text-[10px] text-textMute leading-snug mt-1">
@@ -493,17 +484,9 @@ export function StackProps({ item }) {
         <Row label="Alignment">
           <Select
             value={item.ornamentContentAlignment || 'center'}
-            options={[
-              { value: 'center',        label: '.center' },
-              { value: 'leading',       label: '.leading' },
-              { value: 'trailing',      label: '.trailing' },
-              { value: 'top',           label: '.top' },
-              { value: 'bottom',        label: '.bottom' },
-              { value: 'topLeading',    label: '.topLeading' },
-              { value: 'topTrailing',   label: '.topTrailing' },
-              { value: 'bottomLeading', label: '.bottomLeading' },
-              { value: 'bottomTrailing',label: '.bottomTrailing' }
-            ]}
+            /* One list, from the table the canvas offsets by, so an
+               alignment cannot be offered without somewhere to move to. */
+            options={ORNAMENT_CONTENT_ALIGNMENTS.map((v) => ({ value: v, label: `.${v}` }))}
             onChange={(v) => updateItem(item.id, { ornamentContentAlignment: v })}
           />
         </Row>

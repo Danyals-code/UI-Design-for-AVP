@@ -20,6 +20,39 @@ import '@fontsource/inter/latin-500-italic.css'
 import '@fontsource/inter/latin-600-italic.css'
 import '@fontsource/inter/latin-700-italic.css'
 
+// The three alternate `.fontDesign(_:)` faces, same weights and styles as
+// Inter. They are loaded for MEASUREMENT: Canvas2D sizes a run by CSS family
+// name while troika shapes it from the woff file in `fonts.js`, and the two
+// have to be looking at the same face or the canvas wraps a serif heading at
+// Inter's widths. AUDIT #5.
+import '@fontsource/nunito/latin-400.css'
+import '@fontsource/nunito/latin-500.css'
+import '@fontsource/nunito/latin-600.css'
+import '@fontsource/nunito/latin-700.css'
+import '@fontsource/nunito/latin-400-italic.css'
+import '@fontsource/nunito/latin-500-italic.css'
+import '@fontsource/nunito/latin-600-italic.css'
+import '@fontsource/nunito/latin-700-italic.css'
+
+import '@fontsource/source-serif-4/latin-400.css'
+import '@fontsource/source-serif-4/latin-500.css'
+import '@fontsource/source-serif-4/latin-600.css'
+import '@fontsource/source-serif-4/latin-700.css'
+import '@fontsource/source-serif-4/latin-400-italic.css'
+import '@fontsource/source-serif-4/latin-500-italic.css'
+import '@fontsource/source-serif-4/latin-600-italic.css'
+import '@fontsource/source-serif-4/latin-700-italic.css'
+
+import '@fontsource/roboto-mono/latin-400.css'
+import '@fontsource/roboto-mono/latin-500.css'
+import '@fontsource/roboto-mono/latin-600.css'
+import '@fontsource/roboto-mono/latin-700.css'
+import '@fontsource/roboto-mono/latin-400-italic.css'
+import '@fontsource/roboto-mono/latin-500-italic.css'
+import '@fontsource/roboto-mono/latin-600-italic.css'
+import '@fontsource/roboto-mono/latin-700-italic.css'
+
+
 import App from './App.jsx'
 import { useStore } from './store'
 import { installTextMeasurer } from './textMeasure'

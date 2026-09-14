@@ -1,6 +1,9 @@
 # Round-trip Audit — Code ↔ Visual
 
-**Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` @ `5b294cb` · **Working tree:** clean
+**Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
+
+*Audited at `5b294cb`. **Every phase in §6 has landed since** — 2.1–2.6 and
+1.1–1.9 — and each is marked where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -25,13 +28,18 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **Stage 2 is complete and the count is now 100**.
+divergences**. Every phase in the plan has landed and the unnumbered tail has
+been sorted and worked through, so **the count is now 2**, both of them
+`monospacedDigit` — on the modifier and on the panel — which needs a text
+renderer that can apply an OpenType feature rather than any font this app
+could ship (#5). Everything else is closed; everything left one-sided carries
+a written reason.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
-| Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 78 |
-| Neither side reads a field the inspector writes | 7 fields | 6 |
+| Canvas honours a field, exporter drops it | 28 fields | **0** |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 2 (both #5) |
+| Neither side reads a field the inspector writes | 7 fields | **0** |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
 
@@ -44,10 +52,28 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) is untouched** — and it
-is where the remaining 100 sit, dominated by defect #5 (17 modifiers that emit
-correct Swift and draw nothing) and #7 (8 presentation fields with no canvas
-equivalent). Estimate for Stage 1 ≈ 4–6 working days.
+compile-clean enum surface. **Stage 1 (code → visual) has closed its filed
+work bar two blocked entries** — 1.4, 1.7, 1.1, 1.3 and 1.2 have landed, so
+scrollable stacks scroll, every control honours its declared range, the
+modifier stack draws what it emits, presentations are presented rather than
+laid out inline, and Form and OutlineGroup draw their rows. Of the remaining
+54, **46 carry no defect number at all**: #19 (13) and #20 (10) plus the
+ornament / volume / presentation-metric tail. The filed remainder is just #5
+(4, all blocked on font assets — see 1.1), #13 (3) and #14 (1), and #13 is
+a question about dead controls rather than a rendering gap.
+
+**A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
+originally written retire exactly the 35 divergences that carry a defect
+number — 100 → 65. The other 65 had no phase at all: **#17 (18), #19 (13) and
+#20 (10)** accounted for 41 of them and the ornament / volume /
+presentation-metric tail for the rest. So the plan as drafted closed about a
+third of what was left. #17 was the clearest omission — filed High, never
+scheduled, the largest single block after #5, and a *wrong-pixels* bug rather
+than an unread field — so it became phase **1.7** and shipped ahead of 1.1.
+**#19 and #20 are now scheduled as 1.8 and 1.9.**
+
+Estimate for Stage 1 as originally scoped ≈ 4–6 working days; with #19 and
+#20 still to come, roughly 7–9 in total.
 
 ---
 
@@ -58,15 +84,15 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | Subsystem | Size | Status | Notes |
 | --------- | ---- | ------ | ----- |
 | **Store** (`src/store/`) | 2,400 ln | ✅ Solid | 8 slices over one flat `items` array. Undo/redo, clipboard, persistence all covered by tests (51 assertions). |
-| **Layout engine** (`layout.js`) | 807 ln | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template (25 tests). |
+| **Layout engine** (`layout.js`) | 807 ln → 900 | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template. 44 tests, covering scroll anchoring (1.4) and the two geometry modifiers (1.1). |
 | **Text pipeline** (`text.js`, `textMeasure.js`) | 410 ln | ✅ Solid | Full tighten → scale → wrap → truncate, on real Inter advance widths. 41 tests. Best-tested part of the app. |
 | **Panel registry** (`panels/registry.js`) | 1,840 ln | ✅ Solid | 56 view types, every one with `defaults` + `emit()`. No gaps. |
-| **Modifier registry** (`modifiers/registry.js`) | 887 ln | 🟡 Half-wired | 43 modifiers, all 43 emit Swift, **only 23 reach the canvas**. See §4.1. |
+| **Modifier registry** (`modifiers/registry.js`) | 887 ln | ✅ Wired *(was: half-wired)* | 43 modifiers, all 43 emit Swift, **39 reach the canvas** (23 before 1.4). The 4 that don't are `contentShape` and `customModifier`, which correctly draw nothing, plus `fontDesign` and `monospacedDigit`, blocked on font assets. See §4.1. |
 | **SwiftUI exporter** (`export/swiftui.js`) | 1,081 ln → 1,400 | ✅ Solid *(was: good, lossy)* | Idiomatic output — real `ZStack` / `.toolbar` / `.ornament` / `.sheet`. Since Stage 2 it also carries frames, per-edge padding, ScrollViews and free placement. See §5. |
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
-| **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln | 🟡 Near-complete | 15/15 actions, 11/12 triggers. `rotateGesture` is missing. See §4.4. |
-| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln | 🟡 Good, uneven | 48/56 view types have a dedicated renderer; 8 fall back to a generic plate. See §4.2. |
+| **Behaviour runtime** (`behaviors/runtime.js`) | 973 ln → 1,020 | ✅ Complete *(was: near-complete)* | 15/15 actions, **12/12 triggers** since 1.6 gave `rotateGesture` a stand-in. 10 tests. See §4.4. |
+| **Canvas renderer** (`Panel3D.jsx`, `SceneTree.jsx`, `Entity3D.jsx`) | 5,476 ln → 6,100 | ✅ Solid *(was: good, uneven)* | 55/56 view types have a dedicated renderer, up from 48: 1.3 gave `confirmationdialog` and `inspector` real presentations and 1.2 gave `form` and `outlinegroup` their rows. Only `canvas` falls back to a plate, and the exporter draws a placeholder `Rectangle()` for it too — the two agree. See §4.2. |
 | **Templates** (`templates/index.js`) | 3,102 ln | ✅ Re-seeded in 2.3 *(was: stale)* | 6 window + 6 volume + 2 blanks + 6 legacy. The two that overflow are scrollable and now export a real ScrollView. See §5.3. |
 
 ### Quality gates — all green
@@ -75,8 +101,12 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 454 passing, 10 files (365 at the audit; +89 from the harness and the Stage 2 phases).
-- **Lint:** 0 errors, 51 warnings (all `react-hooks/exhaustive-deps` hygiene in
+- **Tests:** 692 passing, 12 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
+  1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
+  had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
+  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35 and +6 from #32 and +18 from #5).
+- **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
 
@@ -109,37 +139,48 @@ exhaustive rather than sampled. Each was then confirmed by running the code.
 
 *Can everything the system can express be drawn?*
 
-### 4.1 Twenty modifiers export Swift but change nothing on the canvas
+### 4.1 Twenty modifiers export Swift but change nothing on the canvas ✅ **mostly fixed in 1.1**
 
-`summarizeModifiers()` reduces the ordered modifier stack to a flat struct the
-renderer reads. All 43 modifiers write into that struct; the renderer only ever
-reads **23** of the fields. The other 20 are silently inert:
+*Original finding.* `summarizeModifiers()` reduces the ordered modifier stack
+to a flat struct the renderer reads. All 43 modifiers write into that struct;
+the renderer only ever reads **23** of the fields. The other 20 are silently
+inert:
 
 | Modifier | Should it be visible? | Why it matters |
 | -------- | --------------------- | -------------- |
-| `background` | **Yes** | A user adds `.background(.blue)` and the canvas stays unchanged. Most-reached-for modifier in the list. |
-| `overlay` | **Yes** | Same. |
-| `foregroundStyle` | **Yes** | Canvas colours text from `panel.textColor` instead; the modifier is ignored, so the two disagree the moment the user uses the stack. |
-| `clipShape` | **Yes** | Corner/circle clipping is invisible until export. |
-| `glassBackgroundEffect` | **Yes** | The app's signature material — inert as a modifier. |
-| `containerBackground` | **Yes** | |
-| `tint` | **Yes** | Control accent colour. |
-| `aspectRatio` | **Yes** | Changes the frame; the canvas keeps the old one. |
-| `zIndex` | **Yes** | Draw order — currently tree order only. |
-| `fontDesign` | **Yes** | `.rounded` / `.serif` / `.monospaced` never swap the rendered face. |
-| `monospacedDigit` | Minor | Tabular figures. |
-| `navigationTitle` | **Yes** | Canvas reads `stack.navTitle` instead — two sources for one thing. |
-| `toolbarBackground` | **Yes** | |
-| `scrollIndicators` | Yes, after §4.3 | Meaningless until stack scrolling works. |
-| `scrollDisabled` | Yes, after §4.3 | Same. |
-| `layoutPriority` | **Yes** (layout) | Writes nothing to the summary at all — affects neither side's layout. |
-| `hoverEffect` | Partial | Canvas has its own hover path off `panel.hoverEffect`; the modifier is a second, ignored source. |
-| `hoverEffectDisabled` | Partial | Same. |
+| ~~`background`~~ | **Wired in 1.1** | A user adds `.background(.blue)` and the canvas stays unchanged. Most-reached-for modifier in the list. |
+| ~~`overlay`~~ | **Wired in 1.1** | Same. |
+| ~~`foregroundStyle`~~ | **Wired in 1.1** | Canvas colours text from `panel.textColor` instead; the modifier is ignored, so the two disagree the moment the user uses the stack. |
+| ~~`clipShape`~~ | **Wired in 1.1** | Corner/circle clipping is invisible until export. |
+| ~~`glassBackgroundEffect`~~ | **Wired in 1.1** | The app's signature material — inert as a modifier. |
+| ~~`containerBackground`~~ | **Wired in 1.1** | |
+| ~~`tint`~~ | **Wired in 1.1** | Control accent colour. |
+| ~~`aspectRatio`~~ | **Wired in 1.1** | Changes the frame; the canvas keeps the old one. |
+| ~~`zIndex`~~ | **Wired in 1.1** | Draw order — currently tree order only. |
+| `fontDesign` | **Yes**, but blocked | `.rounded` / `.serif` / `.monospaced` never swap the rendered face - and cannot until the app ships those faces. |
+| `monospacedDigit` | Minor, blocked | Tabular figures, same blocker. |
+| ~~`navigationTitle`~~ | **Wired in 1.1** | Canvas reads `stack.navTitle` instead — two sources for one thing. |
+| ~~`toolbarBackground`~~ | **Wired in 1.1** | |
+| ~~`scrollIndicators`~~ | **Wired in 1.4** | Was meaningless until stack scrolling worked; now hides the scroll thumb. |
+| ~~`scrollDisabled`~~ | **Wired in 1.4** | Now refuses the wheel, as it does on device. |
+| ~~`layoutPriority`~~ | **Wired in 1.1** | Writes nothing to the summary at all — affects neither side's layout. |
+| ~~`hoverEffect`~~ | **Wired in 1.1** | Canvas has its own hover path off `panel.hoverEffect`; the modifier is a second, ignored source. |
+| ~~`hoverEffectDisabled`~~ | **Wired in 1.1** | Same. |
 | `contentShape` | No | Hit-testing only — correctly invisible. |
 | `customModifier` | No | Raw Swift, uninterpretable by design. |
 
-So **17 of 20 are real gaps**; `contentShape` and `customModifier` are correct
-as-is, and `layoutPriority` is a distinct bug (it is a no-op on both sides).
+So **17 of 20 were real gaps**; `contentShape` and `customModifier` are correct
+as-is, and `layoutPriority` was a distinct bug (a no-op on both sides).
+
+**Where it stands.** 1.4 wired the two scroll modifiers and 1.1 wired thirteen
+more plus `layoutPriority`. **Two remain, and the blocker is assets rather
+than wiring:** `fontDesign` and `monospacedDigit` need a rounded, serif or
+monospaced face, and the app bundles Inter alone — troika needs a real font
+file to shape 3D text. Nudging the weight or faking advance widths would put a
+guess on the canvas, and drawing a *different* wrong thing from the device is
+worse than drawing nothing, so they stay declared. Closing them means shipping
+the faces (an `@fontsource` mono + serif) and mapping `.rounded` / `.serif` /
+`.monospaced` onto them; tabular figures then follow.
 
 > `src/modifiers/registry.js:867` — `summarizeModifiers`
 > `src/components/Panel3D.jsx:467` — the only consumer
@@ -151,26 +192,33 @@ plain rounded rectangle with a text label:
 
 | Type | Exports | Canvas draws | Severity |
 | ---- | ------- | ------------ | -------- |
-| `form` | A real `Form { … }` with every row | Empty plate — **no rows** | **High** — the row data is authored in the inspector and invisible |
-| `outlinegroup` | A generated `OutlineNode` tree with every row | Empty plate — **no rows** | **High** — same |
-| `confirmationdialog` | `.confirmationDialog(…)` modifier on the parent | Inline content sitting in the layout | **High** — wrong *place*, not just wrong pixels |
-| `inspector` | `.inspector(…)` modifier on the parent | Inline content sitting in the layout | **High** — same |
+| ~~`form`~~ | A real `Form { … }` with every row | **Fixed in 1.2** — draws its rows | — |
+| ~~`outlinegroup`~~ | A generated `OutlineNode` tree with every row | **Fixed in 1.2** — draws its rows, collapsed subtrees hidden | — |
+| ~~`confirmationdialog`~~ | `.confirmationDialog(…)` modifier on the parent | **Fixed in 1.3** — presents as a modal dialog | — |
+| ~~`inspector`~~ | `.inspector(…)` modifier on the parent | **Fixed in 1.3** — presents as a trailing column | — |
 | `navigationlink` | `NavigationLink(…)` | Plain text, no chevron / link affordance | Medium |
-| `popover` | `.popover(…)` | Plate, no arrow or presentation framing | Low |
+| ~~`popover`~~ | `.popover(…)` | **Fixed in 1.3** — anchored to its arrow edge, with an arrow | — |
 | `sheet` | `.sheet(…)` | Plate (positioned correctly, detents honoured) | Low |
 | `canvas` | Placeholder `Rectangle()` | Plain plate | **None** — the two already agree |
 
-`confirmationdialog` and `inspector` are the sharp ones. `SceneTree.jsx:784`
-lists only `['sheet', 'popover', 'alert']` as presentation types, while
-`swiftui.js:747` lists five. The two extra types are therefore laid out as
+`confirmationdialog` and `inspector` were the sharp ones. `SceneTree.jsx:784`
+listed only `['sheet', 'popover', 'alert']` as presentation types, while
+`swiftui.js:747` listed five. The two extra types were therefore laid out as
 ordinary children on screen and emitted as modal modifiers in the code.
 
-### 4.3 Scrollable stacks draw a scrollbar that does not scroll
+**Fixed in 1.3**, and the list is now one set in `appleSystem.js` that all
+three readers — canvas, exporter and modifier registry — import, so it cannot
+drift again. `form` and `outlinegroup` followed in **1.2**. Of the eight, only
+`canvas` still falls through — and the exporter emits a placeholder
+`Rectangle()` for it, so the two sides agree about drawing nothing much.
 
-`stack.scrollable` renders a decorative bar (`SceneTree.jsx:529`) and stops
-there. Only `win.scrollable` wires a wheel handler (`SceneTree.jsx:1015`).
-Content is also centred rather than top-aligned, so an overflowing stack is
-clipped at *both* ends and its top is unreachable.
+### 4.3 Scrollable stacks draw a scrollbar that does not scroll ✅ **fixed in 1.4**
+
+*Original finding.* `stack.scrollable` renders a decorative bar
+(`SceneTree.jsx:529`) and stops there. Only `win.scrollable` wires a wheel
+handler (`SceneTree.jsx:1015`). Content is also centred rather than
+top-aligned, so an overflowing stack is clipped at *both* ends and its top is
+unreachable.
 
 Two shipped templates rely on it:
 
@@ -183,22 +231,31 @@ Loading the `settings` template puts you mid-page with the title off-screen and
 no way to scroll to it. This is the most visible “it's broken” moment in the
 app. (The exporter does not save it either — §5.2.)
 
-### 4.4 `rotateGesture` has no preview runtime
+See phase **1.4** below for what shipped.
 
-It is in the trigger vocabulary, appears in the inspector, and **generates real
-Swift**, but `behaviors/runtime.js` matches only `'drag'` (line 901) and
-`'pinch'` (line 910) among the pointer triggers. Authoring a rotate behaviour
-produces a preview that does nothing and code that works.
+### 4.4 `rotateGesture` has no preview runtime ✅ **fixed in 1.6**
 
-### 4.5 Dead inspector controls
+*Original finding.* It is in the trigger vocabulary, appears in the inspector,
+and **generates real Swift**, but `behaviors/runtime.js` matches only `'drag'`
+(line 901) and `'pinch'` (line 910) among the pointer triggers. Authoring a
+rotate behaviour produces a preview that does nothing and code that works.
 
-`WindowProps.jsx:139–152` exposes Immersion Style, Window Resizability and
-Gestures. Only `spatial.hoverEffect` is ever read (`store/helpers.js:93`). The
-other three reach neither the canvas nor the export — they are controls that do
-nothing at all.
+See phase **1.6** below for what shipped, including a second dead control the
+fix uncovered.
+
+### 4.5 Dead inspector controls ✅ **fixed in 1.5**
+
+*Original finding.* `WindowProps.jsx:139–152` exposes Immersion Style, Window
+Resizability and Gestures. Only `spatial.hoverEffect` is ever read
+(`store/helpers.js:93`). The other three reach neither the canvas nor the
+export — they are controls that do nothing at all.
 
 Same class, lower stakes: `blur` / `blurAmount` on stacks and windows are
 canvas-only, and `ornamentOffset` is read by neither side.
+
+Phase **1.5** wired what had an API and removed what did not; `ornamentOffset`
+went with it (#14). `blur` / `blurAmount` remain canvas-only and are still in
+the ledger — they are a material question rather than a dead control.
 
 ---
 
@@ -316,7 +373,7 @@ user-authored scenes — but the drag gesture invites exactly that.
 
 | | Preview runtime | Swift export |
 | --- | --- | --- |
-| **Triggers (12)** | 11 — missing `rotateGesture` | 8 — `proximity`, `inView`, `animationFinished`, `hover` documented, not generated |
+| **Triggers (12)** | **12** since 1.6 *(was 11 — `rotateGesture` missing)* | 8 — `proximity`, `inView`, `animationFinished`, `hover` documented, not generated |
 | **Actions (15)** | 15 (`playAnimation` approximated as a 0.4 s no-op) | 11 — `follow`, `orbit`, `shaderEffect`, `repeat` documented, not generated |
 
 The undone ones are emitted as a `// MARK: - Behaviors still to wire up` block
@@ -395,35 +452,411 @@ it. The other three checks run the real code and are exact.
 
 ### Stage 1 — Code → Visual *(~4–6 days)*
 
-**1.1 — Wire the 17 inert modifiers into the renderer** *(2 days)*
-Order of value: `background`, `overlay`, `foregroundStyle`, `clipShape`,
-`tint`, `glassBackgroundEffect`, `containerBackground`, then `aspectRatio`,
-`zIndex`, `fontDesign`, and the chrome ones. Fix `layoutPriority` to write into
-the summary and be honoured by `layout.js`.
-*Acceptance:* parity test 2 passes with only `contentShape` and
-`customModifier` exempt.
+**1.1 — Wire the inert modifiers into the renderer** ✅ **done**
 
-**1.2 — Give `form` and `outlinegroup` real row rendering** *(1 day)*
-Both already carry `rows` and a `rowHeight`; `list` and `table` have working
-row overlays to copy from (`Panel3D.jsx:1444`, `:1639`).
+Fourteen of them now draw: `background`, `overlay`, `foregroundStyle`,
+`clipShape`, `glassBackgroundEffect`, `containerBackground`, `tint`,
+`aspectRatio`, `zIndex`, `navigationTitle`, `toolbarBackground`,
+`hoverEffect`, `hoverEffectDisabled` and `layoutPriority`. Parity debt
+79 → 65, closing defect #15 outright and all of #5 except the two below.
 
-**1.3 — Route `confirmationdialog` and `inspector` as presentations** *(½ day)*
-Single-line fix: align `SceneTree.jsx:784` with the exporter's list at
-`swiftui.js:747`. Then give each a presentation chrome consistent with `alert`.
+Three of them wrote **nothing at all** into the summary — `navigationTitle`,
+`toolbarBackground` and `layoutPriority` had an empty `summarize()`, so there
+was no value for any renderer to read even in principle. The rest were the
+easier shape: the accumulator already carried them and nobody looked.
 
-**1.4 — Make stack scrolling real** *(1 day)*
-Lift the window's wheel handler (`SceneTree.jsx:1015`) to any scrollable
-container; clip to the stack's frame; **anchor overflowing content to the top**
-rather than the centre. Honour `scrollAxis`. This is what makes `settings` and
-`article` usable.
+Four are worth knowing about:
 
-**1.5 — Clean up the dead controls** *(½ day)*
-Implement or remove Immersion / Resizability / Gestures. If they are
-export-only concepts, move them under a clearly-labelled “export only” group so
-the inspector stops implying a preview.
+- **`layoutPriority` was a no-op on BOTH sides (#15).** It now decides who
+  receives a stack's slack: among the children that want to grow, the highest
+  priority present takes it and the rest fall back to intrinsic — which is
+  what happens on device when one of two Spacers carries
+  `.layoutPriority(1)`. One helper, called from `layoutStack` and
+  `resolvedChildSizes` alike, so the space one reserves is the space the
+  other draws into.
+- **`aspectRatio` reshapes a frame, so it belongs to the layout engine.**
+  `computeSize` is now a thin wrapper that applies it once, after the
+  type-specific measurement, and the renderer runs the same helper on the
+  free-placed path. Putting it in only one of them would have been a new
+  instance of exactly the divergence this audit is about.
+- **`navigationTitle` was the "two sources for one thing" case.** The canvas
+  read `stack.navTitle`; the modifier is the SwiftUI spelling, so it wins and
+  the stored field remains the fallback.
+- **`tint` needed nine call sites, not one.** Every control that fills with an
+  accent read `scene.tintColor` unconditionally. They route through one
+  `accentColor` now — while the selection halos and gizmo wireframes keep
+  reading the scene tint, because those are editor chrome and a designer's
+  `.tint(.red)` should not repaint them.
 
-**1.6 — Add `rotateGesture` to the preview runtime** *(½ day)*
-Alongside the existing `drag` and `pinch` handling.
+**Two are deliberately left.** `fontDesign` and `monospacedDigit` are blocked
+on assets, not wiring — see §4.1.
+
+*Acceptance:* 17 new tests — `applyAspectRatio` in isolation, the ratio
+reaching `computeSize`, and the priority allocation measured by where a row
+lands between two Spacers. Verified by perturbation: making either modifier a
+no-op again fails 9. The renderer half is covered by the harness, which runs
+the real `summarize` functions and checks a renderer reads what they write.
+Confirmed in the running app: `.background` paints a plate behind a Text that
+was previously unchanged, and `.foregroundStyle` recolours it over the top.
+
+*One bug the tests could not have caught.* Hoisting the tint resolution next
+to the modifier summary put it above the component's `scene` binding, and the
+canvas went blank on a temporal-dead-zone error. The suite has no React
+renderer, so nothing failed — only running the app did. Worth remembering
+before the next renderer-side phase.
+
+**1.2 — Give `form` and `outlinegroup` real row rendering** ✅ **done**
+
+Both exported their row data faithfully — a real `Form { … }` with every row,
+and a generated recursive `OutlineNode` model — while the canvas drew an empty
+plate. So rows the designer typed into the inspector were invisible until
+export. Parity debt 56 → 54, closing defect #6.
+
+- **`form`** draws the grouped card with hairline separators, title leading
+  and value trailing. `formStyle` picks between that and `.columns`, which is
+  the two-column layout with trailing-aligned labels in a leading gutter.
+- **`outlinegroup`** draws the disclosure tree, indented by `indent`, with a
+  chevron on rows that have children. A collapsed row hides its whole
+  subtree, not just its immediate children.
+- **`rowHeight` reached NEITHER side.** It lays the rows out on the canvas now
+  and rides along as `.frame(minHeight:)` on each generated row — `minHeight`
+  rather than `height` because a Form row grows for its content, so the
+  authored number is a floor.
+
+**Two near-misses worth recording, because they are the same mistake.** The
+parity scan asks whether a side's source text contains `.someField`, and both
+times a *local* name collided with a real field:
+
+- the outline walk called its nesting level `depth`, which is also
+  `.frame(depth:)` on a 3D view — so the canvas looked like it had started
+  reading that field;
+- extracting the walk into `panels/registry.js` put `r.expanded` into the
+  **export** side's source, which made `STACK.expanded` — a live,
+  export-side-only divergence about DisclosureGroup seeding — look closed.
+
+Both would have quietly retired a real entry, which is worse than a false
+alarm: the harness would have been *lying* rather than nagging. The level is
+called `level` now and the helper lives in `appleSystem.js`, which sits in
+neither side's file set precisely so shared code cannot vote in this scan.
+Anyone adding renderer code should expect this and check what a new local name
+shadows.
+
+*Acceptance:* 14 new tests. Eight pin `outlineVisibleRows` — the piece with
+real logic in it — including that a collapsed row hides grandchildren and not
+just children, and that the walk resumes at the first row back at or above the
+collapsed level. Six check the export carries `rowHeight` and `formStyle`, and
+that the tree the exporter nests by `indent` is the tree the canvas walks.
+Verified by perturbation: stop hiding descendants and three fail. Confirmed in
+the running app with both types seeded into a scene — rows, values and
+separators all draw, where the plate was blank before.
+
+**1.3 — Route `confirmationdialog` and `inspector` as presentations** ✅ **done**
+
+Five panel types attach to their PARENT as a modifier instead of flowing
+inside it. The canvas knew about three of them and the exporter about five, so
+a `confirmationdialog` or an `inspector` was laid out as an ordinary child on
+screen while the generated code presented it over the view — the wrong
+*place*, not merely the wrong pixels. Parity debt 65 → 56, closing defect #7
+outright.
+
+**The fix was not the one-line alignment the plan called for.** Copying the
+exporter's five types into the canvas would have fixed today's drift and left
+tomorrow's: the list was hand-maintained in *three* places (the third being
+`modifiers/registry.js`, which uses it to decide that presentations take no
+modifier chain). It is one set in `appleSystem.js` now — the vocabulary module
+every side already imports, and the one layer with no cycle to worry about —
+and `parity.test.js` gained two tests that fail if either side stops consulting
+it or starts keeping a private copy.
+
+Then the chrome, which is where the remaining seven fields lived:
+
+- **They are not presented the same way, so they are not placed the same
+  way.** Modals sit centred over a dimmed plate; a popover hangs off the edge
+  its arrow points from, with an arrow drawn there; an inspector is a trailing
+  column in a split, with a divider and *no* dimming, because it is not modal.
+  The inspector column also narrows the body the modals centre in, the way a
+  real split does.
+- **`confirmationdialog` draws the dialog furniture** — title, message, roled
+  buttons — sharing the alert's renderer, because SwiftUI presents the two the
+  same way. `titleVisibility` is honoured, including `.automatic`'s rule that
+  the title shows only when there is a message to caption it.
+- **`dialogIcon` / `dialogSeverity`** put a glyph above the title, tinted red
+  when the dialog is critical.
+- **The four `.inspectorColumnWidth(…)` inputs** size the column, through a
+  shared helper that mirrors the exporter's precedence: an exact width wins
+  outright, otherwise the ideal is clamped between min and max.
+- **`popoverAnchor` was read by *neither* side** — a live control wired to
+  nothing. The canvas now draws a narrower arrow for a point anchor, and the
+  exporter emits the matching `attachmentAnchor: .point(.center)`.
+
+*Acceptance:* 12 new tests. The routing one sweeps all 56 panel types and
+compares `isPresentationPanel` against whether the generator actually attaches
+a presentation modifier — not against the list the predicate is built from.
+The width tests read the emitted `.inspectorColumnWidth(…)` back out of the
+Swift and check the canvas helper resolves the same number. Verified by
+perturbation: restoring the drifted three-type list fails 5, including the
+guard against a private copy. Confirmed in the running app — a confirmation
+dialog presents as a centred modal over a dimmed backdrop instead of landing
+in the Settings column, and adding an inspector shifts it left to make room
+for the column.
+
+**1.4 — Make stack scrolling real** ✅ **done**
+
+A scrollable stack is now a real viewport: content is anchored to the leading
+edge of the axis it scrolls, the wheel moves it, it is clipped to the stack's
+own frame, and the indicator reports position instead of decorating the edge.
+`settings` and `article` are usable again. Parity debt 100 → 97, retiring
+defect #4.
+
+Four things worth knowing:
+
+- **Which views scroll is now one function, and it mirrors the exporter.**
+  `scrollAxesOf` in `layout.js` answers for both sides: the `scrollView` stack
+  TYPE always scrolls, any other plain stack scrolls on the `scrollable` FLAG,
+  and the containers that bring their own scrolling — toolbars,
+  NavigationSplitView, Tab bodies, Section, DisclosureGroup — never do,
+  because each returns early in `renderStack` and never receives a ScrollView.
+  A test asserts the predicate against **what the generator actually emits**
+  for all 18 stack types rather than against the list the predicate is built
+  from, since comparing it to its own source would not catch the two drifting.
+- **The axis is read literally, not inferred.** An HStack marked scrollable
+  with the default `scrollAxis: 'vertical'` exports a *vertical* ScrollView,
+  so that is what the canvas draws, however odd it looks. Guessing the
+  sensible axis would put the canvas back out of step with its own output.
+- **Padding rides with the content, frame sizes the viewport** — the same
+  split 2.2 established for the export, now on the canvas, so the top inset
+  scrolls away with the first screenful on both sides. The scroll range is
+  measured from the boxes the renderer is about to draw rather than from
+  `computeSize`, so what is reachable and what is painted cannot disagree.
+- **Clip rects compose rather than overwrite.** A scroller inside a window
+  must obey both rectangles. `ClipContext` passes the ancestor's planes down
+  and each clipper concatenates its own, assigns the combination across its
+  subtree, and marks its group `ownsClip` so the ancestor's walk stops there.
+  Without the prune the two walks fight and the winner depends on `useFrame`
+  registration order.
+
+Two modifiers came unblocked with it. `scrollIndicators` and `scrollDisabled`
+both had an empty `summarize()` — they wrote nothing any renderer could read.
+Both now write, and the canvas hides the thumb and refuses the wheel
+respectively, so they leave the MODIFIER_VISIBILITY ledger too.
+
+*Acceptance:* 9 new layout tests, verified by perturbation — reverting the
+anchor change fails three of them, one naming `settings` by name. Confirmed in
+the running app: the title is visible at rest, the wheel reaches the footer,
+both ends clamp, the thumb tracks position, and the viewport no longer zooms
+while you scroll (OrbitControls dollies from its own DOM listener on the same
+element that three-fiber uses, so the scroller stops immediate propagation for
+exactly the events it consumes).
+
+**1.5 — Clean up the dead controls** ✅ **done**
+
+Four sections were editable and read by NOBODY, on either side. The plan said
+"implement or remove"; each turned out to answer that question for itself once
+you asked what SwiftUI API it would be translated into. Parity debt 31 → 27,
+closing #13 and #14 — and with them the last of the "neither side reads it"
+tier, which stood at seven fields when the audit was written.
+
+**Implemented** — these had an API and simply were not wired:
+
+- **`windowResizability`** emits `.windowResizability(.contentSize)` on the
+  WindowGroup. It is a *Scene* modifier, which is also why it has no preview:
+  there is no window chrome on a design surface to drag. The inspector says
+  that now instead of implying one.
+- **The whole Environment section** — Font, Foreground, Tint, Direction,
+  Locale — emits, each as its real modifier. `layoutDirection` is previewed
+  too: leading and trailing swap, which is the bulk of what a designer is
+  checking when they flip to RTL. *One limit stated rather than left to be
+  found:* SwiftUI inherits the value down the whole subtree while the canvas
+  mirrors it at the container that declares it.
+- **`ornamentOffset`** (#14) pushes the ornament out along the edge it hangs
+  from, and emits the matching `.offset` on the ornament content — `.ornament`
+  itself has no offset parameter.
+
+**Removed** — these had nowhere to go, so a renderer would have been invention:
+
+- **`spatial.immersionStyle`** is a *scene* property. The Scene tab already
+  owns it and the exporter already emits it from there, so the per-window copy
+  was a second source for one concept — the shape phase 2.3 spent itself
+  removing — and it happened to be the dead one.
+- **`spatial.gestures`** was a list of gesture names with no SwiftUI API
+  behind it: there is no window-level "these gestures are allowed"
+  declaration to emit it as.
+
+Stale keys in older saved projects are simply ignored, so no migration.
+
+**One scan correction.** Once the exporter started reading `spatial`, the
+parity scan reported the field as export-only — because the canvas reads it
+through `resolveHoverEffect`, which lives in `store/helpers.js`, a file the
+scan did not look at. That would have been a false report inviting someone to
+"fix" a field the canvas already honours, so the file is now in the canvas
+set, with a comment saying why a store file is there.
+
+*Acceptance:* 14 new tests. Six pin `mirroredAlignment` and the RTL layout,
+and the rest read the generated Swift for the environment modifiers, the Scene
+resizability and the ornament offset. Two pin the **removals** — a fresh
+window declares exactly `hoverEffect` and `windowResizability`, and immersion
+still reaches the file from the Scene where it belongs — because a dead
+control coming back is the defect returning. Verified by perturbation:
+reverting any of the four fails 8, the parity harness among them. Confirmed in
+the running app: the window's Behaviour section now shows Hover and Resize and
+nothing else.
+
+**1.6 — Add `rotateGesture` to the preview runtime** ✅ **done**
+
+A mouse has neither two-handed gesture, so the wheel now carries both: plain
+wheel magnifies, **shift + wheel twists**. Shift is the discriminator because
+the two have to be mutually exclusive — one wheel event must not advance a
+pinch behaviour and a rotate behaviour at once. Closes defect #12. No parity
+debt moves: this is a preview-runtime gap, not a field divergence.
+
+**A second dead control turned up in the same handler.** Both gestures declare
+begin / change / end, all three sit in the inspector's "When" picker, and the
+old handler read:
+
+```js
+const mode = e.deltaY > 0 ? 'change' : 'change'
+```
+
+— a ternary whose branches are identical. So a behaviour wired to *Begins* or
+*Ends* could never run on the canvas. A wheel stream has no phases of its own,
+being discrete where the gestures are continuous, so they are synthesised: the
+first tick of a burst opens the gesture and changes it, later ticks change it,
+and an idle timeout closes it. The timer is cleared on unmount, since a burst
+left open would fire its `end` into a dead action context.
+
+**And the inspector was claiming something untrue.** The device-only note said
+"preview maps it to a pointer fallback" for `rotateGesture`, which had no
+fallback at all. It names the actual gesture per trigger now.
+
+*Acceptance:* 10 tests — the first the behaviour runtime has had. One derives
+the pointer triggers from the registry the inspector renders from and checks
+the runtime matches each, so a trigger the designer can pick and the preview
+ignores fails here rather than shipping. The rest pin the phase pump: the
+burst opens once, closes on idle, restarts after closing, keeps pinch and
+rotate on separate bursts, and stays quiet once the entity is gone. Verified
+by perturbation — removing the rotate matcher and restoring the hard-coded
+`change` fails 5.
+
+**1.7 — Honour control ranges (#17)** ✅ **done** — *added after 1.4; see the
+scoping correction in §1.*
+
+Slider, Gauge, Stepper and ProgressView each carried a value inside a range the
+designer declares, and the canvas clamped that value to `0…1` and painted the
+result — right only when the range happens to BE `0…1`. `controlFraction` in
+`appleSystem.js` is now the single conversion every fill width and ring sweep
+goes through, and it reads the bounds with the same `?? 0` / `?? 1` fallbacks
+the exporter uses, so a half-specified control lands in the same place in both
+outputs. Parity debt 97 → 79, retiring all 18 entries and defect #17.
+
+What each control gained: the **Slider** maps its value through its range,
+writes drag-to-set back *in* that range snapped to `sliderStep`, and draws the
+`minimumValueLabel` / `maximumValueLabel` slots. The **Gauge** honours
+`gaugeMin/Max`, switches to a dial for the `accessoryCircular` styles, and
+samples a two-stop `gaugeTintFrom/To` gradient at the value's own position.
+The **Stepper** steps by `stepperStep` instead of ±1, stops at both bounds,
+and dims the button that can no longer do anything. **ProgressView** measures
+`value` against `total`, draws `.circular` as a ring, and gives
+`indeterminate` the position-unknown treatment rather than a full bar.
+
+**One shipped default was internally inconsistent.** The Gauge seeded
+`value: 0.7` alongside `gaugeMin: 0, gaugeMax: 100` and a `"70"` label — so it
+*looked* right only because the canvas clamped everything to `0…1`, while the
+exporter wrote `Gauge(value: 0.7, in: 0...100)`, which reads as 0.7%. The seed
+is now `70`, and a test asserts the emitted value, the emitted bounds and the
+printed label agree.
+
+*Acceptance:* 13 unit tests on the conversion plus 7 that read the value and
+bounds back out of the **real emitted Swift** and feed them to the canvas
+helper — so if either side starts reading a different field, or the fallbacks
+drift apart, the fraction stops matching. Verified by perturbation: restoring
+the old clamp fails 8 of them. Confirmed in the running app — setting a
+slider's Max to 100 moves the thumb from the midpoint to the far left, which
+is where `Slider(value: .constant(0.5), in: 0...100)` puts it.
+
+**1.8 — Per-type style pickers (#19)** ✅ **done**
+
+Thirteen style fields exported correctly and changed nothing on screen.
+Eleven now draw; the other two turned out not to be rendering gaps at all.
+Parity debt 54 → 41.
+
+Wired: the **list** row family (`listRowSeparator` hides the hairlines,
+`listRowSeparatorTint` recolours them, `listItemTint` is the row's accent,
+`listRowSpacing` adds to the style preset's gap); **menu** (`menuStyle`
+collapses `.button` / `.borderlessButton` to a label, `menuIndicator` decides
+whether that carries a chevron); **table** (`.inset` drops the grid rules for
+alternating row fills); **picker** (`pickerOptions` are laid out by the styles
+that lay them out); **date picker** (`.graphical` is a month grid, `.wheel` is
+drum columns, and `displayedComponents` decides which halves of the value
+show); and the **text field**'s `axis`, where `.vertical` grows the field down
+to `lineLimit` instead of clipping one line.
+
+**Two are inert on BOTH sides, so wiring a renderer would have been theatre:**
+
+- `groupBoxStyle` — SwiftUI ships exactly one `GroupBoxStyle`, `.automatic`.
+  `GROUP_BOX_STYLES` has a single option and the emitter elides it at that
+  value, so the field can never hold anything else and never reaches the
+  file. The honest fix is to drop the one-option picker from the inspector,
+  not to invent a second treatment.
+- `headerProminence` — it styles **Section** headers, and the list panel does
+  not model sections, so the emitted modifier lands on a `List` with no
+  `Section` in it and does nothing on device either. It belongs on the
+  `section` stack type, which has a real header.
+
+Both are recorded as EXEMPT with those reasons rather than counted as closed
+work.
+
+*Acceptance:* 11 new tests. The renderer branches on style names as string
+literals, which is the shape that rots quietly — a misspelled case never
+matches, the canvas keeps its default, and nothing fails — so the sets it
+branches on live in `appleSystem.js` and are pinned against the real
+vocabularies. The date components are checked against the **emitted**
+`displayedComponents:` argument, value by value, so the two halves of that one
+decision cannot drift. Verified by perturbation: typo a style name or let a
+time-only picker show a date and three fail. Confirmed in the running app with
+one of each type seeded at a non-default style.
+
+**1.9 — Canvas-only visuals the export drops (#20)** ✅ **done**
+
+The last filed group, and the only one that runs the other way: the canvas
+drew these and the **export** dropped them, so the work was in the emitters
+rather than the renderer. Parity debt 41 → 31.
+
+Eight now reach the file:
+
+- **`symbolVariant`** as `.symbolVariant(.fill)`, emitted once in
+  `renderPanel` rather than inside each symbol-bearing emitter — the field is
+  universal — and guarded on the panel actually having a symbol, so it never
+  lands on a view with no glyph to vary.
+- **`imageUrl`** says what the source is instead of emitting a `photo`
+  placeholder whatever the designer had put in the frame: an `AsyncImage` for
+  a remote URL, a named `Image("…")` for a bundled path or an imported asset,
+  and an honest `// no image set` for an empty frame.
+- **`fieldShape`** as `.clipShape(Capsule())` or a rounded rectangle at the
+  panel's own radius — a field the designer squared off used to come back
+  round.
+- **`lineCount`** as `.lineLimit(n)` on the TextEditor.
+- **The Label's icon tile** — `iconColor`, `iconTileColor`, `iconTileSize`,
+  `iconTileRadius`. `Label(_:systemImage:)` has nowhere to put any of it, so a
+  tile switches the emitter to the explicit `Label { } icon: { }` form.
+
+**Two have no SwiftUI API behind them, so emitting anything would have been
+invention rather than translation:**
+
+- `selectedColorToken` — the raised pill in a segmented control is drawn by
+  `.pickerStyle(.segmented)` itself and SwiftUI exposes no way to re-material
+  it. The canvas has to paint something there; the export has nowhere to put
+  it. *(An `.environment` hack was written and then removed: it compiled and
+  meant nothing.)*
+- `dotCount` — how many bullets the editor draws in an **empty** SecureField,
+  so it reads as a password field before anything is typed. On device
+  SecureField masks the real value and there is no placeholder-dot API; the
+  placeholder is the prompt string, which is already emitted.
+
+*Acceptance:* 9 new tests reading the generated Swift, including that the
+short `Label` form is still used when there is no tile — emitting it *with*
+one would silently drop every part of the tile, which is the original defect.
+Verified by perturbation: reverting the tile, the image source or the symbol
+variant fails 5, the parity harness among them.
 
 ---
 
@@ -629,15 +1062,328 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 (frames, per-edge padding, real ScrollViews, free placement) and the 8/12 +
 11/15 codegen coverage.
 
+### Post-plan — the defects the triage left
+
+Every numbered phase above has landed, so what follows is the triaged tail
+being worked worst-first. Same rules: no emission that means nothing, and a
+field only leaves the ledger when both sides really carry it.
+
+**#31 — the `styles` bag** ✅ **done**
+`toggleStyle`, `labelStyle` and `textFieldStyle` now draw on the canvas. Four
+more keys in the bag turned out to be duplicates of top-level fields and were
+deleted rather than wired, with a migration lifting any saved value onto the
+field that survived.
+
+*A correction to this audit's own filing.* #31 was recorded as High on the
+strength of a claim that “18 labels across the shipped templates set
+`labelStyle: iconOnly` … every one draws its text on screen and hides it on
+device.” That was wrong. All 25 such labels also have empty text, which the
+canvas's existing `!panel.text` rule already drew icon-only, so **nothing
+shipped diverged**. The field was genuinely unwired; the templates were not
+the evidence.
+
+**#33 — container chrome** ✅ **done**
+Three fields, and the reason this one went first: each was *wrong* on screen or
+in the file rather than merely absent.
+
+- **`expanded`.** `DisclosureGroup(isExpanded:)` was bound to a `@State`
+  seeded `= false` no matter what the designer did, so a group opened on the
+  canvas — children laid out, sized, visible — shipped closed and its whole
+  section was missing from the app's first screen. The state now seeds from
+  the authored value. The fix is three words; the stateBag consumer already
+  understood the typed form, so nothing else had to move.
+- **`toolbarPlacement`.** The canvas had no toolbar layout at all: a `toolbar`
+  stack fell through to the VStack path and drew its items in a **vertical
+  column in creation order**, so a Cancel authored after a Done sat below it
+  here and to its left on device. Placements now name a zone and the bar fills
+  leading | principal | trailing, out of tree order, from one table that the
+  inspector's dropdown is also generated from — a placement cannot be offered
+  without somewhere to draw it. `ToolbarItem` and `ToolbarItemGroup` bodies
+  lay out across the bar too, for the same reason.
+  *Where honesty ran out:* `.bottomBar`, `.bottomOrnament` and `.keyboard`
+  name a surface a single bar is not. The canvas has one bar, so it gives them
+  a row beneath it. That is an approximation, not a match — but it keeps them
+  out of the top bar, which is the part that was plainly wrong.
+- **`fitsAxes`.** *Also a correction:* the defect index said the canvas
+  “picks a branch from the `activeChild` selector”. It did not — it Z-stacked
+  **every** candidate, so a container built to show one of three layouts drew
+  all three on top of each other and answered nothing. `ViewThatFits` now
+  measures: first candidate whose ideal size fits, axes limited to the `in:`
+  set, last one as the fallback when none fit — and its own size is the
+  branch it chose rather than the union of them all.
+
+*Acceptance:* 32 new tests — 12 on the fit rule and what the canvas draws, 10
+on the zone table and the bar, 5 on the disclosure state, plus the two
+cross-side checks that matter (the axis set the canvas measures is the one the
+exporter emits; the placement it zones is the one the generator spells). Each
+of the three fixes was reverted in turn to confirm the new tests fail without
+it. Verified in the running app: a bar authored Done → Library → Cancel draws
+**Cancel | Library | Done** with the ornament item on its own row, and a
+`ViewThatFits` boxed at 260 pt draws its medium branch and only that one,
+swapping to the narrow branch at 120 pt. Parity debt 20 → 17.
+
+**#30 — presentation metrics** ✅ **done**
+Four fields that reached the generated Swift and nothing on screen.
+
+- **`sheetFraction` / `sheetHeight`.** A detent is a *height* — where the sheet
+  rests, measured from the bottom of what it is presented over. The canvas
+  treated it as a nudge: every sheet drew at its own stored size and `.medium`
+  alone was pushed downward, so `.fraction(0.3)` and `.height(200)` were the
+  same box on screen and two different sheets on device. The detent now decides
+  the height, with the exporter's own fallbacks (`?? 0.5`, `?? 320`) so a sheet
+  missing the field resolves to the same number on both sides, and every sheet
+  bottom-anchors at the same margin — which leaves a `.large` sheet exactly
+  where it was drawn before.
+- **`presentationDragIndicator`.** The grabber now draws, at the 36×5pt metric
+  iOS uses. `.automatic` draws none: what the system decides from is the number
+  of detents, and every sheet here carries one — which is also why the exporter
+  emits nothing for it.
+- **`presentationCornerRadius`.** The plate rounds by it. `0` means "no
+  override" on both sides.
+
+*A note on the harness.* The parity scan matches `.fieldName` as plain text, so
+a comment naming a modifier passes for the code that reads it — the first pass
+of this fix could have been deleted whole and the scan would still have called
+the field canvas-side. The two comments involved are now written without the
+leading dot, and say why. This is the second time that trap has cost something
+(see #31), and it is a property of the scan rather than of any one fix.
+
+*Acceptance:* 16 new tests — 11 on the detent and grabber rules, 5 on the seam
+(the number the canvas sizes from is the number in `.presentationDetents`, and
+the two chrome modifiers are emitted exactly when the canvas draws them). The
+canvas wiring was ripped out to confirm the harness flags all five sheet fields
+as undeclared without it. Verified in the app: three sheets at `.large`,
+`.fraction(0.3)` and `.height(200)` draw at three visibly different heights,
+bottom-aligned, each with a grabber and a 44pt corner. Parity debt 17 → 13.
+
+**#29 — ornament chrome** ✅ **done**
+Two of the three were real, and the third turned out to be an exemption.
+
+- **`ornamentVisibility`.** `.hidden` takes the ornament off the device and
+  took nothing off the canvas. It is now gone from the canvas too, and gone
+  from the edge's stacking order — a hidden ornament should not push the one
+  below it outward. It stays in the layer tree, the way anything else switched
+  off does.
+- **`ornamentContentAlignment`.** The nine alignments drew one picture. They
+  align the content against the anchor *point*, the way every SwiftUI alignment
+  does — the named edge of the content is the edge that lands on the point — so
+  a bottom ornament aligned `.leading` starts at the window's bottom centre and
+  runs right rather than straddling it. The offset is half the ornament's own
+  size in the named direction, which is what that works out to. The inspector's
+  dropdown is generated from the same list the canvas offsets by.
+- **`ornamentAnchorMode` is an exemption, not a fix.** `.scene(…)` and
+  `.parent(…)` name the same rectangle here. Both sides only ever hang an
+  ornament off a *window* — `renderWindow`'s `ornamentKids` and `Window3D`'s
+  `ornamentChildren` are the only two places either looks — and a window's root
+  view fills its scene, so the two anchors resolve to one box. There is no
+  second rect for the canvas to draw the difference against. Moved to EXEMPT
+  with that reason rather than left as debt nobody can pay.
+
+*Acceptance:* 13 new tests, including one that asserts a content alignment is
+emitted exactly when the canvas moves the ornament, and one that keeps the
+exempt field's two anchors emitting distinctly. The canvas wiring was ripped
+out to confirm the harness flags both fields. Verified in the app: an ornament
+marked hidden sits in the layer tree and draws nothing at its edge, while two
+top ornaments aligned `.leading` and `.trailing` offset in opposite directions
+from each other. Parity debt 13 → 10.
+
+**#34 — three canvas gaps with no common cause** ✅ **done**
+They had nothing in common except being small, and one of them was not what
+this audit said it was.
+
+- **`boxCornerRadius`.** `MeshResource.generateBox(size:cornerRadius:)` rounds
+  every edge; the canvas drew a hard cube whatever the radius said, with a
+  comment saying so. It now builds a `RoundedBoxGeometry` — from `three`'s own
+  examples, no new dependency — for both the `box` panel primitive and the
+  entity mesh. The clamp is the part worth sharing: a radius past half the
+  shortest side has no cube left to round, and three.js does not stop you
+  asking, it hands back inside-out geometry. One helper, both callers.
+- **`depth`.** *A correction:* the defect index called this "2D panels draw
+  flat". It is not a 2D-panel field at all — it is the `.frame(depth:)` of the
+  3D primitives (sphere, box, plane, cone, cylinder) and of a RealityView. And
+  a frame paints nothing, on device or here; it reserves space. So the canvas
+  now draws the box it reserves **while the object is selected**, which is the
+  one moment a frame is a thing anyone looks at. Drawing it always would be a
+  wireframe that exists nowhere on device.
+- **`iconName`.** *A second correction, and the interesting one.* The index
+  filed this against `contentUnavailable`, which never read the field. It is a
+  `label` field, and it was a **second home for `symbolName`** — the canvas
+  drew one, the exporter fell back to the other, the two sides disagreed about
+  the final fallback (`info.circle` here, `circle.fill` there), the default was
+  the letter `A`, which is not an SF Symbol, and no inspector ever wrote it. So
+  this is a §5.3 duplicate-field case, not a missing drawing: the dead field is
+  gone, `label` starts on a real symbol, both sides fall back to the same one,
+  and `migrateLabelIcon` lifts a stored `iconName` onto `symbolName` — keeping
+  `symbolName` when both are set, because that is the glyph that was on screen.
+
+*Acceptance:* 15 new tests — 5 on the radius clamp, 5 on the label's one glyph
+field, 5 on the migration. Both box reads were ripped out to confirm the
+harness flags the field, and the depth read separately. Verified in the app: a
+box with a 60pt radius draws visibly rounded beside an identical sharp one, and
+a selected box with `.frame(depth: 400)` shows a wireframe reaching well past
+the 160pt object. Parity debt 10 → 7.
+
+**#35 — an unfrosted stack exported a frosted plate** ✅ **done**
+SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by definition.
+So a stack whose blur toggle was off — a flat plate on the canvas — exported as
+a frosted one. With the toggle off the exporter now emits the colour the canvas
+resolved the token to, through the same `resolveSemantic` the canvas calls, so
+the plate in the file is the plate on screen. A token with a first-party
+SwiftUI spelling (`systemBackground`) still emits that rather than a literal,
+because resolving it would throw away the system's own light/dark behaviour.
+The blur *radius* stays exempt — Materials are fixed tiers and carry no radius
+anywhere in SwiftUI.
+
+**The ledger gained a tier over this.** A window's `blur` is genuinely
+canvas-only, for a different and still-valid reason: the shell draws the window
+surface and there is no toggle to emit. But the parity scan matches `.blur` as
+text across one corpus and cannot tell `win.blur` from `stack.blur`, so the
+moment a stack's blur became two-sided the window's entry looked stale and the
+test demanded its deletion — which would have quietly dropped a true exemption
+off the record. `SHADOWED` says exactly that: still one-sided, but the scan
+cannot see it because another item type shares the name. It does not count as
+debt, and a separate test asserts the name really is read on both sides, so the
+tier cannot become the drawer inconvenient entries get put in. That test earned
+its place immediately by rejecting `blurAmount`, which I had marked SHADOWED
+out of symmetry and which nothing emits on either item type.
+
+*Acceptance:* 6 new exporter tests plus the shadowed-entry check; the fix was
+reverted to confirm three of them fail without it. Parity debt 7 → 6.
+
+**#32 — volume geometry** ✅ **done**
+Two fields, and they landed on opposite sides of the line.
+
+- **`volumeDepthMeters` was two defects, not one.** The canvas drew a
+  volumetric window's width and height and *nothing at all* in depth, so a
+  designer authoring a volume had no way to see the box their entities had to
+  fit inside — a volumetric window hides its plate by default, which left an
+  empty stage with no edges. And the exporter emitted the declared depth three
+  times: `.defaultSize(width: d, height: d, depth: d, in: .meters)`, so a
+  volume authored 0.9 × 0.6 shipped as a cube. Now the canvas draws the bounds
+  — faintly, as editor chrome, because visionOS paints no wall around a volume
+  and that is rather the point of one — and the export carries the window's own
+  width and height beside the depth. Scene units are metres, so the numbers in
+  the file are the numbers on screen with no conversion.
+- **`supportedVolumeViewpoints` is an exemption.** *A third correction to this
+  audit's own triage,* which said Preview could bound the orbit. It could, and
+  it would be wrong: the modifier does not fence the wearer in. It declares
+  which viewpoints the content is built for, so the system can tell the app
+  when the wearer moves to another and let it re-face its content. Clamping a
+  camera would model a restriction the API does not impose — so it joins
+  `worldScalingBehavior` and `volumeWorldAlignment` as a runtime behaviour a
+  still canvas has no wearer for.
+
+*Acceptance:* 6 new exporter tests, including one that asserts no shipped
+volume preset exports square. Both halves were reverted in turn — the export
+one fails four tests, the canvas one puts `volumeDepthMeters` back in front of
+the harness as undeclared. Verified in the app: a volumetric window draws a
+bounds box that recedes visibly further at 1.6 m than at 0.5 m.
+
+**Parity debt is now 4, and all four are #5** — `fontDesign` and
+`monospacedDigit`, on the modifier and on the panel, blocked on shipping a
+rounded / serif / mono face. Everything the triage found that could be closed
+without new assets is closed.
+
+**#5 — the two blocked modifiers** ✅ **`fontDesign` done; `monospacedDigit` re-filed**
+This was the last entry, and it was two different problems filed as one.
+
+**`fontDesign` really was blocked on assets, and now is not.** Three faces are
+bundled beside Inter, each with the same four weights and both styles, so a
+design swap never silently changes the weight too:
+
+| SwiftUI | Apple's face | Bundled stand-in |
+| ------- | ------------ | ---------------- |
+| `.default` | SF Pro | Inter *(already the app's stand-in)* |
+| `.rounded` | SF Pro Rounded | Nunito |
+| `.serif` | New York | Source Serif 4 |
+| `.monospaced` | SF Mono | Roboto Mono |
+
+The half of this that is easy to get wrong is **measurement**. The canvas draws
+3D text through troika, which needs a font *file*, and measures it through
+Canvas2D, which needs a CSS *family* — two engines that have to be looking at
+the same face, or a serif heading wraps at Inter's widths and draws in Source
+Serif. So the design threads all the way down: `textMetrics` resolves it (the
+modifier beating the panel's own field, because the modifier is what the
+exporter emits), `measureSwiftUIText` carries it beside the weight, the
+measurer keys its cache on it, and `Panel3D` picks the troika file through the
+same `textMetrics` call rather than a second copy of the rule.
+
+Two things that would each have left the fix half-done:
+
+- **Nothing in the DOM renders in the three new families**, so the browser
+  would never have downloaded them — and Canvas2D measures an absent family as
+  its fallback, silently. The measurer now asks for all sixteen faces at
+  startup before waiting on `document.fonts.ready`. Confirmed in the app:
+  `document.fonts.check` is true for all four, and measuring one string across
+  the four designs gives four different widths (955 / 934 / 944 / 1020 pt at
+  100pt) rather than one.
+- **The parity scan could not see the modifier read.** `textMetrics` took the
+  summary as `modSummary?.field`, and the scan matches `modSummary.field` or
+  `mod.field` as text — an optional chain reads as neither, so every modifier
+  read in that function counted as unread. It now destructures once into
+  `mod`, which is the same code and visible to the checker. That is the third
+  time the scan's text matching has cost something; each instance is now
+  commented where it bites.
+
+**`monospacedDigit` was filed under the wrong blocker.** Inter already *has*
+tabular figures — they are the `tnum` OpenType feature — so no font this app
+could ship would help. The blocker is the renderer: troika-three-text applies
+a fixed whitelist of GSUB features (`liga`, `mset`, `isol`, `init`, `fina`,
+`medi`, `half`, `pres`, `blws`, `ccmp`) with no prop to extend it, and exposes
+no per-glyph advance API to place digits by hand either. The one thing the
+canvas must **not** do is widen digits in measurement alone: this app's whole
+invariant is that the box a stack reserves and the text drawn into it are the
+same box. So it stays DEBT with an accurate reason, and closing it needs a
+text renderer that can apply a font feature.
+
+*Acceptance:* a new `src/fonts.test.js` — 18 tests over the face table, the
+vocabulary the inspector renders from it, the design reaching every stage of
+the measurement pipeline, and the seam (the design the canvas picks a face for
+is the design `.fontDesign(_:)` emits). The wiring was ripped out on both
+sides to confirm the tests and the harness catch it. Verified in the app: four
+text panels, one per design, draw in four visibly different faces — and wrap
+at different points, which is the measurement half showing its work. Parity
+debt 4 → 2.
+
+*Cost:* 64 font files, 1.5 MB on disk, fetched on demand; the JS bundle grew
+6 kB, which is the URL strings.
+
 ---
 
 ## 7. Suggested sequencing
 
 ```
-Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions
-Week 2   1.4 real scrolling  →  1.1 inert modifiers  →  1.2 form/outlinegroup
-Week 3   1.3 presentations · 2.3 field collapse · 2.4 position · 1.5 · 1.6 · 2.5 · 2.6
+Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
+Week 2   1.4 real scrolling ✅  →  1.7 control ranges ✅  →  1.1 inert modifiers ✅
+Week 3   1.3 presentations ✅ · 1.2 form/outlinegroup ✅ · 1.6 ✅ · 1.5 ✅
+Week 4   1.8 style pickers (#19) ✅ · 1.9 canvas-only visuals (#20) ✅
 ```
+
+*Revised after 1.4.* Stage 2's phases are done. **1.7 moved ahead of 1.1**: it
+is half a day against 1.1's two, it retires 18 divergences against 17, and
+unlike most of Stage 1 it fixes pixels that are actively wrong rather than
+absent. Weeks 3–4 pick up the three defect groups the original plan left
+unscheduled — see the scoping correction in §1.
+
+*After the tail was sorted.* Every phase above has landed, so what follows is
+not a plan but an ordering of what the triage left, worst first:
+
+```
+✅ #31 the styles bag        — done.
+✅ #33 container chrome      — done.
+✅ #30 presentation metrics  — done.
+✅ #29 ornament chrome       — done.
+✅ #34 three unrelated gaps  — done.
+✅ #35 unblurred stack exports a Material — done.
+✅ #32 volume geometry      — done.
+✅ #5  fontDesign            — done; three faces bundled.
+—  #5  monospacedDigit       — the only parity debt left, and not for the
+       reason it was filed under: tabular figures need a text renderer that
+       can apply an OpenType feature, not a font.
+```
+
+#33 led not because it was large — it was the smallest — but because it was
+*wrong* rather than absent: a disclosure the designer opened exported closed.
 
 Rationale for putting Stage 2's first two phases before most of Stage 1: 2.1
 and 2.2 are where the *credibility* of the export lives — a generated file that
@@ -653,28 +1399,28 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 1 | ~~`.buttonStyle(.destructive)` does not compile; shipped in `settings`~~ — **fixed in 2.2** | `appleSystem.js`, `store/persistence.js` | — |
 | 2 | ~~Explicit sizing never exported~~ — **fixed in 2.1**, 171 items now framed | `export/swiftui.js` | — |
 | 3 | ~~`stack.scrollable` exports a comment, not a `ScrollView`~~ — **fixed in 2.2** | `export/swiftui.js` | — |
-| 4 | Scrollable stacks don't scroll; content centred not top-anchored | `SceneTree.jsx:529` | **High** |
-| 5 | 17 modifiers emit Swift but draw nothing | `modifiers/registry.js:867` | **High** |
-| 6 | `form` / `outlinegroup` rows invisible on canvas | `Panel3D.jsx` (no branch) | **High** |
-| 7 | `confirmationdialog` / `inspector` inline on canvas, modal in code | `SceneTree.jsx:784` | **High** |
+| 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
+| 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4, `fontDesign` in the font pass (three faces bundled; the canvas draws and measures all four designs). `monospacedDigit` is the one thing in this audit still open, and the blocker turned out not to be font assets at all — see below. | `modifiers/registry.js`, `Panel3D.jsx`, `fonts.js` | Low |
+| 6 | ~~`form` / `outlinegroup` rows invisible on canvas~~ — **fixed in 1.2.** Both draw their rows; `rowHeight`, which reached neither side, now lays them out and rides along as `.frame(minHeight:)`. | `Panel3D.jsx`, `panels/registry.js` | — |
+| 7 | ~~`confirmationdialog` / `inspector` inline on canvas, modal in code~~ — **fixed in 1.3.** One presentation set, imported by all three readers. | `appleSystem.js`, `SceneTree.jsx` | — |
 | 8 | ~~Window `.frame` / `.padding` order inverts the inset~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 9 | ~~`paddingEdges` canvas-only~~ — **fixed in 2.1** | `export/swiftui.js` | — |
 | 10 | ~~`buttonSize`/`buttonShape` vs `controlSize`/`buttonBorderShape`~~ — **fixed in 2.3** | `appleSystem.js`, `inspectors.jsx` | — |
 | 11 | ~~Free panel position not exported~~ — **fixed in 2.4** | `export/swiftui.js` | — |
-| 12 | `rotateGesture` dead in preview | `behaviors/runtime.js:901` | Medium |
-| 13 | `spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides | `WindowProps.jsx:139` | Low |
-| 14 | `blur` / `blurAmount` / `ornamentOffset` canvas-only or unread | `store/factories.js` | Low |
-| 15 | `layoutPriority` is a no-op on both sides | `modifiers/registry.js` | Low |
+| 12 | ~~`rotateGesture` dead in preview~~ — **fixed in 1.6.** Shift + wheel stands in for the two-handed twist, and the wheel stream now produces all three gesture phases rather than only `change`. | `behaviors/runtime.js` | — |
+| 13 | ~~`spatial.immersionStyle` / `windowResizability` / `gestures` dead both sides~~ — **fixed in 1.5.** Resizability emits as a Scene modifier; the other two were removed, having nowhere to go. | `WindowProps.jsx`, `store/factories.js` | — |
+| 14 | ~~`ornamentOffset` unread by both sides~~ — **fixed in 1.5**; it offsets the ornament on the canvas and emits `.offset` on the ornament content. `blur` / `blurAmount` remain canvas-only, in the unfiled tail. | `store/factories.js` | — |
+| 15 | ~~`layoutPriority` is a no-op on both sides~~ — **fixed in 1.1.** It wrote nothing into the summary, so it emitted real Swift and moved neither the canvas nor the layout engine. It now allocates a stack's slack to the highest priority among the children that want to grow, which is what SwiftUI does. | `modifiers/registry.js`, `layout.js` | — |
 | 16 | ~~README counts stale (55→56, 42→43)~~ — **fixed** alongside the harness | `README.md` | — |
 
 Found by the parity harness after the first pass, so not in the narrative above:
 
 | # | Defect | Where | Sev |
 | - | ------ | ----- | --- |
-| 17 | **Control ranges are ignored by the canvas.** Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `Panel3D.jsx:1757` (slider), `:1851` (gauge), `:1810` (stepper) | **High** |
+| 17 | ~~**Control ranges are ignored by the canvas.**~~ — **fixed in 1.7.** Original text: Slider, Gauge and Stepper all treat their value as already normalised `0…1`: `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step` reach the export only. A slider set to `0…100` with value `50` draws hard right on the canvas and centred on device. 18 fields. | `appleSystem.js` (`controlFraction`), `Panel3D.jsx` | — |
 | 18 | **The whole `environment` section is dead.** Font, Foreground, Locale and LTR/RTL are editable on every stack and window, and read by neither side — five more controls in the same class as #13. | `StackProps.jsx:574–582` | Medium |
-| 19 | **Per-type style pickers do not reach the canvas.** `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
-| 20 | **Canvas-only visuals dropped on export.** `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |
+| 19 | ~~**Per-type style pickers do not reach the canvas.**~~ — **fixed in 1.8**; 11 wired, 2 shown to be inert on both sides. Original text: `menuStyle`, `tableStyle`, `groupBoxStyle`, `progressViewStyle`, `formStyle`, `listRowSeparator`/`Tint`/`Spacing`, `headerProminence`, `dateStyle`, `displayedComponents` and friends all export correctly and change nothing on screen. ~20 fields. | `Panel3D.jsx` | Medium |
+| 20 | ~~**Canvas-only visuals dropped on export.**~~ — **fixed in 1.9**; 8 emitted, 2 shown to have no SwiftUI API. Original text: `symbolVariant` (`.fill` / `.circle` is drawn but not emitted), `imageUrl` (export substitutes `Image(systemName:)`), `fieldShape`, `dotCount`, `lineCount`, and the label icon-tile fields. | `export/swiftui.js` | Medium |
 | 21 | ~~`fontSize` is a canvas-side mirror of the exported `textStyle`~~ — **fixed in 2.3**; nothing writes it any more and `textStyle` is the single source. | `store/panels.js` | — |
 
 Found while implementing 2.1:
@@ -688,6 +1434,37 @@ Found while implementing 2.1:
 | 23 | ~~**A panel `size` with no sizing mode still does not export.**~~ — **fixed in 2.3** via `panelFrameMode`. Original text:  80 panels across the templates set `size` while `widthMode` stays the default `fit`. The canvas draws them at that size; the export hugs. The field is ambiguous by type — authored on an Image, derived from a preset on a Button — so the fix is to disambiguate it in the registry (phase 2.3), not to guess in the exporter. | `export/swiftui.js`, `panels/registry.js` | Medium |
 | 25 | ~~**`.listStyle(.default)` does not compile.**~~ — **fixed in 2.2.** `LIST_STYLES` doubles as the canvas preset table and carries a `default` entry with no SwiftUI case behind it. Found by the vocabulary sweep, not by a user. Now maps to `.automatic` and is elided. | `panels/registry.js` | — |
 | 24 | **`widthMode: 'fixed'` silently degrades to `fit` when no `fixedWidth` is set.** Stacks read `fixedWidth`/`fixedHeight`; several templates set `size` instead, which stacks never read. The declared 640 pt column is dead data on both sides — the canvas hugs at 272 pt. Templates need re-seeding (phase 2.6), and the inspector should not offer `fixed` without a value. | `templates/index.js`, `layout.js:218` | Medium |
+
+Filed when the unnumbered tail was triaged, after every phase in §6 had
+landed. Twenty-three entries had reached the end of the plan without a defect
+number — they were never findings, just whatever the harness turned up that no
+phase had claimed. Sorting them moved **six to EXEMPT** (the other side has
+nowhere to put them, and never will) and left **seventeen as real debt**, now
+grouped below. Nothing was fixed in the sort; the count fell 27 → 21 because
+six entries were shown not to be work.
+
+| # | Defect | Where | Sev |
+| - | ------ | ----- | --- |
+| 29 | ~~**Ornament chrome is export-only.**~~ — **fixed, two of three.** A hidden ornament no longer draws and no longer takes a slot on its edge, and `ornamentContentAlignment` slides the ornament along its anchor point instead of nine values drawing one picture. `ornamentAnchorMode` is now an exemption rather than debt: both anchors name the window frame, the only place either side puts an ornament. 3 fields. | `appleSystem.js`, `SceneTree.jsx` | Medium |
+| 30 | ~~**Presentation metrics are export-only.**~~ — **fixed.** A detent is now the sheet's height rather than a nudge, so `.fraction(0.3)` and `.height(200)` draw at the heights they ship at; the grabber draws when `presentationDragIndicator` asks for it, and `presentationCornerRadius` rounds the plate. 4 fields. | `appleSystem.js`, `SceneTree.jsx`, `Panel3D.jsx` | Medium |
+| 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
+| 32 | ~~**Volume geometry is export-only.**~~ — **fixed, one of two.** A volumetric window now draws its own bounds, depth included, and the export carries the authored width and height instead of the depth three times. `supportedVolumeViewpoints` becomes an exemption: it declares which viewpoints the content supports so the runtime can report a change, and a still canvas has no wearer to report. 2 fields. | `SceneTree.jsx`, `export/swiftui.js` | Low |
+| 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |
+| 34 | ~~**Three canvas gaps with no common cause.**~~ — **fixed.** `boxCornerRadius` rounds the box on the canvas as `generateBox(cornerRadius:)` does on device; `depth` draws the Z-box `.frame(depth:)` reserves while the object is selected; `iconName` turned out to be a second home for `symbolName` and was deleted, with a migration. 3 fields. | `Panel3D.jsx`, `Entity3D.jsx`, `panels/registry.js` | Low |
+| 35 | ~~**A stack with blur OFF still exports a frosted Material.**~~ — **fixed.** With the toggle off the exporter emits the colour the canvas resolved the token to, because SwiftUI has no unfrosted Material. The blur *radius* stays exempt: Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |
+
+### Sorted to EXEMPT
+
+Six entries were shown to have no counterpart, rather than a missing one. They
+are recorded in `parity.baseline.js` with these reasons and no longer count as
+debt:
+
+| Field | Why it can never round-trip |
+| ----- | --------------------------- |
+| `window.fillOpacity`, `window.blur`, `window.blurAmount` | The window plate is **system glass**: the shell draws a WindowGroup's surface and the exporter emits no background for it at all. `.windowStyle(.plain)` removes the plate and that is the whole API — there is nothing to set its opacity or blur to. The canvas paints one because it has to draw something. |
+| `stack.blurAmount` | SwiftUI Materials are fixed tiers with no radius control. The tier is the only granularity that round-trips; the canvas exposes a continuous knob because three.js can render one. |
+| `window.worldScalingBehavior`, `window.volumeWorldAlignment` | Runtime behaviours, not geometry: how a volume rescales as the wearer walks toward it, and how it re-orients to gravity. The canvas has a fixed world and a camera the designer drives, so it always renders at true scale in a world that never re-orients. |
+
 
 ---
 
@@ -740,6 +1517,8 @@ empty intersection are the inert set.
 `{SceneTree, layout, Panel3D}` vs `{swiftui, panels/registry, realitykit}`.
 Today that yields:
 
+When the audit was written that yielded:
+
 ```
 stack   CANVAS ONLY : paddingEdges, fixedWidth, fixedHeight, widthMode,
                       heightMode, blur, blurAmount, expanded, activeChild, activeTab
@@ -748,6 +1527,16 @@ stack   CANVAS ONLY : paddingEdges, fixedWidth, fixedHeight, widthMode,
 window  CANVAS ONLY : fillOpacity, blur, blurAmount, scrollY
         EXPORT ONLY : volumeDepthMeters, worldScalingBehavior,
                       volumeWorldAlignment, supportedVolumeViewpoints
+```
+
+What is left of those two lists today — the rest either closed or was ruled an
+honest exemption, each one declared with its reason in the ledger:
+
+```
+stack   CANVAS ONLY : blur (#35)
+        EXPORT ONLY : ornamentAnchorMode, ornamentContentAlignment,
+                      ornamentVisibility (#29)
+window  EXPORT ONLY : volumeDepthMeters, supportedVolumeViewpoints (#32)
 ```
 
 This exact computation is what `src/parity.test.js` runs, with the results

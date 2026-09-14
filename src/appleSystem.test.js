@@ -15,8 +15,18 @@ import {
   DEFAULT_SCENE_COLORS, buildDefaultSceneColors,
   ptToUnits, unitsToPt, metersToPt, ptToMeters,
   TEXT_STYLES, TEXT_STYLE_ORDER, textStyleDefaultWeight,
-  computeButtonFramePt, segmentedFrame
+  computeButtonFramePt, segmentedFrame,
+  controlFraction, valueFromFraction, mixHex, applyAspectRatio,
+  outlineVisibleRows,
+  PICKER_STYLES, MENU_STYLES,
+  PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts,
+  LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots,
+  TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf,
+  sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET,
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn,
+  roundedBoxRadius
 } from './appleSystem'
+import { DEFAULT_STYLES, makeStack, makePanel } from './store/factories'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const scene = (over = {}) => ({ designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {}, ...over })
@@ -245,5 +255,642 @@ describe('control frames', () => {
     for (const n of [0, null, undefined, 1]) {
       expect(segmentedFrame(n)[0]).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Control ranges (AUDIT #17)
+//
+// Slider, Gauge, Stepper and ProgressView each carry a value inside a range
+// the designer declares. The canvas used to clamp that value to 0..1 and paint
+// the result, which is right only when the range happens to BE 0..1 — so a
+// slider authored 0...100 at 50 drew hard right on the canvas and centred on
+// device, and the Gauge, whose own default range is 0...100, drew a full bar
+// for a value the exporter wrote as 0.7%.
+//
+// `controlFraction` is the single conversion both the fill widths and the
+// ring sweeps go through, so these pin it directly. The cross-check that the
+// fraction matches what the generator emits lives in export/swiftui.test.js,
+// where the real emitted Swift is available to compare against.
+// ---------------------------------------------------------------------------
+describe('control ranges', () => {
+  it('maps a value onto its declared range, not onto 0...1', () => {
+    // The bug in one line: 50 in 0...100 is the midpoint, not the far end.
+    expect(controlFraction(50, 0, 100)).toBeCloseTo(0.5, 9)
+    expect(controlFraction(70, 0, 100)).toBeCloseTo(0.7, 9)
+    expect(controlFraction(0, 0, 100)).toBe(0)
+    expect(controlFraction(100, 0, 100)).toBe(1)
+  })
+
+  it('still behaves for the 0...1 default every template uses', () => {
+    expect(controlFraction(0.42, 0, 1)).toBeCloseTo(0.42, 9)
+    expect(controlFraction(0.5, undefined, undefined)).toBeCloseTo(0.5, 9)
+  })
+
+  it('handles ranges that do not start at zero', () => {
+    expect(controlFraction(20, 20, 40)).toBe(0)
+    expect(controlFraction(30, 20, 40)).toBeCloseTo(0.5, 9)
+    expect(controlFraction(40, 20, 40)).toBe(1)
+    // Negative lower bound — a temperature dial, say.
+    expect(controlFraction(0, -50, 50)).toBeCloseTo(0.5, 9)
+  })
+
+  it('clamps outside the range rather than overflowing the track', () => {
+    expect(controlFraction(150, 0, 100)).toBe(1)
+    expect(controlFraction(-10, 0, 100)).toBe(0)
+  })
+
+  it('reads missing bounds the way the exporter does', () => {
+    // Both sides resolve an absent bound as `min ?? 0` / `max ?? 1`, so a
+    // half-specified control lands in the same place in both outputs.
+    expect(controlFraction(0.25, null, null)).toBeCloseTo(0.25, 9)
+    expect(controlFraction(0.25, undefined, 1)).toBeCloseTo(0.25, 9)
+  })
+
+  it('draws an empty track for a zero-width or nonsense range', () => {
+    // SwiftUI renders a zero-width range empty rather than dividing by zero.
+    expect(controlFraction(5, 5, 5)).toBe(0)
+    expect(controlFraction(NaN, 0, 100)).toBe(0)
+    expect(controlFraction(50, 0, Infinity)).toBe(0)
+  })
+})
+
+describe('dragging a control writes a value in its own range', () => {
+  it('converts a track position back into the declared range', () => {
+    expect(valueFromFraction(0.5, 0, 100)).toBeCloseTo(50, 9)
+    expect(valueFromFraction(0, 20, 40)).toBeCloseTo(20, 9)
+    expect(valueFromFraction(1, 20, 40)).toBeCloseTo(40, 9)
+  })
+
+  it('round-trips with controlFraction', () => {
+    for (const [lo, hi] of [[0, 1], [0, 100], [20, 40], [-50, 50]]) {
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        expect(controlFraction(valueFromFraction(t, lo, hi), lo, hi)).toBeCloseTo(t, 9)
+      }
+    }
+  })
+
+  it('snaps to the step when the designer set one', () => {
+    // SwiftUI treats step 0 as continuous; anything positive quantises.
+    expect(valueFromFraction(0.44, 0, 100, 10)).toBeCloseTo(40, 9)
+    expect(valueFromFraction(0.46, 0, 100, 10)).toBeCloseTo(50, 9)
+    expect(valueFromFraction(0.44, 0, 100, 0)).toBeCloseTo(44, 9)
+    // Steps count from the lower bound, not from zero.
+    expect(valueFromFraction(0.5, 5, 25, 10)).toBeCloseTo(15, 9)
+  })
+
+  it('never leaves the range, whatever the step', () => {
+    for (const t of [0, 0.5, 1]) {
+      const v = valueFromFraction(t, 0, 7, 3)
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThanOrEqual(7)
+    }
+  })
+})
+
+describe('two-stop tint mixing', () => {
+  it('returns each end at the ends', () => {
+    expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
+    expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
+  })
+
+  it('samples the middle', () => {
+    expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
+  })
+
+  it('falls back rather than emitting a broken colour', () => {
+    expect(mixHex('not-a-colour', '#ffffff', 0.5)).toBe('not-a-colour')
+    expect(mixHex(null, null, 0.5)).toBe('#007aff')
+  })
+})
+
+describe('applyAspectRatio', () => {
+  const box = [200, 100]   // 2:1
+
+  it('returns the box untouched when there is no ratio to apply', () => {
+    expect(applyAspectRatio(box, null)).toEqual(box)
+    expect(applyAspectRatio(box, { ratio: null })).toEqual(box)
+    expect(applyAspectRatio(box, { ratio: 2 })).toEqual(box)   // already 2:1
+  })
+
+  it('fits inside the box, fills to cover it', () => {
+    expect(applyAspectRatio(box, { ratio: 1, contentMode: 'fit' })).toEqual([100, 100])
+    expect(applyAspectRatio(box, { ratio: 1, contentMode: 'fill' })).toEqual([200, 200])
+  })
+
+  it('handles a box that is too TALL for the ratio, not just too wide', () => {
+    const tall = [100, 200]  // 1:2
+    expect(applyAspectRatio(tall, { ratio: 1, contentMode: 'fit' })).toEqual([100, 100])
+    expect(applyAspectRatio(tall, { ratio: 1, contentMode: 'fill' })).toEqual([200, 200])
+  })
+
+  it('defaults to fit, as SwiftUI does', () => {
+    expect(applyAspectRatio(box, { ratio: 1 })).toEqual([100, 100])
+  })
+
+  it('always produces the ratio it was asked for', () => {
+    for (const b of [[200, 100], [100, 200], [137, 41]]) {
+      for (const ratio of [0.25, 1, 16 / 9, 4]) {
+        for (const contentMode of ['fit', 'fill']) {
+          const [w, h] = applyAspectRatio(b, { ratio, contentMode })
+          expect(w / h, `${b} -> ${ratio} ${contentMode}`).toBeCloseTo(ratio, 9)
+        }
+      }
+    }
+  })
+
+  it('never grows when fitting, never shrinks when filling', () => {
+    for (const ratio of [0.5, 1, 3]) {
+      const [fw, fh] = applyAspectRatio(box, { ratio, contentMode: 'fit' })
+      expect(fw).toBeLessThanOrEqual(box[0] + 1e-9)
+      expect(fh).toBeLessThanOrEqual(box[1] + 1e-9)
+      const [gw, gh] = applyAspectRatio(box, { ratio, contentMode: 'fill' })
+      expect(gw).toBeGreaterThanOrEqual(box[0] - 1e-9)
+      expect(gh).toBeGreaterThanOrEqual(box[1] - 1e-9)
+    }
+  })
+
+  it('refuses a ratio that has no geometry behind it', () => {
+    for (const ratio of [0, -1, NaN, Infinity]) {
+      expect(applyAspectRatio(box, { ratio })).toEqual(box)
+    }
+    expect(applyAspectRatio([0, 0], { ratio: 1 })).toEqual([0, 0])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Form and OutlineGroup rows (AUDIT #6)
+//
+// Both types exported their row data faithfully — a real `Form { … }` with
+// every row, and a generated recursive `OutlineNode` model — while the canvas
+// drew an empty plate. So the rows a designer typed into the inspector were
+// invisible until export. The row data itself was never the problem; nothing
+// read it on the canvas side.
+//
+// `outlineVisibleRows` is the piece with real logic in it: a collapsed row
+// hides everything beneath it, which is easy to get subtly wrong.
+// ---------------------------------------------------------------------------
+describe('outlineVisibleRows', () => {
+  const rows = (...spec) => spec.map(([title, indent, expanded]) => ({ title, indent, expanded }))
+
+  it('shows a flat list whole', () => {
+    const out = outlineVisibleRows(rows(['A', 0], ['B', 0], ['C', 0]))
+    expect(out.map((r) => r.title)).toEqual(['A', 'B', 'C'])
+    expect(out.every((r) => r.isParent === false)).toBe(true)
+  })
+
+  it('marks a row as a parent when the next row sits deeper', () => {
+    const out = outlineVisibleRows(rows(['A', 0, true], ['A1', 1]))
+    expect(out.map((r) => [r.title, r.isParent])).toEqual([['A', true], ['A1', false]])
+  })
+
+  it('hides the descendants of a collapsed row', () => {
+    const out = outlineVisibleRows(rows(
+      ['Documents', 0, false],
+      ['Images', 1],
+      ['Videos', 1],
+      ['Downloads', 0, true],
+      ['Recent', 1]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Documents', 'Downloads', 'Recent'])
+  })
+
+  it('shows them again when it is expanded', () => {
+    const out = outlineVisibleRows(rows(
+      ['Documents', 0, true],
+      ['Images', 1],
+      ['Videos', 1]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Documents', 'Images', 'Videos'])
+  })
+
+  it('hides a whole subtree, not just the first level', () => {
+    // The bug this guards: stopping at the immediate children and letting
+    // grandchildren reappear underneath a collapsed ancestor.
+    const out = outlineVisibleRows(rows(
+      ['Root', 0, false],
+      ['Child', 1, true],
+      ['Grandchild', 2],
+      ['Sibling', 0]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['Root', 'Sibling'])
+  })
+
+  it('resumes at the first row back at or above the collapsed level', () => {
+    const out = outlineVisibleRows(rows(
+      ['A', 0, true],
+      ['A1', 1, false],
+      ['A1a', 2],
+      ['A2', 1],
+      ['B', 0]
+    ))
+    expect(out.map((r) => r.title)).toEqual(['A', 'A1', 'A2', 'B'])
+  })
+
+  it('tags each visible row with its nesting level', () => {
+    const out = outlineVisibleRows(rows(['A', 0, true], ['A1', 1, true], ['A1a', 2]))
+    expect(out.map((r) => r.level)).toEqual([0, 1, 2])
+  })
+
+  it('survives rows with nothing on them', () => {
+    expect(outlineVisibleRows(undefined)).toEqual([])
+    expect(outlineVisibleRows([])).toEqual([])
+    expect(outlineVisibleRows([{}]).map((r) => r.level)).toEqual([0])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-type style vocabularies (AUDIT #19)
+//
+// Thirteen style fields exported correctly and changed nothing on screen. The
+// renderer branches on style names as string literals, which is the shape
+// that rots quietly: a misspelled case never matches, the canvas keeps its
+// default treatment, and nothing fails — the defect reappears in the same
+// form it was fixed from. These pin every name the canvas branches on to a
+// real case of its own picker.
+// ---------------------------------------------------------------------------
+describe('style names the canvas branches on are real cases', () => {
+  const values = (vocab) => vocab.map((v) => v.value)
+
+  it('every picker style that shows options is a real PickerStyle', () => {
+    for (const style of PICKER_STYLES_SHOWING_OPTIONS) {
+      expect(values(PICKER_STYLES), `'${style}' is not a picker style`).toContain(style)
+    }
+  })
+
+  it('leaves the menu-ish picker styles to draw a value and a chevron', () => {
+    // A still canvas cannot open a menu, so those styles must NOT be in the
+    // set — listing them would draw options the device keeps hidden.
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('menu')
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('automatic')
+    expect(PICKER_STYLES_SHOWING_OPTIONS).not.toContain('navigationLink')
+  })
+
+  it('every menu style that collapses to a button is a real MenuStyle', () => {
+    for (const style of MENU_STYLES_AS_BUTTON) {
+      expect(values(MENU_STYLES), `'${style}' is not a menu style`).toContain(style)
+    }
+    // `.automatic` is the open list, so it must not collapse.
+    expect(MENU_STYLES_AS_BUTTON).not.toContain('automatic')
+  })
+
+  it('accounts for every menu style one way or the other', () => {
+    // Nothing in the vocabulary should fall through unconsidered: a style is
+    // either the open list or the collapsed button.
+    for (const style of values(MENU_STYLES)) {
+      const collapses = MENU_STYLES_AS_BUTTON.includes(style)
+      expect(typeof collapses, `'${style}' unaccounted for`).toBe('boolean')
+    }
+    expect(MENU_STYLES_AS_BUTTON.length).toBeGreaterThan(0)
+    expect(MENU_STYLES_AS_BUTTON.length).toBeLessThan(values(MENU_STYLES).length)
+  })
+})
+
+describe('dateComponentsParts', () => {
+  it('shows only what each value asks for', () => {
+    expect(dateComponentsParts('date')).toEqual({ date: true, time: false, seconds: false })
+    expect(dateComponentsParts('hourAndMinute')).toEqual({ date: false, time: true, seconds: false })
+    expect(dateComponentsParts('hourMinuteAndSecond')).toEqual({ date: false, time: true, seconds: true })
+    expect(dateComponentsParts('dateAndTime')).toEqual({ date: true, time: true, seconds: false })
+  })
+
+  it('falls back to the SwiftUI default for anything unrecognised', () => {
+    // `displayedComponents:` defaults to `[.date, .hourAndMinute]`.
+    for (const v of [undefined, null, '', 'nonsense']) {
+      expect(dateComponentsParts(v)).toEqual({ date: true, time: true, seconds: false })
+    }
+  })
+
+  it('never asks for seconds without a time', () => {
+    for (const v of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const p = dateComponentsParts(v)
+      if (p.seconds) expect(p.time, `${v} wants seconds without a time`).toBe(true)
+    }
+  })
+
+  it('always shows something', () => {
+    for (const v of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const p = dateComponentsParts(v)
+      expect(p.date || p.time, `${v} shows nothing at all`).toBe(true)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The styles bag (AUDIT #31)
+//
+// Three per-control style fields reached the export only. The renderer
+// branches on their case names as string literals — the shape that rots
+// quietly — so these pin every name against its real vocabulary, the same
+// guard the 1.8 style pickers got.
+// ---------------------------------------------------------------------------
+describe('the style cases the renderers branch on are real', () => {
+  const values = (vocab) => vocab.map((v) => v.value)
+
+  it('labelStyle: iconOnly and titleOnly are real LabelStyles', () => {
+    for (const v of ['iconOnly', 'titleOnly', 'titleAndIcon', 'automatic']) {
+      expect(values(LABEL_STYLES), `'${v}'`).toContain(v)
+    }
+  })
+
+  it('toggleStyle: button is a real ToggleStyle', () => {
+    expect(values(TOGGLE_STYLES)).toContain('button')
+    expect(values(TOGGLE_STYLES)).toContain('switch')
+  })
+
+  it('textFieldStyle: plain and roundedBorder are real TextFieldStyles', () => {
+    expect(values(TEXTFIELD_STYLES)).toContain('plain')
+    expect(values(TEXTFIELD_STYLES)).toContain('roundedBorder')
+  })
+
+  it('the styles bag holds only what both sides read', () => {
+    // Four fields were removed rather than wired, each a second home for a
+    // concept that already had one. A key reappearing here is that
+    // duplication coming back.
+    expect(Object.keys(DEFAULT_STYLES).sort())
+      .toEqual(['labelStyle', 'textFieldStyle', 'toggleStyle'])
+  })
+})
+
+describe('labelSlots', () => {
+  it('shows only the icon for iconOnly, only the title for titleOnly', () => {
+    expect(labelSlots('iconOnly', true)).toEqual({ icon: true, title: false })
+    expect(labelSlots('titleOnly', true)).toEqual({ icon: false, title: true })
+  })
+
+  it('honours iconOnly even when the label HAS text', () => {
+    // The case that used to diverge: the canvas drew the text because its
+    // only rule was "empty text means icon-only", and the device hid it.
+    expect(labelSlots('iconOnly', true).title).toBe(false)
+  })
+
+  it('shows both for titleAndIcon, whatever the text', () => {
+    expect(labelSlots('titleAndIcon', true)).toEqual({ icon: true, title: true })
+    expect(labelSlots('titleAndIcon', false)).toEqual({ icon: true, title: true })
+  })
+
+  it('falls back to the empty-text rule for automatic', () => {
+    expect(labelSlots('automatic', true)).toEqual({ icon: true, title: true })
+    expect(labelSlots('automatic', false)).toEqual({ icon: true, title: false })
+    expect(labelSlots(undefined, false)).toEqual({ icon: true, title: false })
+  })
+
+  it('never hides both slots', () => {
+    for (const style of ['automatic', 'iconOnly', 'titleOnly', 'titleAndIcon', undefined]) {
+      for (const hasText of [true, false]) {
+        const s = labelSlots(style, hasText)
+        expect(s.icon || s.title, `${style}/${hasText} draws nothing`).toBe(true)
+      }
+    }
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Toolbar placement zones (AUDIT #33)
+//
+// The canvas draws a toolbar item in the zone its placement names. The trap
+// this guards is the one #19 left behind: the zone table is keyed by string
+// literals, so a placement the inspector offers but the table has never heard
+// of would silently land on the trailing edge and nothing would fail. The
+// inspector and the table are now the same object, which is the only way to
+// keep that from happening again.
+// ---------------------------------------------------------------------------
+describe('TOOLBAR_PLACEMENTS', () => {
+  it('gives every placement it offers a zone to draw in', () => {
+    for (const [value, spec] of Object.entries(TOOLBAR_PLACEMENTS)) {
+      expect(TOOLBAR_ZONES, `'${value}' has no zone`).toContain(spec.zone)
+      expect(spec.label, `'${value}' has no label`).toBeTruthy()
+    }
+  })
+
+  it('uses every zone it declares', () => {
+    // A zone nothing maps to is dead geometry in the layout engine.
+    for (const zone of TOOLBAR_ZONES) {
+      const users = Object.values(TOOLBAR_PLACEMENTS).filter((s) => s.zone === zone)
+      expect(users.length, `nothing is placed in the '${zone}' zone`).toBeGreaterThan(0)
+    }
+  })
+
+  it('reads the placements whose names say where they go', () => {
+    expect(toolbarZoneOf('topBarLeading')).toBe('leading')
+    expect(toolbarZoneOf('topBarTrailing')).toBe('trailing')
+    expect(toolbarZoneOf('principal')).toBe('principal')
+  })
+
+  it('puts confirm on the trailing edge and cancel on the leading one', () => {
+    // The pair a designer is most likely to author in the wrong order, and
+    // the one the platform reorders for them.
+    expect(toolbarZoneOf('confirmationAction')).toBe('trailing')
+    expect(toolbarZoneOf('cancellationAction')).toBe('leading')
+  })
+
+  it('keeps the placements that name another surface off the bar', () => {
+    for (const p of ['bottomBar', 'bottomOrnament', 'keyboard']) {
+      expect(toolbarZoneOf(p), `${p} was drawn in the top bar`).toBe('bottom')
+    }
+  })
+
+  it('treats an unknown placement the way it treats .automatic', () => {
+    expect(toolbarZoneOf('automatic')).toBe('trailing')
+    for (const p of [undefined, null, '', 'nonsense']) {
+      expect(toolbarZoneOf(p)).toBe(toolbarZoneOf('automatic'))
+    }
+  })
+
+  it('offers the placement the factory starts an item on', () => {
+    expect(Object.keys(TOOLBAR_PLACEMENTS)).toContain(makeStack({ stackType: 'toolbarItem' }).toolbarPlacement)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Sheet detents size the sheet (AUDIT #30)
+//
+// A detent is a height, and the canvas treated it as a nudge: every sheet was
+// drawn at its own stored size and `.medium` alone was pushed downward. So
+// `.fraction(0.3)` and `.height(200)` — two sheets a device draws at visibly
+// different heights — were the same box on screen, and the inspector's
+// Fraction and Height fields changed the generated file and nothing else.
+// ---------------------------------------------------------------------------
+describe('sheetDetentHeight', () => {
+  // A 1000pt-tall container, in the scene units the canvas measures in — so a
+  // point height and a fraction of the container are directly comparable.
+  const H = ptToUnits(1000)
+  const cap = H * (1 - MODAL_INSET)
+
+  it('gives .large the whole box the canvas will draw a modal in', () => {
+    expect(sheetDetentHeight({ detent: 'large' }, H)).toBeCloseTo(cap, 9)
+  })
+
+  it('gives .medium half the container', () => {
+    expect(sheetDetentHeight({ detent: 'medium' }, H)).toBeCloseTo(ptToUnits(500), 9)
+  })
+
+  it('reads a fraction as a fraction of the container', () => {
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H)).toBeCloseTo(ptToUnits(300), 9)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.75 }, H)).toBeCloseTo(ptToUnits(750), 9)
+  })
+
+  it('reads a height in points', () => {
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 200 }, H)).toBeCloseTo(ptToUnits(200), 9)
+  })
+
+  it('draws two different detents at two different heights', () => {
+    // The defect in one line: these were the same box.
+    const frac = sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H)
+    const fixed = sheetDetentHeight({ detent: 'height', heightPt: 200 }, H)
+    expect(frac).not.toBeCloseTo(fixed, 6)
+  })
+
+  it('falls back to the numbers the exporter emits', () => {
+    // `?? 0.5` and `?? 320` in `emitPresentationModifier`.
+    for (const v of [undefined, null, NaN]) {
+      expect(sheetDetentHeight({ detent: 'fraction', fraction: v }, H))
+        .toBeCloseTo(sheetDetentHeight({ detent: 'fraction', fraction: 0.5 }, H), 9)
+      expect(sheetDetentHeight({ detent: 'height', heightPt: v }, H))
+        .toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 320 }, H), 9)
+    }
+  })
+
+  it('never draws a sheet taller than the window leaves room for', () => {
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 1 }, H)).toBeCloseTo(cap, 9)
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 2000 }, H)).toBeCloseTo(cap, 9)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: -1 }, H)).toBe(0)
+  })
+
+  it('treats an unrecognised detent as .large', () => {
+    for (const d of [undefined, null, '', 'nonsense']) {
+      expect(sheetDetentHeight({ detent: d }, H)).toBeCloseTo(cap, 9)
+    }
+  })
+
+  it('scales with the container it is presented over', () => {
+    expect(sheetDetentHeight({ detent: 'medium' }, ptToUnits(400))).toBeCloseTo(ptToUnits(200), 9)
+    // A point height does not — that is the difference between the two.
+    expect(sheetDetentHeight({ detent: 'height', heightPt: 100 }, ptToUnits(400)))
+      .toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 100 }, ptToUnits(1000)), 9)
+  })
+})
+
+describe('sheetDragIndicatorVisible', () => {
+  it('draws the grabber only when the sheet asks for it', () => {
+    expect(sheetDragIndicatorVisible('visible')).toBe(true)
+    expect(sheetDragIndicatorVisible('hidden')).toBe(false)
+  })
+
+  it('draws none for .automatic, which is what one detent resolves to', () => {
+    // And what the exporter says by emitting nothing for it.
+    for (const v of ['automatic', undefined, null, '']) {
+      expect(sheetDragIndicatorVisible(v)).toBe(false)
+    }
+  })
+
+  it('agrees with the value the panel starts on', () => {
+    const sheet = makePanel('sheet', {})
+    expect(sheetDragIndicatorVisible(sheet.presentationDragIndicator)).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Ornament chrome (AUDIT #29)
+//
+// Two of the three fields reached the generated Swift and nothing on screen:
+// an ornament marked `.hidden` still drew, and nine content alignments drew
+// one picture. (The third, `ornamentAnchorMode`, is an honest exemption — see
+// the ledger.)
+// ---------------------------------------------------------------------------
+describe('ornamentContentOffset', () => {
+  const size = [100, 40]
+  const at = (a) => ornamentContentOffset(a, size)
+
+  it('leaves a centred ornament on its anchor', () => {
+    expect(at('center')).toEqual([0, 0])
+  })
+
+  it('puts the named edge on the anchor point', () => {
+    // Leading edge on the point means the body runs to the right of it.
+    expect(at('leading')).toEqual([50, 0])
+    expect(at('trailing')).toEqual([-50, 0])
+    // Scene space is y-up, so a top edge on the point hangs the body below.
+    expect(at('top')).toEqual([0, -20])
+    expect(at('bottom')).toEqual([0, 20])
+  })
+
+  it('combines both axes for the corner alignments', () => {
+    expect(at('topLeading')).toEqual([50, -20])
+    expect(at('bottomTrailing')).toEqual([-50, 20])
+    expect(at('topTrailing')).toEqual([-50, -20])
+    expect(at('bottomLeading')).toEqual([50, 20])
+  })
+
+  it('moves every alignment the vocabulary offers except the centred one', () => {
+    // The defect in one assertion: nine values, one picture.
+    const seen = new Set(ORNAMENT_CONTENT_ALIGNMENTS.map((a) => at(a).join(',')))
+    expect(seen.size).toBe(ORNAMENT_CONTENT_ALIGNMENTS.length)
+  })
+
+  it('scales with the ornament, since it is half of its own size', () => {
+    expect(ornamentContentOffset('leading', [200, 40])).toEqual([100, 0])
+  })
+
+  it('treats an unknown alignment as centred, as the exporter does', () => {
+    // The generator elides `contentAlignment:` unless it is not `.center`.
+    for (const a of [undefined, null, '', 'nonsense']) expect(at(a)).toEqual([0, 0])
+  })
+
+  it('offers the alignment the factory starts an ornament on', () => {
+    expect(ORNAMENT_CONTENT_ALIGNMENTS).toContain(makeStack({ ornament: 'bottom' }).ornamentContentAlignment)
+  })
+})
+
+describe('ornamentIsDrawn', () => {
+  it('takes a hidden ornament off the canvas, as it is off the device', () => {
+    expect(ornamentIsDrawn('hidden')).toBe(false)
+  })
+
+  it('draws a visible one, and an automatic one', () => {
+    // `.automatic` is the system's choice, which for an ornament that exists
+    // is to show it — and it is why the exporter emits no visibility for it.
+    expect(ornamentIsDrawn('visible')).toBe(true)
+    for (const v of ['automatic', undefined, null, '']) expect(ornamentIsDrawn(v)).toBe(true)
+  })
+
+  it('draws an ornament straight out of the factory', () => {
+    expect(ornamentIsDrawn(makeStack({ ornament: 'bottom' }).ornamentVisibility)).toBe(true)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Rounded box radius (AUDIT #34)
+// ---------------------------------------------------------------------------
+describe('roundedBoxRadius', () => {
+  it('passes a radius the box has room for straight through', () => {
+    expect(roundedBoxRadius(0.02, [0.2, 0.2, 0.2])).toBe(0.02)
+  })
+
+  it('clamps to half the shortest side', () => {
+    // Past that there is no cube left to round, and three.js does not stop
+    // you asking - it hands back inside-out geometry.
+    expect(roundedBoxRadius(5, [0.2, 0.2, 0.1])).toBeCloseTo(0.05, 9)
+    expect(roundedBoxRadius(0.5, [1, 1, 1])).toBe(0.5)
+  })
+
+  it('reads a missing or useless radius as no rounding', () => {
+    for (const r of [undefined, null, 0, -1, NaN, 'nonsense']) {
+      expect(roundedBoxRadius(r, [1, 1, 1])).toBe(0)
+    }
+  })
+
+  it('never returns more than it was asked for', () => {
+    for (const r of [0.001, 0.01, 0.1, 1, 100]) {
+      expect(roundedBoxRadius(r, [0.3, 0.4, 0.5])).toBeLessThanOrEqual(r)
+    }
+  })
+
+  it('is 0 for a box with no extent at all', () => {
+    expect(roundedBoxRadius(1, [0, 1, 1])).toBe(0)
   })
 })

@@ -19,9 +19,14 @@
 
 import { describe, it, expect } from 'vitest'
 import { TEMPLATES } from '../templates'
+import { panelTypes } from '../panels/registry'
 import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
-import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES } from '../appleSystem'
+import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
+  isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
+  dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible,
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn,
+  resolveSemantic, buildDefaultSceneColors, VOLUME_PRESETS } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -974,5 +979,854 @@ describe('behaviour codegen coverage', () => {
       const src = sceneWith('tap', type)
       expect(src, `action "${type}" vanished from the export`).toMatch(new RegExp(`// DO ${type}:`))
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Control ranges reach the device as the canvas draws them (AUDIT #17)
+//
+// `appleSystem.test.js` pins `controlFraction` itself. What matters here is the
+// seam: the fraction the canvas paints has to be derived from the SAME value
+// and bounds the generator writes into the Swift file. So these export a real
+// panel, read the numbers back out of the emitted source, and feed those to the
+// canvas helper — if either side starts reading a different field, or the
+// exporter's `?? 0` / `?? 1` fallbacks drift from the canvas's, the fraction
+// stops matching and this fails.
+// ---------------------------------------------------------------------------
+describe('control ranges reach the export as the canvas draws them', () => {
+  const emitPanel = (type, props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'C', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+  const num = (s) => Number(s)
+
+  it('Slider: the emitted value and bounds give the fraction the canvas fills', () => {
+    const swift = emitPanel('slider', { sliderValue: 50, sliderMin: 0, sliderMax: 100 })
+    const m = swift.match(/Slider\(value: \.constant\(([-\d.]+)\), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(m, `no ranged Slider in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.5, 9)
+  })
+
+  it('Slider: a 0...1 slider still emits the bare initialiser and reads the same', () => {
+    const swift = emitPanel('slider', { sliderValue: 0.25 })
+    expect(swift).toContain('Slider(value: .constant(0.25))')
+    const m = swift.match(/Slider\(value: \.constant\(([-\d.]+)\)\)/)
+    // No `in:` means SwiftUI's own 0...1 default, which is what the canvas
+    // falls back to when the bounds are absent.
+    expect(controlFraction(num(m[1]), undefined, undefined)).toBeCloseTo(0.25, 9)
+  })
+
+  it('Gauge: the shipped default is self-consistent', () => {
+    // The default seeds `value: 70` in `0...100` with the label "70". It used
+    // to seed 0.7, which drew a 70%-full bar here and exported 0.7%.
+    const swift = emitPanel('gauge', {})
+    const m = swift.match(/Gauge\(value: ([-\d.]+), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(m, `no ranged Gauge in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.7, 9)
+    // ...and the number the gauge prints agrees with where the needle sits.
+    const label = swift.match(/currentValueLabel: \{ Text\("(\d+)"\) \}/)
+    expect(Number(label[1]) / 100).toBeCloseTo(0.7, 9)
+  })
+
+  it('Gauge: an arbitrary range maps the same on both sides', () => {
+    const swift = emitPanel('gauge', { value: 30, gaugeMin: 20, gaugeMax: 40, text: '' })
+    const m = swift.match(/Gauge\(value: ([-\d.]+), in: ([-\d.]+)\.\.\.([-\d.]+)/)
+    expect(controlFraction(num(m[1]), num(m[2]), num(m[3]))).toBeCloseTo(0.5, 9)
+  })
+
+  it('ProgressView: value is measured against total, not against 1', () => {
+    const swift = emitPanel('progress', { value: 30, total: 100 })
+    const m = swift.match(/ProgressView\(value: ([-\d.]+), total: ([-\d.]+)\)/)
+    expect(m, `no ProgressView with a total in:\n${swift}`).toBeTruthy()
+    expect(controlFraction(num(m[1]), 0, num(m[2]))).toBeCloseTo(0.3, 9)
+  })
+
+  it('Stepper: the emitted bounds are the ones the canvas clamps to', () => {
+    const swift = emitPanel('stepper', { stepperValue: 5, stepperMin: 0, stepperMax: 10, stepperStep: 5 })
+    const m = swift.match(/Stepper\("[^"]*", value: \.constant\(([-\d.]+)\), in: ([-\d.]+)\.\.\.([-\d.]+), step: ([-\d.]+)\)/)
+    expect(m, `no stepped Stepper in:\n${swift}`).toBeTruthy()
+    const [, v, lo, hi, step] = m.map(num)
+    // Pressing + from here lands on the upper bound and goes no further —
+    // the canvas steps by `step` and stops, as SwiftUI does.
+    expect(Math.min(hi, v + step)).toBe(10)
+    expect(Math.min(hi, 10 + step)).toBe(10)
+    expect(Math.max(lo, v - step)).toBe(0)
+    expect(Math.max(lo, 0 - step)).toBe(0)
+  })
+
+  it('every ranged control emits bounds the canvas can read back', () => {
+    // A sweep rather than four spot checks: whatever the range, the value the
+    // generator writes must sit inside the bounds it writes beside it.
+    const cases = [
+      ['slider', { sliderValue: 7, sliderMin: 5, sliderMax: 25 }],
+      ['gauge', { value: 7, gaugeMin: 5, gaugeMax: 25 }],
+      ['stepper', { stepperValue: 7, stepperMin: 5, stepperMax: 25 }]
+    ]
+    for (const [type, props] of cases) {
+      const swift = emitPanel(type, props)
+      const m = swift.match(/in: ([-\d.]+)\.\.\.([-\d.]+)/)
+      expect(m, `${type} emitted no range`).toBeTruthy()
+      const f = controlFraction(7, num(m[1]), num(m[2]))
+      expect(f, `${type} fraction`).toBeCloseTo(0.1, 9)
+      expect(f).toBeGreaterThan(0)
+      expect(f).toBeLessThan(1)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Presentations (AUDIT #7)
+//
+// Five panel types are not laid out as children at all: each attaches to its
+// PARENT as a `.sheet(…)` / `.popover(…)` / `.alert(…)` /
+// `.confirmationDialog(…)` / `.inspector(…)` modifier. The canvas knew about
+// three of them and the exporter about five, so a `confirmationdialog` or an
+// `inspector` was laid out as an ordinary child on screen while the generated
+// code presented it over the view — the wrong PLACE, not merely the wrong
+// pixels.
+//
+// One set answers for both sides now. What follows checks that set against
+// what the generator actually emits, type by type, rather than against the
+// list it is built from.
+// ---------------------------------------------------------------------------
+describe('presentations route the same way on both sides', () => {
+  const PRESENTATION_MODIFIERS = [
+    '.sheet(', '.popover(', '.alert(', '.confirmationDialog(', '.inspector('
+  ]
+  const underWindow = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('presents exactly the types the exporter attaches as a modifier', () => {
+    for (const type of panelTypes()) {
+      const swift = underWindow(type)
+      const presented = PRESENTATION_MODIFIERS.some((m) => swift.includes(m))
+      expect(isPresentationPanel(type),
+        `${type}: isPresentationPanel=${isPresentationPanel(type)} but the ` +
+        `export ${presented ? 'DOES' : 'does NOT'} attach a presentation modifier`
+      ).toBe(presented)
+    }
+  })
+
+  it('covers all five, so the sweep above is not vacuous', () => {
+    const presented = panelTypes().filter(isPresentationPanel).sort()
+    expect(presented).toEqual(
+      ['alert', 'confirmationdialog', 'inspector', 'popover', 'sheet']
+    )
+  })
+
+  it('emits the dialog and inspector that used to be laid out inline', () => {
+    // The two the canvas did not know about. Both reach the file as modifiers.
+    expect(underWindow('confirmationdialog')).toContain('.confirmationDialog(')
+    expect(underWindow('inspector')).toContain('.inspector(')
+  })
+
+  it('carries the popover anchor that neither side read', () => {
+    expect(underWindow('popover', { popoverAnchor: 'point' }))
+      .toContain('attachmentAnchor: .point(.center)')
+    // The default stays implicit rather than emitting `.rect(.bounds)`.
+    expect(underWindow('popover', { popoverAnchor: 'rectBounds' }))
+      .not.toContain('attachmentAnchor:')
+  })
+
+  it('emits the column width the canvas draws the inspector at', () => {
+    // The seam that matters: the width in the generated Swift and the width
+    // the canvas column resolves to have to be the same number.
+    const swift = underWindow('inspector', { inspectorColumnWidth: 280 })
+    expect(swift).toContain('.inspectorColumnWidth(280)')
+    const windowW = ptToUnits(1200)
+    expect(inspectorColumnWidth({ exact: 280 }, windowW)).toBeCloseTo(ptToUnits(280), 9)
+  })
+
+  it('emits the min/ideal/max triple the canvas clamps between', () => {
+    const swift = underWindow('inspector', {
+      inspectorMinWidth: 200, inspectorIdealWidth: 320, inspectorMaxWidth: 400
+    })
+    expect(swift).toContain('.inspectorColumnWidth(min: 200, ideal: 320, max: 400)')
+    const windowW = ptToUnits(1200)
+    const drawn = inspectorColumnWidth(
+      { min: 200, ideal: 320, max: 400 }, windowW
+    )
+    expect(drawn).toBeCloseTo(ptToUnits(320), 9)
+  })
+})
+
+describe('inspectorColumnWidth precedence', () => {
+  const W = ptToUnits(1200)
+
+  it('lets an exact width win outright, as the exporter does', () => {
+    // `.inspectorColumnWidth(n)` and `(min:ideal:max:)` are separate calls in
+    // SwiftUI and the exporter emits the first when it is set, so the canvas
+    // has to ignore the bounds in that case too.
+    expect(inspectorColumnWidth({ exact: 280, min: 400, max: 500 }, W))
+      .toBeCloseTo(ptToUnits(280), 9)
+  })
+
+  it('clamps the ideal between the bounds', () => {
+    expect(inspectorColumnWidth({ ideal: 100, min: 200 }, W)).toBeCloseTo(ptToUnits(200), 9)
+    expect(inspectorColumnWidth({ ideal: 900, max: 400 }, W)).toBeCloseTo(ptToUnits(400), 9)
+    expect(inspectorColumnWidth({ ideal: 300, min: 200, max: 400 }, W)).toBeCloseTo(ptToUnits(300), 9)
+  })
+
+  it('falls back to the stored frame, then to the system default', () => {
+    expect(inspectorColumnWidth({ stored: ptToUnits(260) }, W)).toBeCloseTo(ptToUnits(260), 9)
+    expect(inspectorColumnWidth({}, W)).toBeCloseTo(ptToUnits(320), 9)
+  })
+
+  it('still has to fit the window it splits', () => {
+    const narrow = ptToUnits(300)
+    expect(inspectorColumnWidth({ ideal: 5000 }, narrow)).toBeLessThanOrEqual(narrow)
+    expect(inspectorColumnWidth({ exact: 5000 }, narrow)).toBeLessThanOrEqual(narrow)
+    // ...and never collapses to nothing.
+    expect(inspectorColumnWidth({ ideal: 0 }, W)).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Form and OutlineGroup carry their row metrics (AUDIT #6)
+//
+// `rowHeight` reached NEITHER side: the canvas had no row rendering to apply
+// it to and the generated rows did not mention it. Now the canvas lays each
+// row out at that height and the generated row carries it as a floor, so the
+// two describe the same row.
+// ---------------------------------------------------------------------------
+describe('form and outlinegroup row metrics', () => {
+  const emit = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits a Form row per authored row', () => {
+    const swift = emit('form', {
+      rows: [{ title: 'Alpha' }, { title: 'Beta' }, { title: 'Gamma' }]
+    })
+    expect(swift).toContain('Form {')
+    for (const t of ['Alpha', 'Beta', 'Gamma']) expect(swift).toContain(`Text("${t}")`)
+  })
+
+  it('carries rowHeight onto each generated row', () => {
+    const swift = emit('form', { rows: [{ title: 'Alpha' }], rowHeight: 64 })
+    // A Form row grows for its content, so the authored height is a floor.
+    expect(swift).toContain('Text("Alpha").frame(minHeight: 64)')
+  })
+
+  it('carries rowHeight onto the outline row too', () => {
+    const swift = emit('outlinegroup', { rows: [{ title: 'Root', indent: 0 }], rowHeight: 52 })
+    expect(swift).toContain('Text(node.title).frame(minHeight: 52)')
+  })
+
+  it('omits the height when there is none to carry', () => {
+    expect(emit('form', { rows: [{ title: 'A' }], rowHeight: null })).not.toContain('minHeight')
+    expect(emit('form', { rows: [{ title: 'A' }], rowHeight: 0 })).not.toContain('minHeight')
+  })
+
+  it('emits formStyle only when it is not the default', () => {
+    expect(emit('form', { formStyle: 'columns' })).toContain('.formStyle(.columns)')
+    expect(emit('form', { formStyle: 'grouped' })).toContain('.formStyle(.grouped)')
+    // `.automatic` resolves to grouped on visionOS and is implicit.
+    expect(emit('form', { formStyle: 'automatic' })).not.toContain('.formStyle(')
+  })
+
+  it('builds the outline tree from the same indents the canvas walks', () => {
+    // The export nests by `indent`; `outlineVisibleRows` flattens by the same
+    // field. Both have to read a two-level tree as a parent with children.
+    const rows = [
+      { title: 'Root', indent: 0, expanded: true },
+      { title: 'Kid', indent: 1 }
+    ]
+    const swift = emit('outlinegroup', { rows })
+    expect(swift).toContain('OutlineNode(title: "Root", children: [')
+    expect(swift).toContain('OutlineNode(title: "Kid")')
+    const walked = outlineVisibleRows(rows)
+    expect(walked.map((r) => [r.title, r.isParent])).toEqual([['Root', true], ['Kid', false]])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Date-picker components (AUDIT #19)
+//
+// `displayedComponents` is one decision read twice: the exporter maps it onto
+// a SwiftUI `displayedComponents:` argument, and the canvas decides which
+// parts of the value to print. The canvas used to print the raw stored ISO
+// date whatever was chosen, so a time-only picker still previewed a date.
+// These check the two halves agree, against the real emitted argument.
+// ---------------------------------------------------------------------------
+describe('the date picker shows the components it emits', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel('datepicker', { parentId: win.id, name: 'D', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('agrees about every value in the vocabulary', () => {
+    for (const comps of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
+      const swift = emit({ displayedComponents: comps })
+      const line = swift.split('\n').find((l) => l.includes('DatePicker('))
+      expect(line, `no DatePicker emitted for ${comps}`).toBeTruthy()
+      const parts = dateComponentsParts(comps)
+      // `dateAndTime` is the SwiftUI default, so its argument is elided —
+      // which is itself the claim that both halves are shown.
+      const arg = /displayedComponents: (.+?)\)$/.exec(line)?.[1] ?? '[.date, .hourAndMinute]'
+      expect(arg.includes('.date'), `${comps}: date`).toBe(parts.date)
+      expect(
+        arg.includes('.hourAndMinute') || arg.includes('.hourMinuteAndSecond'),
+        `${comps}: time`
+      ).toBe(parts.time)
+      expect(arg.includes('.hourMinuteAndSecond'), `${comps}: seconds`).toBe(parts.seconds)
+    }
+  })
+
+  it('elides the argument at the SwiftUI default and emits it otherwise', () => {
+    expect(emit({ displayedComponents: 'dateAndTime' })).not.toContain('displayedComponents:')
+    expect(emit({ displayedComponents: 'date' })).toContain('displayedComponents: .date')
+  })
+
+  it('emits the picker style the canvas switches its layout on', () => {
+    // `.graphical` draws a month grid and `.wheel` draws drum columns, so a
+    // style the exporter can emit and the canvas cannot see would put the two
+    // back out of step.
+    for (const style of ['compact', 'graphical', 'wheel']) {
+      expect(emit({ dateStyle: style })).toContain(`.datePickerStyle(.${style})`)
+    }
+    expect(emit({ dateStyle: 'automatic' })).not.toContain('.datePickerStyle(')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Canvas-only visuals now reach the file (AUDIT #20)
+//
+// This group ran the other way from the rest of Stage 1: the canvas drew
+// these and the EXPORT dropped them, so a filled icon came back outlined, an
+// image came back as a `photo` placeholder, and a Label's tinted icon tile
+// came back as a plain row. The work was in the emitters, so these read the
+// generated Swift.
+// ---------------------------------------------------------------------------
+describe('canvas-only visuals reach the export', () => {
+  const emit = (type, props = {}) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const panel = makePanel(type, { parentId: win.id, name: 'P', ...props })
+    return exportSwiftUI([tab, win, panel], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('carries the SF Symbol variant the canvas draws', () => {
+    for (const variant of ['fill', 'circle', 'square', 'slash']) {
+      expect(emit('label', { symbolName: 'star', symbolVariant: variant }))
+        .toContain(`.symbolVariant(.${variant})`)
+    }
+  })
+
+  it('never puts symbolVariant on a view with no symbol to vary', () => {
+    expect(emit('text', { symbolVariant: 'fill', symbolName: null }))
+      .not.toContain('.symbolVariant(')
+    expect(emit('label', { symbolName: 'star', symbolVariant: null }))
+      .not.toContain('.symbolVariant(')
+  })
+
+  it('names the image instead of emitting a photo placeholder', () => {
+    // A pasted http URL is a real remote image.
+    expect(emit('image', { imageUrl: 'https://example.com/hero.png' }))
+      .toContain('AsyncImage(url: URL(string: "https://example.com/hero.png"))')
+    // A bundled path becomes an asset-catalog reference by its basename.
+    expect(emit('image', { imageUrl: '/samples/mountain.jpg' }))
+      .toContain('Image("mountain")')
+    // A data: URL from the asset library has no filename, so the panel's own
+    // name is the best handle the designer will recognise.
+    expect(emit('image', { name: 'Hero Shot', imageUrl: 'data:image/png;base64,AAA' }))
+      .toContain('Image("Hero Shot")')
+    // ...and an empty frame still says so rather than lying about a photo.
+    expect(emit('image', { imageUrl: null })).toContain('// no image set')
+  })
+
+  it('carries the field shape the canvas draws the edge from', () => {
+    expect(emit('textfield', { fieldShape: 'pill' })).toContain('.clipShape(Capsule())')
+    expect(emit('securefield', { fieldShape: 'pill' })).toContain('.clipShape(Capsule())')
+    const rounded = emit('textfield', { fieldShape: 'rounded' })
+    expect(rounded).toContain('.clipShape(RoundedRectangle(cornerRadius:')
+    expect(rounded).not.toContain('Capsule()')
+  })
+
+  it('carries the editor height the canvas rules lines for', () => {
+    expect(emit('texteditor', { lineCount: 7 })).toContain('.lineLimit(7)')
+    expect(emit('texteditor', { lineCount: 0 })).not.toContain('.lineLimit(')
+  })
+
+  describe('the Label icon tile', () => {
+    const tile = { symbolName: 'gear', iconColor: '#ffffff', iconTileColor: '#007aff', iconTileSize: 30, iconTileRadius: 8 }
+
+    it('switches to the two-closure form, which can carry one', () => {
+      // `Label(_:systemImage:)` has nowhere to put a tile, so a tile forces
+      // the explicit form. Emitting the short form with a tile set would
+      // silently drop every part of it — the original defect.
+      const swift = emit('label', tile)
+      expect(swift).toContain('Label {')
+      expect(swift).toContain('} icon: {')
+      expect(swift).toContain('Image(systemName: "gear")')
+    })
+
+    it('carries the colour, the size and the radius', () => {
+      const swift = emit('label', tile)
+      expect(swift).toContain('.frame(width: 30, height: 30)')
+      expect(swift).toContain('cornerRadius: 8')
+      // Both colours reach it: the glyph's and the tile's.
+      expect(swift.match(/\.foregroundStyle\(/g)?.length).toBeGreaterThanOrEqual(1)
+      expect(swift).toContain('.background(')
+    })
+
+    it('stays on the short form when there is no tile', () => {
+      const swift = emit('label', { symbolName: 'gear', iconTileColor: null })
+      expect(swift).toContain('Label("Label", systemImage: "gear")')
+      expect(swift).not.toContain('} icon: {')
+    })
+
+    it('still carries a bare icon colour without a tile', () => {
+      expect(emit('label', { symbolName: 'gear', iconTileColor: null, iconColor: '#ff3b30' }))
+        .toContain('.foregroundStyle(')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The dead controls (AUDIT #13, #14)
+//
+// Four sections were editable in the inspector and read by NOBODY, on either
+// side: the window's Immersion / Resizability / Gestures block, the
+// Environment section on stacks and windows, and the ornament offset. Phase
+// 1.5 wired what had an API, removed what did not, and these pin both halves
+// of that — including the removals, because a control that comes back is the
+// defect returning.
+// ---------------------------------------------------------------------------
+describe('the Environment section reaches the file', () => {
+  const withEnv = (environment) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const col = makeStack({ parentId: win.id, name: 'Col', stackType: 'vstack', environment })
+    const kid = makePanel('text', { parentId: col.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, col, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits each of the five as its real SwiftUI modifier', () => {
+    expect(withEnv({ font: 'headline' })).toContain('.environment(\\.font, .headline)')
+    expect(withEnv({ foregroundStyle: 'secondary' })).toContain('.foregroundStyle(')
+    expect(withEnv({ tint: 'systemRed' })).toContain('.tint(')
+    expect(withEnv({ layoutDirection: 'rightToLeft' }))
+      .toContain('.environment(\\.layoutDirection, .rightToLeft)')
+    expect(withEnv({ locale: 'fr-FR' }))
+      .toContain('.environment(\\.locale, Locale(identifier: "fr-FR"))')
+  })
+
+  it('stays silent at the defaults', () => {
+    const bare = withEnv({ font: null, foregroundStyle: null, tint: null, locale: null, layoutDirection: 'leftToRight' })
+    expect(bare).not.toContain('.environment(')
+    expect(withEnv(undefined)).not.toContain('.environment(')
+  })
+})
+
+describe('windowResizability reaches the Scene', () => {
+  const withResize = (windowResizability) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id, spatial: { hoverEffect: 'automatic', windowResizability } })
+    return exportSwiftUI([tab, win], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('is a Scene modifier on the WindowGroup, which is why it has no preview', () => {
+    const swift = withResize('contentSize')
+    expect(swift).toContain('.windowResizability(.contentSize)')
+    // It belongs to the App scene, not to a view body.
+    const appFile = exportSwiftUI(
+      [makeTab({ name: 'T' }), makeWindow({ name: 'W', spatial: { windowResizability: 'contentSize' } })],
+      'App', {}
+    ).find((f) => f.filename.includes('App'))
+    expect(appFile.content).toContain('.windowResizability(.contentSize)')
+  })
+
+  it('stays silent at .automatic', () => {
+    expect(withResize('automatic')).not.toContain('.windowResizability(')
+  })
+})
+
+describe('the removed window controls stay removed', () => {
+  // `immersionStyle` was a SECOND source for a scene-level concept the Scene
+  // tab already owns and emits; `gestures` had no SwiftUI API at all. A
+  // window carrying them again would be the dead control coming back.
+  it('a fresh window declares neither', () => {
+    const spatial = makeWindow({}).spatial
+    expect(Object.keys(spatial).sort()).toEqual(['hoverEffect', 'windowResizability'])
+  })
+
+  it('immersion still reaches the file, from the Scene where it belongs', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const swift = exportSwiftUI([tab, win], 'App', { sceneMode: 'immersive', immersionStyle: 'full' })
+      .map((f) => f.content).join('\n')
+    expect(swift).toContain('.immersionStyle(selection: .constant(.full), in: .full)')
+  })
+})
+
+describe('the ornament offset reaches both sides', () => {
+  const withOffset = (edge, ornamentOffset) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const orn = makeStack({ parentId: win.id, name: 'Orn', stackType: 'hstack', ornament: edge, ornamentOffset })
+    const kid = makePanel('text', { parentId: orn.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, orn, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('offsets away from the window on the edge it hangs from', () => {
+    // `.ornament` has no offset parameter, so it lands on the content.
+    expect(withOffset('bottom', 20)).toContain('.offset(y: 20)')
+    expect(withOffset('top', 20)).toContain('.offset(y: -20)')
+    expect(withOffset('leading', 20)).toContain('.offset(x: -20)')
+    expect(withOffset('trailing', 20)).toContain('.offset(x: 20)')
+  })
+
+  it('stays silent at zero', () => {
+    expect(withOffset('bottom', 0)).not.toContain('.offset(')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// A DisclosureGroup exports in the state it was left in (AUDIT #33)
+//
+// `isExpanded:` was bound to a `@State` seeded `= false` no matter what the
+// designer did, so a group opened on the canvas — contents laid out, sized and
+// visible — shipped closed, and the whole section was missing from the first
+// screen of the running app. The canvas has honoured `expanded` since the
+// beginning; this is the other half arriving.
+// ---------------------------------------------------------------------------
+describe('disclosure expansion survives the export', () => {
+  const emit = (expanded) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const d = makeStack({ parentId: win.id, name: 'D', stackType: 'disclosure', expanded })
+    const kid = makePanel('text', { parentId: d.id, text: 'Inside' })
+    return exportSwiftUI([tab, win, d, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('seeds the state true for a group the designer opened', () => {
+    expect(emit(true)).toMatch(/@State private var isExpanded_\w+: Bool = true/)
+  })
+
+  it('seeds it false for a group the designer closed', () => {
+    expect(emit(false)).toMatch(/@State private var isExpanded_\w+: Bool = false/)
+  })
+
+  it('binds the group to the variable it declared', () => {
+    const swift = emit(true)
+    const name = swift.match(/@State private var (isExpanded_\w+):/)[1]
+    expect(swift).toContain(`DisclosureGroup(isExpanded: $${name})`)
+  })
+
+  it('starts a new group open, the way the canvas draws it', () => {
+    // `makeStack` defaults `expanded`, and the two sides have to agree about
+    // what a group looks like before anyone touches the toggle.
+    const d = makeStack({ stackType: 'disclosure' })
+    expect(emit(d.expanded)).toMatch(
+      new RegExp(`@State private var isExpanded_\\w+: Bool = ${!!d.expanded}`)
+    )
+  })
+
+  it('keeps one variable per group', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const open = makeStack({ parentId: win.id, name: 'Open', stackType: 'disclosure', expanded: true })
+    const shut = makeStack({ parentId: win.id, name: 'Shut', stackType: 'disclosure', expanded: false })
+    const items = [tab, win, open, shut,
+      makePanel('text', { parentId: open.id, text: 'A' }),
+      makePanel('text', { parentId: shut.id, text: 'B' })]
+    const swift = exportSwiftUI(items, 'App', {}).map((f) => f.content).join('\n')
+    const decls = swift.match(/@State private var isExpanded_\w+: Bool = (true|false)/g)
+    expect(decls).toHaveLength(2)
+    expect(decls.join(' ')).toContain('= true')
+    expect(decls.join(' ')).toContain('= false')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The sheet chrome the canvas now draws is the chrome the file carries (#30)
+//
+// Four fields reached the generated Swift and nothing on screen. These check
+// the seam rather than either side alone: the number the canvas sizes a sheet
+// from is the number that lands in `.presentationDetents`, and the two chrome
+// modifiers are emitted exactly when the canvas draws them.
+// ---------------------------------------------------------------------------
+describe('sheet presentation metrics reach both sides', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const sheet = makePanel('sheet', { parentId: win.id, name: 'S', ...props })
+    return exportSwiftUI([tab, win, sheet], 'App', {}).map((f) => f.content).join('\n')
+  }
+  const H = ptToUnits(1000)
+
+  it('emits the detent the canvas sized the sheet from', () => {
+    for (const [props, detent] of [
+      [{ sheetDetent: 'large' }, '.large'],
+      [{ sheetDetent: 'medium' }, '.medium'],
+      [{ sheetDetent: 'fraction', sheetFraction: 0.3 }, '.fraction(0.3)'],
+      [{ sheetDetent: 'height', sheetHeight: 200 }, '.height(200)']
+    ]) {
+      expect(emit(props)).toContain(`.presentationDetents([${detent}])`)
+      // And the canvas has a height for it that is not just the panel's own.
+      expect(sheetDetentHeight({
+        detent: props.sheetDetent, fraction: props.sheetFraction, heightPt: props.sheetHeight
+      }, H)).toBeGreaterThan(0)
+    }
+  })
+
+  it('sizes .fraction(0.3) and .height(200) differently on both sides', () => {
+    // The user-visible defect: two sheets that ship at different heights and
+    // drew as the same box.
+    const a = emit({ sheetDetent: 'fraction', sheetFraction: 0.3 })
+    const b = emit({ sheetDetent: 'height', sheetHeight: 200 })
+    expect(a).not.toBe(b)
+    expect(sheetDetentHeight({ detent: 'fraction', fraction: 0.3 }, H))
+      .not.toBeCloseTo(sheetDetentHeight({ detent: 'height', heightPt: 200 }, H), 6)
+  })
+
+  it('emits the grabber exactly when the canvas draws one', () => {
+    for (const v of ['visible', 'hidden', 'automatic']) {
+      const swift = emit({ presentationDragIndicator: v })
+      const emitted = swift.includes('.presentationDragIndicator(.visible)')
+      expect(emitted, `${v}: canvas and export disagree about the grabber`)
+        .toBe(sheetDragIndicatorVisible(v))
+    }
+  })
+
+  it('emits the corner radius the canvas rounds the plate by', () => {
+    expect(emit({ presentationCornerRadius: 36 })).toContain('.presentationCornerRadius(36)')
+    // 0 means "no override" on both sides — the plate keeps its own radius.
+    expect(emit({ presentationCornerRadius: 0 })).not.toContain('.presentationCornerRadius(')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The ornament chrome the canvas draws is the chrome the file carries (#29)
+// ---------------------------------------------------------------------------
+describe('ornament chrome reaches both sides', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const orn = makeStack({ parentId: win.id, name: 'O', ornament: 'bottom', ...props })
+    const kid = makePanel('button', { parentId: orn.id, text: 'Go' })
+    return exportSwiftUI([tab, win, orn, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits a visibility exactly when the canvas changes what it draws', () => {
+    for (const v of ['automatic', 'visible', 'hidden']) {
+      const swift = emit({ ornamentVisibility: v })
+      const emitted = swift.includes(`visibility: .${v}`)
+      // `.automatic` is elided because it is the default on both sides.
+      expect(emitted, `${v}: the file and the canvas disagree`).toBe(v !== 'automatic')
+      if (v === 'hidden') expect(ornamentIsDrawn(v)).toBe(false)
+      else expect(ornamentIsDrawn(v)).toBe(true)
+    }
+  })
+
+  it('emits a content alignment exactly when the canvas moves the ornament', () => {
+    for (const a of ORNAMENT_CONTENT_ALIGNMENTS) {
+      const swift = emit({ ornamentContentAlignment: a })
+      const emitted = swift.includes(`contentAlignment: .${a}`)
+      const moves = ornamentContentOffset(a, [100, 40]).some((d) => d !== 0)
+      expect(emitted, `${a}: emitted=${emitted} but the canvas moves=${moves}`).toBe(moves)
+    }
+  })
+
+  it('still emits the anchor the exemption is about', () => {
+    // `ornamentAnchorMode` stays export-only on purpose — both anchors name
+    // the window frame, so the canvas has one box for the two of them. The
+    // export must keep carrying the distinction all the same.
+    expect(emit({ ornamentAnchorMode: 'parent' })).toContain('.parent(.bottom)')
+    expect(emit({ ornamentAnchorMode: 'scene' })).toContain('.scene(.bottom)')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// A Label's glyph is stored once (AUDIT #34)
+//
+// `iconName` was a second home for `symbolName`: the canvas drew one, the
+// exporter fell back to the other, the two sides disagreed about the final
+// fallback ('info.circle' here, 'circle.fill' there), and the default was the
+// letter `A`, which is not an SF Symbol. No inspector ever wrote it. The audit
+// filed this against `contentUnavailable`, which never read the field at all.
+// ---------------------------------------------------------------------------
+describe('a Label carries one glyph field', () => {
+  const emitLabel = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const label = makePanel('label', { parentId: win.id, text: 'Wi-Fi', ...props })
+    return exportSwiftUI([tab, win, label], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('starts on a symbol that is a symbol', () => {
+    const label = makePanel('label', {})
+    expect(label.symbolName).toBe('info.circle')
+    expect(label.iconName).toBeUndefined()
+  })
+
+  it('emits the symbol the canvas draws', () => {
+    expect(emitLabel({ symbolName: 'wifi' })).toContain('systemImage: "wifi"')
+  })
+
+  it('falls back to the same glyph the canvas falls back to', () => {
+    // `Panel3D` draws `panel.symbolName || 'info.circle'`; the export used to
+    // land on `circle.fill`, so a Label with no symbol shipped a different
+    // glyph from the one on screen.
+    expect(emitLabel({ symbolName: null })).toContain('systemImage: "info.circle"')
+  })
+
+  it('no longer reads the field it used to fall back to', () => {
+    // A project that still carries `iconName` gets it migrated, not read.
+    expect(emitLabel({ symbolName: null, iconName: 'bolt.fill' }))
+      .not.toContain('systemImage: "bolt.fill"')
+  })
+
+  it('leaves the contentUnavailable fallback alone', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const cu = makePanel('contentUnavailable', { parentId: win.id, text: 'No Results' })
+    const swift = exportSwiftUI([tab, win, cu], 'App', {}).map((f) => f.content).join('\n')
+    expect(swift).toContain('systemImage: "questionmark"')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// An unfrosted stack exports an unfrosted plate (AUDIT #35)
+//
+// SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by
+// definition. So a stack whose blur toggle was OFF — a flat plate on the
+// canvas — exported as a frosted one, describing a surface nobody asked for.
+// ---------------------------------------------------------------------------
+describe('a stack plate exports frosted only when it is frosted', () => {
+  const scene = { designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {} }
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const stack = makeStack({ parentId: win.id, name: 'S', stackType: 'vstack', ...props })
+    const kid = makePanel('text', { parentId: stack.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, stack, kid], 'App', scene).map((f) => f.content).join('\n')
+  }
+
+  it('emits the Material tier for a stack whose blur is on', () => {
+    expect(emit({ background: 'glassThick', blur: true })).toContain('.background(.thickMaterial)')
+  })
+
+  it('emits a colour, not a Material, when the blur is off', () => {
+    const swift = emit({ background: 'glassThick', blur: false })
+    expect(swift).not.toContain('.thickMaterial')
+    expect(swift).toContain('.background(Color(red:')
+  })
+
+  it('emits the colour the canvas paints the plate', () => {
+    // The canvas resolves the same token through the same function, so the
+    // plate in the file is the plate on screen.
+    const hex = resolveSemantic('glassThick', scene)
+    const [r, g, b] = [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(3))
+    expect(emit({ background: 'glassThick', blur: false }))
+      .toContain(`.background(Color(red: ${r}, green: ${g}, blue: ${b}))`)
+  })
+
+  it('follows the scene the project was exported with', () => {
+    const dark = { designScheme: 'dark', colors: buildDefaultSceneColors(), materialProps: {} }
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const stack = makeStack({ parentId: win.id, name: 'S', background: 'glassThick', blur: false })
+    const kid = makePanel('text', { parentId: stack.id, text: 'Hi' })
+    const inDark = exportSwiftUI([tab, win, stack, kid], 'App', dark).map((f) => f.content).join('\n')
+    expect(inDark).not.toBe(emit({ background: 'glassThick', blur: false }))
+  })
+
+  it('leaves a hex background exactly as authored', () => {
+    // Nothing to resolve, and the toggle changes nothing about it.
+    for (const blur of [true, false]) {
+      expect(emit({ background: '#ff0000', blur }))
+        .toContain('.background(Color(red: 1.000, green: 0.000, blue: 0.000))')
+    }
+  })
+
+  it('still prefers a real SwiftUI colour over a resolved literal', () => {
+    // `systemBackground` has a first-party spelling; resolving it to a hex
+    // would throw away the system's own light/dark behaviour.
+    expect(emit({ background: 'systemBackground', blur: false }))
+      .toContain('.background(Color(.systemBackground))')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// A volume is the box that was authored (AUDIT #32)
+//
+// `.defaultSize(width:height:depth:in:.meters)` used to receive the declared
+// depth three times, so a volume authored 0.9 x 0.6 shipped as a cube: the
+// canvas drew the authored box and the file asked for a different one. And
+// `volumeDepthMeters` reached the file alone — the canvas drew a volumetric
+// window's width and height and nothing at all in depth.
+// ---------------------------------------------------------------------------
+describe('a volumetric window exports the box it was drawn as', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id, windowStyle: 'volumetric', ...props })
+    const kid = makePanel('text', { parentId: win.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, kid], 'App', { sceneMode: 'volume' })
+      .map((f) => f.content).join('\n')
+  }
+  const sizeOf = (preset) => [ptToUnits(VOLUME_PRESETS[preset].width), ptToUnits(VOLUME_PRESETS[preset].height)]
+
+  it('carries the authored width and height, not the depth three times', () => {
+    const swift = emit({ size: sizeOf('large'), volumeDepthMeters: 0.4 })
+    expect(swift).toContain('.defaultSize(width: 0.9, height: 0.6, depth: 0.4, in: .meters)')
+  })
+
+  it('keeps the depth independent of the other two', () => {
+    const a = emit({ size: sizeOf('medium'), volumeDepthMeters: 0.3 })
+    const b = emit({ size: sizeOf('medium'), volumeDepthMeters: 1.2 })
+    expect(a).toContain('depth: 0.3,')
+    expect(b).toContain('depth: 1.2,')
+    // Same box otherwise — the depth is the only thing that moved.
+    expect(a.replace('depth: 0.3,', 'X')).toBe(b.replace('depth: 1.2,', 'X'))
+  })
+
+  it('emits a non-cube for a preset that is not a cube', () => {
+    // Every shipped preset is wider than it is tall, so a cube is always wrong.
+    for (const preset of Object.keys(VOLUME_PRESETS)) {
+      const swift = emit({ size: sizeOf(preset), volumeDepthMeters: 0.5 })
+      const m = /\.defaultSize\(width: ([\d.]+), height: ([\d.]+), depth: ([\d.]+),/.exec(swift)
+      expect(m, `${preset} emitted no volumetric defaultSize`).toBeTruthy()
+      expect(Number(m[1]), `${preset} exports square`).not.toBe(Number(m[2]))
+    }
+  })
+
+  it('agrees with the box the canvas measures', () => {
+    // The canvas draws the window's own size; scene units are metres, so the
+    // numbers in the file are the numbers on screen.
+    const [w, h] = sizeOf('large')
+    const swift = emit({ size: [w, h], volumeDepthMeters: 0.4 })
+    expect(swift).toContain(`width: ${Number(w.toFixed(3))}, height: ${Number(h.toFixed(3))}`)
+  })
+
+  it('falls back to a cube only when there is no size to read', () => {
+    const swift = emit({ size: null, volumeDepthMeters: 0.7 })
+    expect(swift).toContain('.defaultSize(width: 0.7, height: 0.7, depth: 0.7, in: .meters)')
+  })
+
+  it('leaves a flat window default size alone', () => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const kid = makePanel('text', { parentId: win.id, text: 'Hi' })
+    const swift = exportSwiftUI([tab, win, kid], 'App', {}).map((f) => f.content).join('\n')
+    expect(swift).not.toContain('in: .meters')
   })
 })
