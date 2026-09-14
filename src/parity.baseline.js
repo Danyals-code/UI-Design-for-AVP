@@ -55,16 +55,16 @@ export const STACK = {
   scrollX: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
   // -- material -------------------------------------------------------------
-  blur: debt('canvas-only: frosted-glass toggle on a stack background is not emitted'),
-  blurAmount: debt('canvas-only: blur radius is not emitted'),
+  blur: debt('canvas-only: a stack whose blur is OFF still exports a frosted Material — emit the resolved colour instead', 35),
+  blurAmount: ex('canvas-only: SwiftUI Materials are fixed tiers with no radius control, so the tier is the only granularity that round-trips; the canvas exposes a continuous knob because three.js can render one'),
 
   // -- disclosure -----------------------------------------------------------
-  expanded: debt('canvas-only: export emits DisclosureGroup(isExpanded: $state) without seeding it from the authored value'),
+  expanded: debt('canvas-only: the emitted `@State private var isExpanded_… = false` is hard-coded, so a disclosure open on the canvas exports closed', 33),
 
   // -- ornaments ------------------------------------------------------------
-  ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()'),
-  ornamentContentAlignment: debt('export-only: canvas ignores ornament content alignment'),
-  ornamentVisibility: debt('export-only: canvas always draws the ornament regardless of visibility'),
+  ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()', 29),
+  ornamentContentAlignment: debt('export-only: canvas ignores ornament content alignment', 29),
+  ornamentVisibility: debt('export-only: canvas always draws the ornament regardless of visibility', 29),
   // `ornamentOffset` left this table in phase 1.5 (AUDIT #14). It was read by
   // NEITHER side — the number in the inspector moved nothing and reached no
   // file. The canvas now pushes the ornament that far out along the edge it
@@ -75,8 +75,8 @@ export const STACK = {
   // `scrollShowsIndicators` left this table in phase 1.4: a scrollable stack
   // now draws a real scroll thumb, and both sides read the field to decide
   // whether to show it.
-  toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement'),
-  fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes'),
+  toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement', 33),
+  fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes', 33),
 
   // -- environment ----------------------------------------------------------
   // The whole section left this table in phase 1.5 (AUDIT #13). Font,
@@ -101,14 +101,25 @@ export const WINDOW = {
   collapsed: ex('neither: layers-tree disclosure state, pure editor chrome'),
   scrollY: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
-  fillOpacity: debt('canvas-only: plate fill opacity is not carried into the emitted material'),
-  blur: debt('canvas-only: window backdrop blur toggle is not emitted'),
-  blurAmount: debt('canvas-only: blur radius is not emitted'),
+  // The window plate is SYSTEM glass on visionOS — a WindowGroup's surface is
+  // drawn by the shell, and the exporter emits no background for it at all.
+  // `.windowStyle(.plain)` removes the plate entirely and that is the whole
+  // API; there is nothing to set its opacity or its blur to. The canvas
+  // paints one because it has to draw something, and these three tune what it
+  // paints. Nothing to carry.
+  fillOpacity: ex('canvas-only: the window plate is system-drawn glass, with no SwiftUI control over its opacity'),
+  blur: ex('canvas-only: same — the shell draws the window surface, so there is no backdrop-blur toggle to emit'),
+  blurAmount: ex('canvas-only: same, and Materials carry no radius anywhere in SwiftUI'),
 
-  volumeDepthMeters: debt('export-only: canvas derives volume depth from the window size instead'),
-  worldScalingBehavior: debt('export-only: no canvas equivalent'),
-  volumeWorldAlignment: debt('export-only: no canvas equivalent'),
-  supportedVolumeViewpoints: debt('export-only: no canvas equivalent'),
+  volumeDepthMeters: debt('export-only: the declared depth is a dimension the canvas could draw; it sizes the volume from the window instead', 32),
+  // The two below are runtime behaviours rather than geometry: how a volume
+  // rescales as the wearer walks toward it, and how it re-orients to gravity.
+  // The canvas has a fixed world and a camera the designer drives, so there
+  // is no such behaviour for it to show — it always renders at true scale in
+  // a world that never re-orients.
+  worldScalingBehavior: ex('export-only: a runtime rescaling behaviour; the canvas always renders at true scale'),
+  volumeWorldAlignment: ex('export-only: a runtime re-orientation; the canvas world never re-orients'),
+  supportedVolumeViewpoints: debt('export-only: which sides the wearer may view from — Preview could bound the orbit, though editor mode must stay free', 32),
 
   // `spatial` and `environment` left this table in phase 1.5 (AUDIT #13).
   //
@@ -206,10 +217,10 @@ export const PANEL = {
   headerProminence: ex('neither: styles Section headers and the list panel has no sections - see the note above'),
 
   // -- presentation metrics -------------------------------------------------
-  presentationCornerRadius: debt('export-only: canvas uses the panel corner radius'),
-  presentationDragIndicator: debt('export-only: canvas draws no drag indicator'),
-  sheetFraction: debt('export-only: canvas honours sheetDetent only'),
-  sheetHeight: debt('export-only: canvas honours sheetDetent only'),
+  presentationCornerRadius: debt('export-only: canvas uses the panel corner radius', 30),
+  presentationDragIndicator: debt('export-only: canvas draws no drag indicator', 30),
+  sheetFraction: debt('export-only: canvas honours sheetDetent only, so a .fraction detent sizes nothing', 30),
+  sheetHeight: debt('export-only: canvas honours sheetDetent only, so a .height detent sizes nothing', 30),
   // AUDIT #7 emptied in phase 1.3. `confirmationdialog` and `inspector` are
   // routed as presentations now rather than laid out as ordinary children, so
   // the fields that describe them finally have something to describe:
@@ -224,10 +235,10 @@ export const PANEL = {
   // note there. Closing these means shipping a rounded / serif / mono face.
   fontDesign: debt('export-only: only Inter is bundled, so there is no face to swap to', 5),
   monospacedDigit: debt('export-only: tabular figures need a face the app does not ship', 5),
-  boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges'),
-  depth: debt('export-only: canvas ignores .frame(depth:)'),
-  iconName: debt('export-only: contentUnavailable icon is not drawn'),
-  styles: debt('export-only: the shared styles bag (controlSize and friends) reaches the export only'),
+  boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges; needs a rounded-box geometry', 34),
+  depth: debt('export-only: canvas draws 2D panels flat and ignores .frame(depth:)', 34),
+  iconName: debt('export-only: contentUnavailable draws a generic glyph instead of the named symbol', 34),
+  styles: debt('export-only: `toggleStyle` / `labelStyle` / `textFieldStyle` never reach the canvas. 18 labels across the shipped templates set `labelStyle: iconOnly` and draw their text anyway — the widest live divergence left. Its `controlSize` is also a duplicate of the top-level field phase 2.3 settled on', 31),
 
   // -- canvas-only visuals the export drops ---------------------------------
   //
@@ -331,4 +342,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 27
+export const DEBT_CEILING = 21
