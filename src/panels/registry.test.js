@@ -104,3 +104,87 @@ describe('registry invariants', () => {
     expect(isInteractivePanel('divider')).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Frame mode
+//
+// `panelFrameMode` decides whether the exporter emits `.frame(...)` from a
+// panel's stored `size`, from its Fit/Fixed/Fill mode, or not at all. The
+// inspector carries the same vocabulary in `PANEL_META.frameMode`, because
+// it drives which fields that inspector renders — and the two must agree, or
+// a type shows width/height fields whose values never reach the export (or
+// the reverse).
+//
+// The inspector lives in a .jsx module that pulls in React and the store, so
+// this reads its source rather than importing it. The check is exact: every
+// `frameMode:` literal in PANEL_META is matched against the registry.
+// ---------------------------------------------------------------------------
+
+import fs from 'fs'
+import { panelFrameMode, panelHeightIsDerived } from './registry'
+
+const inspectorSource = fs.readFileSync(new URL('./inspectors.jsx', import.meta.url), 'utf8')
+
+// PANEL_META entries are either `type: sharedConst` or `type: { ... }`.
+// Resolve both to the frameMode they end up with.
+function inspectorFrameModes() {
+  const consts = {}
+  for (const m of inspectorSource.matchAll(
+    /^const (\w+) = \{ frameMode: '(\w+)'/gm
+  )) consts[m[1]] = m[2]
+
+  const start = inspectorSource.indexOf('export const PANEL_META')
+  const end = inspectorSource.indexOf('\n}', start)
+  const block = inspectorSource.slice(start, end)
+
+  const out = {}
+  for (const line of block.split('\n')) {
+    const m = /^\s{2}(\w+):\s*(.+?),?\s*$/.exec(line)
+    if (!m) continue
+    const [, type, value] = m
+    const inline = /frameMode: '(\w+)'/.exec(value)
+    if (inline) { out[type] = inline[1]; continue }
+    const spread = /\.\.\.(\w+)/.exec(value)
+    const bare = /^(\w+)$/.exec(value.replace(/,$/, ''))
+    const ref = spread?.[1] || bare?.[1]
+    if (ref && consts[ref]) out[type] = consts[ref]
+  }
+  return out
+}
+
+describe('frame mode', () => {
+  it('parses the inspector metadata it is checked against', () => {
+    // Guards the regex above: if PANEL_META is restructured and nothing is
+    // parsed, the agreement test below would pass vacuously.
+    const modes = inspectorFrameModes()
+    expect(Object.keys(modes).length).toBeGreaterThan(15)
+    expect(new Set(Object.values(modes))).toEqual(new Set(['explicit', 'figma', 'none']))
+  })
+
+  it('agrees with the inspector for every type the inspector names', () => {
+    const mismatches = []
+    for (const [type, inspectorMode] of Object.entries(inspectorFrameModes())) {
+      const registryMode = panelFrameMode(type)
+      if (registryMode !== inspectorMode) {
+        mismatches.push(`${type}: registry '${registryMode}' vs inspector '${inspectorMode}'`)
+      }
+    }
+    expect(mismatches).toEqual([])
+  })
+
+  it('defaults an unlisted type to an explicit frame', () => {
+    // Matches `getPanelMeta`, which falls back to `explicitFrame`.
+    expect(panelFrameMode('definitely-not-a-panel-type')).toBe('explicit')
+  })
+
+  it('marks the list as height-derived, matching lockHeight', () => {
+    expect(panelHeightIsDerived('list')).toBe(true)
+    expect(inspectorSource).toMatch(/list: \{ \.\.\.explicitFrame, lockHeight: true/)
+  })
+
+  it('gives every registered type a valid mode', () => {
+    for (const type of panelTypes()) {
+      expect(['explicit', 'figma', 'none'], type).toContain(panelFrameMode(type))
+    }
+  })
+})

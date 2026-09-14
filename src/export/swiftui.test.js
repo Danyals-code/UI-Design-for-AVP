@@ -20,8 +20,12 @@
 import { describe, it, expect } from 'vitest'
 import { TEMPLATES } from '../templates'
 import { exportSwiftUI } from './swiftui'
-import { DEFAULT_SCENE } from '../store/factories'
-import { NAVBAR_STYLE_SPECS } from '../appleSystem'
+import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
+import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES } from '../appleSystem'
+import { computeSize } from '../layout'
+import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
+import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
+import { triggerGeneratesSwift, actionGeneratesSwift } from './behaviors'
 
 const QUOTE = String.fromCharCode(34)
 const BACKSLASH = String.fromCharCode(92)
@@ -457,5 +461,518 @@ describe('validity helpers', () => {
   it('ignores an escaped quote inside a string', () => {
     const esc = 'Text("she said ' + BACKSLASH + '"hi' + BACKSLASH + '" { }")'
     expect(braceBalance(esc).depth).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Frame emission
+//
+// The canvas sizes a view from `widthMode` / `heightMode` plus an explicit
+// value; until this landed none of it reached the export, so a stack pinned
+// to a 640 pt column came out hugging its content and a `fill` child came out
+// intrinsic. `swiftui.js` resolves those modes in `frameSpec`, deliberately
+// duplicating the resolution in `layout.js` -> `computeSize`. These tests are
+// what keeps the duplicate honest.
+//
+// Modifier ORDER carries as much meaning as the frame itself: in SwiftUI
+// `.padding(24).frame(width: 640)` is a 640 pt box with its content inset,
+// while `.frame(width: 640).padding(24)` is a 688 pt box. Only the first
+// matches what the canvas draws, so the order is asserted, not just the
+// presence.
+// ---------------------------------------------------------------------------
+
+// Build one view file around a caller-supplied set of children. The blank
+// template seeds a fill/fill stack, dropped here so each case states its own
+// sizing rather than inheriting that one.
+const swiftFor = (extra) => {
+  const { items } = TEMPLATES.blank.build()
+  const win = items.find((it) => it.type === 'window')
+  const kept = items.filter((it) => it.type !== 'stack')
+  return exportSwiftUI([...kept, ...extra(win)], 'App', {})[0].content
+}
+
+const stackWith = (props) => (win) => [
+  { ...makeStack({ parentId: win.id, name: 'Box', stackType: 'vstack' }), ...props }
+]
+
+// The window body always emits its own `.frame(width:height:)`, so "this view
+// got no frame" is a count of one, not an absence.
+const frameCount = (src) => src.split('.frame(').length - 1
+const WINDOW_FRAME_ONLY = 1
+
+const panelWith = (panelType, props) => (win) => [
+  { ...makePanel(panelType, { parentId: win.id }), ...props }
+]
+
+describe('frame emission - stacks', () => {
+  it('emits a fixed width from fixedWidth', () => {
+    expect(swiftFor(stackWith({ widthMode: 'fixed', fixedWidth: 640 })))
+      .toContain('.frame(width: 640)')
+  })
+
+  it('emits maxWidth: .infinity for a fill axis', () => {
+    expect(swiftFor(stackWith({ widthMode: 'fill' })))
+      .toContain('.frame(maxWidth: .infinity)')
+  })
+
+  it('combines both axes into one .frame call', () => {
+    expect(swiftFor(stackWith({ widthMode: 'fixed', fixedWidth: 320, heightMode: 'fill' })))
+      .toContain('.frame(width: 320, maxHeight: .infinity)')
+  })
+
+  it('emits nothing for a stack that hugs on both axes', () => {
+    expect(frameCount(swiftFor(stackWith({ widthMode: 'fit', heightMode: 'fit' }))))
+      .toBe(WINDOW_FRAME_ONLY)
+  })
+
+  it('hugs when the mode is fixed but no value was ever set', () => {
+    // Several templates are in exactly this state. computeSize falls back to
+    // hugging, so inventing a number here would make the export disagree
+    // with the canvas rather than agree with the template's intent.
+    expect(frameCount(swiftFor(stackWith({ widthMode: 'fixed', fixedWidth: null }))))
+      .toBe(WINDOW_FRAME_ONLY)
+  })
+
+  it('treats a bare fixedWidth with no mode as fixed, like computeSize does', () => {
+    expect(swiftFor(stackWith({ widthMode: undefined, fixedWidth: 200 })))
+      .toContain('.frame(width: 200)')
+  })
+
+  it('insets content before sizing the box, never after', () => {
+    const src = swiftFor(stackWith({ padding: 24, widthMode: 'fixed', fixedWidth: 640 }))
+    const padAt = src.indexOf('.padding(24)')
+    const frameAt = src.indexOf('.frame(width: 640)')
+    expect(padAt).toBeGreaterThan(-1)
+    expect(frameAt).toBeGreaterThan(padAt)
+  })
+
+  it('paints the background around the frame, not around the content', () => {
+    const src = swiftFor(stackWith({
+      widthMode: 'fixed', fixedWidth: 640, background: 'glassThin'
+    }))
+    expect(src.indexOf('.background(')).toBeGreaterThan(src.indexOf('.frame(width: 640)'))
+  })
+})
+
+describe('frame emission - per-edge padding', () => {
+  it('emits one call per edge when the edges differ', () => {
+    const src = swiftFor(stackWith({
+      paddingEdges: { top: 8, bottom: 16, leading: 24, trailing: 4 }
+    }))
+    expect(src).toContain('.padding(.top, 8)')
+    expect(src).toContain('.padding(.bottom, 16)')
+    expect(src).toContain('.padding(.leading, 24)')
+    expect(src).toContain('.padding(.trailing, 4)')
+  })
+
+  it('collapses symmetric edges to the axis form', () => {
+    const src = swiftFor(stackWith({
+      paddingEdges: { top: 12, bottom: 12, leading: 30, trailing: 30 }
+    }))
+    expect(src).toContain('.padding(.horizontal, 30)')
+    expect(src).toContain('.padding(.vertical, 12)')
+    expect(src).not.toContain('.padding(.top,')
+  })
+
+  it('collapses fully uniform edges to the short form', () => {
+    expect(swiftFor(stackWith({
+      paddingEdges: { top: 16, bottom: 16, leading: 16, trailing: 16 }
+    }))).toContain('.padding(16)')
+  })
+
+  it('overrides the uniform padding field when both are present', () => {
+    const src = swiftFor(stackWith({
+      padding: 24, paddingEdges: { top: 4, bottom: 4, leading: 4, trailing: 4 }
+    }))
+    expect(src).toContain('.padding(4)')
+    expect(src).not.toContain('.padding(24)')
+  })
+})
+
+describe('frame emission - panels', () => {
+  it('emits a fixed width from the panel size', () => {
+    expect(swiftFor(panelWith('text', {
+      text: 'Hi', widthMode: 'fixed', size: [ptToUnits(240), ptToUnits(40)]
+    }))).toContain('.frame(width: 240)')
+  })
+
+  it('emits maxWidth: .infinity for a fill panel', () => {
+    expect(swiftFor(panelWith('text', { text: 'Hi', widthMode: 'fill' })))
+      .toContain('.frame(maxWidth: .infinity)')
+  })
+
+  it('leaves shapes to size themselves - no second frame', () => {
+    // Rectangle / Circle / gradients / 3D primitives already emit their own
+    // frame; a second one would fight the first.
+    const src = swiftFor(panelWith('rectangle', {
+      widthMode: 'fixed', size: [ptToUnits(100), ptToUnits(50)]
+    }))
+    // The window's frame, plus the Rectangle's own — and no third.
+    expect(frameCount(src)).toBe(WINDOW_FRAME_ONLY + 1)
+    expect(src).toContain('.frame(width: 100, height: 50)')
+  })
+
+  it('defers to a .frame entry in the modifier stack', () => {
+    // That entry is the frame the user can see and edit, and layout.js
+    // already treats it as the source of truth over the panel-root fields.
+    const src = swiftFor(panelWith('text', {
+      text: 'Hi',
+      widthMode: 'fixed',
+      size: [ptToUnits(240), ptToUnits(40)],
+      modifiers: [{
+        id: 'm1', type: 'frame', width: 500, height: null,
+        minWidth: null, minHeight: null, maxWidth: false, maxHeight: false,
+        alignment: 'center'
+      }]
+    }))
+    expect(src).toContain('.frame(width: 500)')
+    expect(src).not.toContain('.frame(width: 240)')
+  })
+})
+
+describe('frame emission - window body', () => {
+  it('insets the content inside the plate rather than growing past it', () => {
+    // The canvas treats win.padding as an inner inset: a 1200x800 plate with
+    // a 1172x772 content area. `.frame(...).padding(14)` is the opposite - it
+    // grows the view to 1228x828.
+    const { items } = TEMPLATES.blank.build()
+    const src = exportSwiftUI(items, 'App', {})[0].content
+    const padAt = src.indexOf('.padding(14)')
+    const frameAt = src.indexOf('.frame(width: 1200')
+    expect(padAt).toBeGreaterThan(-1)
+    expect(frameAt).toBeGreaterThan(padAt)
+  })
+})
+
+describe('frame emission agrees with the canvas', () => {
+  // The load-bearing property: for every item across every template that
+  // declares a fixed axis with a real value, the width the exporter writes
+  // must be the width computeSize reserves. If the two resolutions drift, a
+  // designer's column comes out a different size in Xcode than on the canvas.
+  it('every fixed-width item exports the width computeSize reserves', () => {
+    const mismatches = []
+    for (const key of templateKeys) {
+      const { items } = TEMPLATES[key].build()
+      const src = exportSwiftUI(items, 'App', {}).map((f) => f.content).join('\n')
+      for (const it of items) {
+        if (it.type !== 'stack' && it.type !== 'panel') continue
+        if ((it.widthMode || 'fit') !== 'fixed') continue
+        const declared = it.type === 'stack'
+          ? (it.fixedWidth != null ? it.fixedWidth : null)
+          : (Array.isArray(it.size) && it.size[0] ? Math.round(unitsToPt(it.size[0])) : null)
+        if (declared == null) continue
+        const canvas = Math.round(unitsToPt(computeSize(it, items)[0]))
+        if (declared !== canvas) {
+          mismatches.push(`${key}/${it.name}: declared ${declared}pt but canvas reserves ${canvas}pt`)
+        } else if (!src.includes(`.frame(width: ${declared}`)) {
+          mismatches.push(`${key}/${it.name}: canvas reserves ${canvas}pt, no matching .frame emitted`)
+        }
+      }
+    }
+    expect(mismatches).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ScrollView emission
+//
+// `stack.scrollable` used to emit a `// wrap in ScrollView { ... }` comment,
+// so the two templates that rely on it exported a view that simply clipped
+// its overflow. It now emits a real ScrollView, and WHERE each modifier lands
+// is the whole point: the frame sizes the viewport, the padding rides with
+// the scrolling content. Putting the frame inside would pin the content to
+// the viewport height and nothing would ever scroll; putting the background
+// inside would scroll the fill away with the content.
+// ---------------------------------------------------------------------------
+
+describe('scrollable stacks', () => {
+  const scrollingStack = (props) => stackWith({
+    scrollable: true, padding: 24, widthMode: 'fill', heightMode: 'fill', ...props
+  })
+
+  it('emits a real ScrollView, not a comment', () => {
+    const src = swiftFor(scrollingStack({}))
+    expect(src).toContain('ScrollView {')
+    expect(src).not.toContain('wrap in ScrollView')
+  })
+
+  // The ScrollView's OWN closing brace, matched by indentation — the first
+  // `}` after the opener belongs to the stack nested inside it.
+  const scrollViewSpan = (src) => {
+    const lines = src.split('\n')
+    const indentOf = (l) => l.length - l.trimStart().length
+    const open = lines.findIndex((l) => l.includes('ScrollView'))
+    const close = lines.findIndex(
+      (l, i) => i > open && l.trim() === '}' && indentOf(l) === indentOf(lines[open])
+    )
+    return { open, close, at: (needle) => lines.findIndex((l) => l.includes(needle)) }
+  }
+
+  it('puts the frame on the viewport and the padding on the content', () => {
+    const { open, close, at } = scrollViewSpan(swiftFor(scrollingStack({})))
+    expect(open).toBeGreaterThan(-1)
+    expect(close).toBeGreaterThan(open)
+    // Padding scrolls with the content; the frame sizes the viewport.
+    expect(at('.padding(24)')).toBeGreaterThan(open)
+    expect(at('.padding(24)')).toBeLessThan(close)
+    expect(at('.frame(maxWidth: .infinity, maxHeight: .infinity)')).toBeGreaterThan(close)
+  })
+
+  it('keeps the background outside, so the fill does not scroll away', () => {
+    const { close, at } = scrollViewSpan(swiftFor(scrollingStack({ background: 'glassThin' })))
+    expect(at('.background(')).toBeGreaterThan(close)
+  })
+
+  it('omits both arguments at the defaults', () => {
+    // Spec 1.24: vertical axis, indicators shown.
+    expect(swiftFor(scrollingStack({}))).toContain('ScrollView {')
+  })
+
+  it('emits the axis when the designer overrode it', () => {
+    expect(swiftFor(scrollingStack({ scrollAxis: 'horizontal' })))
+      .toContain('ScrollView(.horizontal) {')
+    expect(swiftFor(scrollingStack({ scrollAxis: 'both' })))
+      .toContain('ScrollView([.horizontal, .vertical]) {')
+  })
+
+  it('emits showsIndicators only when turned off', () => {
+    expect(swiftFor(scrollingStack({ scrollShowsIndicators: false })))
+      .toContain('ScrollView(showsIndicators: false) {')
+    expect(swiftFor(scrollingStack({ scrollAxis: 'horizontal', scrollShowsIndicators: false })))
+      .toContain('ScrollView(.horizontal, showsIndicators: false) {')
+  })
+
+  it('leaves a non-scrollable stack alone', () => {
+    expect(swiftFor(stackWith({ padding: 24 }))).not.toContain('ScrollView')
+  })
+
+  it('gives the two templates that rely on it a real ScrollView', () => {
+    for (const key of ['settings', 'article']) {
+      const src = exportSwiftUI(TEMPLATES[key].build().items, 'App', {})
+        .map((f) => f.content).join('\n')
+      expect(src, `${key} lost its ScrollView`).toContain('ScrollView {')
+      expect(src, `${key} still emits the placeholder comment`)
+        .not.toContain('wrap in ScrollView')
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Button role vs button style
+//
+// `destructive` is a ButtonRole, not a ButtonStyle. It sat in BUTTON_STYLES
+// as "a convenience" and emitted `.buttonStyle(.destructive)`, which does not
+// compile — and the settings template shipped it. The value now routes to the
+// `buttonRole` field it always belonged in, both on load and at emit time.
+// ---------------------------------------------------------------------------
+
+describe('button role', () => {
+  it('no longer offers destructive as a style', () => {
+    expect(Object.keys(BUTTON_STYLES)).not.toContain('destructive')
+  })
+
+  it('emits a role initializer, never a destructive style', () => {
+    const src = swiftFor(panelWith('button', { text: 'Delete', buttonRole: 'destructive' }))
+    expect(src).toContain('Button(role: .destructive)')
+    expect(src).not.toContain('.buttonStyle(.destructive)')
+  })
+
+  it('rescues a scene that still carries the old style value', () => {
+    // Not every scene arrives through the loader — an in-memory scene, or a
+    // template that had not been re-seeded, would otherwise emit the line
+    // that does not compile.
+    const src = swiftFor(panelWith('button', { text: 'Delete', buttonStyle: 'destructive' }))
+    expect(src).toContain('Button(role: .destructive)')
+    expect(src).not.toContain('.buttonStyle(.destructive)')
+  })
+
+  it('does not clobber a role the designer already set', () => {
+    const src = swiftFor(panelWith('button', {
+      text: 'Cancel', buttonStyle: 'destructive', buttonRole: 'cancel'
+    }))
+    expect(src).toContain('Button(role: .cancel)')
+  })
+
+  it('leaves every real style alone', () => {
+    const src = swiftFor(panelWith('button', { text: 'Go', buttonStyle: 'borderedProminent' }))
+    expect(src).toContain('.buttonStyle(.borderedProminent)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// List style
+//
+// LIST_STYLES doubles as the canvas's preset table, so it carries a 'default'
+// preset SwiftUI has no `.default` case for. The same shape of bug as
+// `.buttonStyle(.destructive)`, found by the vocabulary sweep in
+// parity.test.js rather than by anyone hitting it.
+// ---------------------------------------------------------------------------
+
+describe('list style', () => {
+  it('maps the default preset to automatic, and elides it', () => {
+    const src = swiftFor(panelWith('list', { listStyle: 'default' }))
+    expect(src).not.toContain('.listStyle(.default)')
+    expect(src).not.toContain('.listStyle(.automatic)')
+  })
+
+  it('emits every other preset verbatim', () => {
+    expect(swiftFor(panelWith('list', { listStyle: 'insetGrouped' })))
+      .toContain('.listStyle(.insetGrouped)')
+    expect(swiftFor(panelWith('list', { listStyle: 'sidebar' })))
+      .toContain('.listStyle(.sidebar)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Free placement
+//
+// A panel dropped straight onto a window plate can be dragged anywhere, and
+// the canvas draws it at `panel.position`. Nothing carried that into the
+// export, so every freely-placed control landed centred in the ZStack.
+//
+// The sign flip is the subtle half: `position` is scene-space with +y UP,
+// while SwiftUI's `.offset` has +y DOWN. Getting it wrong mirrors the layout
+// vertically, which is exactly the bug the canvas had with the `.offset`
+// modifier — ArrowUp moved a panel down.
+// ---------------------------------------------------------------------------
+
+describe('free placement', () => {
+  const onWindowAt = (position) => (win) => [
+    { ...makePanel('text', { parentId: win.id }), text: 'Free', position }
+  ]
+
+  it('emits an offset for a panel placed on the plate', () => {
+    expect(swiftFor(onWindowAt([ptToUnits(40), 0, 0])))
+      .toContain('.offset(x: 40, y: 0)')
+  })
+
+  it('flips y, because scene space points up and SwiftUI points down', () => {
+    // Dragged UP on the canvas (+y) must move up on device too (-y).
+    expect(swiftFor(onWindowAt([0, ptToUnits(30), 0])))
+      .toContain('.offset(x: 0, y: -30)')
+  })
+
+  it('emits nothing for a panel sitting at the origin', () => {
+    expect(swiftFor(onWindowAt([0, 0, 0]))).not.toContain('.offset(')
+  })
+
+  it('ignores position inside a stack, where the layout engine owns it', () => {
+    const { items } = TEMPLATES.blank.build()
+    const win = items.find((it) => it.type === 'window')
+    const stack = makeStack({ parentId: win.id, name: 'Row', stackType: 'vstack' })
+    const kid = {
+      ...makePanel('text', { parentId: stack.id }),
+      text: 'In a stack',
+      position: [ptToUnits(999), ptToUnits(999), 0]
+    }
+    const kept = items.filter((it) => it.type !== 'stack')
+    const src = exportSwiftUI([...kept, stack, kid], 'App', {})[0].content
+    expect(src).not.toContain('.offset(')
+  })
+
+  it('composes with an offset modifier the way the canvas does', () => {
+    const win = (w) => [{
+      ...makePanel('text', { parentId: w.id }),
+      text: 'Both',
+      position: [ptToUnits(10), 0, 0],
+      modifiers: [{ id: 'm1', type: 'offset', x: 5, y: 0 }]
+    }]
+    const src = swiftFor(win)
+    expect(src).toContain('.offset(x: 5, y: 0)')    // the modifier
+    expect(src).toContain('.offset(x: 10, y: 0)')   // the placement
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Behaviour codegen coverage
+//
+// The behaviour vocabulary is deliberately wider than what the generator can
+// write: 8 of 12 triggers and 11 of 15 actions become real Swift, and the
+// rest are emitted as a documented "still to wire up" block naming the
+// RealityKit API to finish them with. That is an honest place to land — but
+// the designer only found out after exporting, so the Behaviors inspector now
+// warns up front, reading `triggerGeneratesSwift` / `actionGeneratesSwift`.
+//
+// These tests check the predicates against what the generator ACTUALLY does,
+// rather than against the sets they are built from — a tautology would not
+// catch the emitter and the warning drifting apart.
+// ---------------------------------------------------------------------------
+
+describe('behaviour codegen coverage', () => {
+  const NOT_WIRED = 'Behaviors still to wire up'
+
+  // One volumetric window, the entity that carries the behaviour, and a
+  // second entity for it to aim at.
+  //
+  // The target matters: several actions (`lookAt`, `follow`, `moveTo`)
+  // resolve a target entity and fall back to the documented form when they
+  // cannot — `lookAt` defaults to the wearer, which is not a resolvable
+  // entity. Pointing them at a real one exercises the generating path, so
+  // what these tests measure is the action type rather than an unresolved
+  // default.
+  const sceneWith = (trigger, action) => {
+    const tab = makeTab({ name: 'Vol' })
+    const win = makeWindow({ name: 'Vol', parentId: tab.id, windowStyle: 'volumetric' })
+    const target = makeModelEntity('box', { parentId: win.id, name: 'Target' })
+    const params = defaultParamsFor(getActionSchema(action))
+    if ('target' in params) params.target = target.id
+    const entity = makeModelEntity('sphere', {
+      parentId: win.id,
+      name: 'Subject',
+      behaviors: [{
+        id: 'beh-1',
+        trigger: { type: trigger, params: defaultParamsFor(getTriggerSchema(trigger)) },
+        actions: [{ id: 'act-1', type: action, params }]
+      }]
+    })
+    return exportSwiftUI([tab, win, target, entity], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('exercises the whole vocabulary', () => {
+    expect(TRIGGERS.length).toBeGreaterThanOrEqual(12)
+    expect(ACTIONS.length).toBeGreaterThanOrEqual(15)
+  })
+
+  it.each(TRIGGERS.map((t) => t.type))('trigger %s: the warning matches the output', (type) => {
+    // `scaleTo` generates, so whether the behaviour lands in the
+    // "still to wire up" block is decided by the trigger alone.
+    const src = sceneWith(type, 'scaleTo')
+    const documented = src.includes(NOT_WIRED) && src.includes(`WHEN ${type}`)
+    expect(
+      triggerGeneratesSwift(type),
+      `trigger "${type}": inspector says ${triggerGeneratesSwift(type) ? 'generated' : 'documented'}, ` +
+      `export ${documented ? 'documented' : 'generated'} it`
+    ).toBe(!documented)
+  })
+
+  it.each(ACTIONS.map((a) => a.type))('action %s: the warning matches the output', (type) => {
+    // `tap` generates, so the action alone decides whether a real call is
+    // written into the generated method. An ungenerated one leaves a
+    // `// DO <type>: <what to do instead>` note in the method body rather
+    // than vanishing.
+    const src = sceneWith('tap', type)
+    const documented = new RegExp(`// DO ${type}:`).test(src)
+    expect(
+      actionGeneratesSwift(type),
+      `action "${type}": inspector says ${actionGeneratesSwift(type) ? 'generated' : 'documented'}, ` +
+      `export ${documented ? 'documented' : 'generated'} it`
+    ).toBe(!documented)
+  })
+
+  it('documents the gap rather than silently dropping it', () => {
+    // The load-bearing property behind the warning: nothing the designer
+    // authored disappears without a trace naming the API to finish it with.
+    const triggers = TRIGGERS.map((t) => t.type).filter((t) => !triggerGeneratesSwift(t))
+    const actions = ACTIONS.map((a) => a.type).filter((a) => !actionGeneratesSwift(a))
+    expect(triggers.length + actions.length).toBeGreaterThan(0)
+    for (const type of triggers) {
+      const src = sceneWith(type, 'scaleTo')
+      expect(src, `trigger "${type}" vanished from the export`).toContain(NOT_WIRED)
+      expect(src).toContain(`WHEN ${type}`)
+    }
+    for (const type of actions) {
+      const src = sceneWith('tap', type)
+      expect(src, `action "${type}" vanished from the export`).toMatch(new RegExp(`// DO ${type}:`))
+    }
   })
 })

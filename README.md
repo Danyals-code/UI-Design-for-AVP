@@ -112,8 +112,8 @@ npm run lint      # everything, warnings included
 npm run lint:errors  # errors only - what CI gates on
 ```
 
-The test suite covers the four subsystems where a silent regression is
-expensive, because two code paths have to agree with each other:
+The test suite covers the subsystems where a silent regression is expensive,
+because two code paths have to agree with each other:
 
 - **`src/export/`** - every template exports Swift that is structurally
   valid: braces balance, string literals close on the line they open, and
@@ -134,6 +134,15 @@ expensive, because two code paths have to agree with each other:
 - **`src/store/`** and **`src/appleSystem.js`** - undo/redo and clipboard
   invariants, project round-trip, and complete material resolution for all
   24 library entries in both design schemes.
+- **`src/parity.test.js`** - the canvas ↔ export contract. The app renders
+  one document two ways (three.js and SwiftUI), and this pins that both
+  sides read the *same* properties: every field read by only one of them
+  must be declared in `src/parity.baseline.js` with a tier and a reason.
+  Wire a new field into one side only and it fails; close a divergence and
+  forget to delete its entry and it also fails, so the ledger can neither
+  grow silently nor claim debt that no longer exists. It also validates that
+  every enum case the exporter emits exists in the real SwiftUI API.
+  `npm test` prints the open count. See [AUDIT.md](AUDIT.md) §6.0.
 
 ESLint is tuned for correctness rather than style: hooks rules, undefined
 and unused bindings, duplicate keys and cases. Warnings are tracked but do
@@ -171,6 +180,8 @@ src/
   appleSystem.js          - visionOS design tokens (type ramp, materials, colours, SF Symbols, presets)
   layout.js               - stack layout math (VStack / HStack / ZStack / Grid / ScrollView, fit/fixed/fill)
   text.js                 - SwiftUI Text measurement (tighten → scale → wrap → truncate)
+  parity.test.js          - canvas ↔ export contract (see Quality gates)
+  parity.baseline.js      - the declared-divergence ledger parity.test.js checks against
   textMeasure.js          - real Inter metrics via Canvas2D, installed over text.js at startup
   shapes.js               - rounded-rect / ellipse / rim-ring geometry helpers
   containment.js          - SwiftUI containment rules (which views may legally nest where)
@@ -194,10 +205,10 @@ src/
     persistence.js        - project serialize / open / save-to-file + debounced autosave
 
   panels/
-    registry.js           - view registry: 55 panel types, each with defaults + SwiftUI emit()
+    registry.js           - view registry: 56 panel types, each with defaults + SwiftUI emit()
     inspectors.jsx        - per-panelType inspector bodies + PANEL_META
   modifiers/
-    registry.js           - 42 SwiftUI modifiers: defaults, strict allow-list, inspector row, emit
+    registry.js           - 43 SwiftUI modifiers: defaults, strict allow-list, inspector row, emit
   realityKit/
     registry.js           - entity kinds, anchor targets, meshes, materials, components, light types
   behaviors/              - preview-only interaction system (never mutates the store)

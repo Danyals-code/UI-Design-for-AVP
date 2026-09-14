@@ -110,14 +110,14 @@ function welcomeTpl() {
   const title = makePanel('text', {
     parentId: titleBlock.id, name: 'Title',
     text: 'Welcome to Vision',
-    textStyle: 'extraLargeTitle', fontSize: textStyleToFontSize('extraLargeTitle'),
+    textStyle: 'extraLargeTitle',
     fontWeight: 'bold', textAlign: 'center',
     colorToken: 'primary'
   })
   const subtitle = makePanel('text', {
     parentId: titleBlock.id, name: 'Subtitle',
     text: 'A new way to see, work, and be present — designed for the way you really live in your space.',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    textStyle: 'title3',
     fontWeight: 'regular', textAlign: 'center',
     colorToken: 'secondary',
     size: [ptToUnits(560), ptToUnits(72)],
@@ -154,13 +154,13 @@ function welcomeTpl() {
     })
     const tileTitle = makePanel('text', {
       parentId: tile.id, name: `${f.name} Title`, text: f.title,
-      textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+      textStyle: 'headline',
       fontWeight: 'semibold', textAlign: 'left',
       widthMode: 'fill', colorToken: 'primary'
     })
     const tileCopy = makePanel('text', {
       parentId: tile.id, name: `${f.name} Copy`, text: f.copy,
-      textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+      textStyle: 'footnote',
       textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
     })
     featureItems.push(tile, tileIcon, tileTitle, tileCopy)
@@ -173,14 +173,13 @@ function welcomeTpl() {
   const cta = makePanel('button', {
     parentId: actions.id, name: 'Get Started',
     text: 'Get Started',
-    buttonSize: 'large', buttonShape: 'capsule',
-    buttonStyle: 'borderedProminent',
-    size: [ptToUnits(240), ptToUnits(52)]
+    controlSize: 'large', buttonBorderShape: 'capsule',
+    buttonStyle: 'borderedProminent'
   })
   const skip = makePanel('button', {
     parentId: actions.id, name: 'Skip',
     text: 'Not Now',
-    buttonStyle: 'plain', buttonSize: 'regular',
+    buttonStyle: 'plain', controlSize: 'regular',
     colorToken: null, color: '#00000000',
     textColorToken: 'secondary'
   })
@@ -216,20 +215,19 @@ function browseTpl() {
   const header = makePanel('text', {
     parentId: headerRow.id, name: 'Page Title',
     text: 'Browse',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'largeTitle',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'primary'
   })
   const filterBtn = makePanel('button', {
     parentId: headerRow.id, name: 'Filter',
     text: 'Filter', symbolName: 'line.3.horizontal.decrease.circle',
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(120), ptToUnits(36)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular'
   })
   const subhead = makePanel('text', {
     parentId: root.id, name: 'Subhead',
     text: 'Discover spatial collections curated for the way you live and work.',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
   })
   const searchField = makePanel('search', {
@@ -259,28 +257,27 @@ function browseTpl() {
   })
   const featuredEyebrow = makePanel('text', {
     parentId: featuredMeta.id, name: 'Featured Eyebrow', text: 'FEATURED',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'systemBlue'
   })
   const featuredTitle = makePanel('text', {
     parentId: featuredMeta.id, name: 'Featured Title',
     text: 'Mount Hood Environment',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    textStyle: 'title3',
     fontWeight: 'semibold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'primary'
   })
   const featuredCopy = makePanel('text', {
     parentId: featuredMeta.id, name: 'Featured Copy',
     text: 'A wide-format spatial scene captured at the volcano summit.',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
   })
   const featuredCta = makePanel('button', {
     parentId: featuredCard.id, name: 'Open',
     text: 'Open', symbolName: 'arrow.right',
-    buttonStyle: 'borderedProminent', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(108), ptToUnits(40)]
+    buttonStyle: 'borderedProminent', buttonBorderShape: 'capsule', controlSize: 'regular'
   })
   // Grid of category cards
   const cards = [
@@ -318,13 +315,13 @@ function browseTpl() {
       const lbl = makePanel('text', {
         parentId: card.id, name: `${cfg.name} Label`,
         text: cfg.name,
-        textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+        textStyle: 'headline',
         fontWeight: 'semibold', textAlign: 'left',
         widthMode: 'fill', colorToken: 'primary'
       })
       const sub = makePanel('text', {
         parentId: card.id, name: `${cfg.name} Caption`, text: cfg.count,
-        textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+        textStyle: 'footnote',
         textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
       })
       rowItems.push(card, icon, lbl, sub)
@@ -365,7 +362,7 @@ function playerTpl() {
   })
   const eyebrowText = makePanel('text', {
     parentId: eyebrowRow.id, name: 'Eyebrow', text: 'NOW PLAYING',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fit', colorToken: 'systemBlue'
   })
@@ -385,14 +382,14 @@ function playerTpl() {
   const title = makePanel('text', {
     parentId: meta.id, name: 'Track',
     text: 'Midnight City',
-    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    textStyle: 'title2',
     fontWeight: 'semibold', textAlign: 'center',
     widthMode: 'fill', colorToken: 'primary'
   })
   const artist = makePanel('text', {
     parentId: meta.id, name: 'Artist',
     text: 'M83 · Hurry Up, We’re Dreaming',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
   const scrubBlock = makeStack({
@@ -412,12 +409,12 @@ function playerTpl() {
   })
   const tNow = makePanel('text', {
     parentId: times.id, name: 'Elapsed', text: '1:48',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
   })
   const tEnd = makePanel('text', {
     parentId: times.id, name: 'Remaining', text: '−2:30',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     textAlign: 'right', widthMode: 'fill', colorToken: 'secondary'
   })
   // Transport row — shuffle / prev / play / next / repeat (the Apple
@@ -432,36 +429,35 @@ function playerTpl() {
     parentId: transport.id, name: 'Shuffle',
     text: '', symbolName: 'shuffle',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'plain', buttonSize: 'regular',
+    buttonStyle: 'plain', controlSize: 'regular',
     colorToken: null, color: '#00000000', textColorToken: 'secondary'
   })
   const prev = makePanel('button', {
     parentId: transport.id, name: 'Previous',
     text: '', symbolName: 'backward.fill',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'plain', buttonSize: 'large',
+    buttonStyle: 'plain', controlSize: 'large',
     colorToken: null, color: '#00000000', textColorToken: 'primary'
   })
   const play = makePanel('button', {
     parentId: transport.id, name: 'Play',
     text: '', symbolName: 'play.fill',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'borderedProminent', buttonShape: 'capsule', buttonSize: 'large',
-    size: [ptToUnits(72), ptToUnits(72)],
+    buttonStyle: 'borderedProminent', buttonBorderShape: 'capsule', controlSize: 'large',
     cornerRadius: ptToUnits(100)
   })
   const nextBtn = makePanel('button', {
     parentId: transport.id, name: 'Next',
     text: '', symbolName: 'forward.fill',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'plain', buttonSize: 'large',
+    buttonStyle: 'plain', controlSize: 'large',
     colorToken: null, color: '#00000000', textColorToken: 'primary'
   })
   const repeatBtn = makePanel('button', {
     parentId: transport.id, name: 'Repeat',
     text: '', symbolName: 'repeat',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'plain', buttonSize: 'regular',
+    buttonStyle: 'plain', controlSize: 'regular',
     colorToken: null, color: '#00000000', textColorToken: 'secondary'
   })
   // Volume slider with speaker glyphs as end-caps.
@@ -495,22 +491,19 @@ function playerTpl() {
     parentId: extras.id, name: 'Lyrics',
     text: '', symbolName: 'quote.bubble',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(48), ptToUnits(40)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular',
   })
   const airplayBtn = makePanel('button', {
     parentId: extras.id, name: 'AirPlay',
     text: '', symbolName: 'airplayaudio',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(48), ptToUnits(40)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular',
   })
   const queueBtn = makePanel('button', {
     parentId: extras.id, name: 'Queue',
     text: '', symbolName: 'list.bullet',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(48), ptToUnits(40)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular',
   })
   return {
     items: [tab, w, root,
@@ -553,12 +546,12 @@ function profileTpl() {
   })
   const name = makePanel('text', {
     parentId: identity.id, name: 'Name', text: 'Avery Chen',
-    textStyle: 'title', fontSize: textStyleToFontSize('title'),
+    textStyle: 'title',
     fontWeight: 'bold', textAlign: 'center', colorToken: 'primary'
   })
   const role = makePanel('text', {
     parentId: identity.id, name: 'Role', text: 'Spatial Designer · San Francisco',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'center', colorToken: 'secondary'
   })
   // Short bio paragraph — locks the reading measure to the same column
@@ -566,7 +559,7 @@ function profileTpl() {
   const bio = makePanel('text', {
     parentId: root.id, name: 'Bio',
     text: 'Designing the way virtual interfaces live alongside the physical world. Currently leading the spatial design system at Lumen Studio.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     textAlign: 'center', colorToken: 'primary',
     widthMode: 'fixed', size: [ptToUnits(COL_W), ptToUnits(60)]
   })
@@ -592,12 +585,12 @@ function profileTpl() {
     })
     const v = makePanel('text', {
       parentId: chip.id, name: `${s.label} Value`, text: s.value,
-      textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+      textStyle: 'title3',
       fontWeight: 'semibold', textAlign: 'center', colorToken: 'primary'
     })
     const lbl = makePanel('text', {
       parentId: chip.id, name: `${s.label} Label`, text: s.label,
-      textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+      textStyle: 'caption',
       textAlign: 'center', colorToken: 'secondary'
     })
     statBlock.push(chip, v, lbl)
@@ -614,8 +607,7 @@ function profileTpl() {
   for (const tag of skillSpecs) {
     const chip = makePanel('button', {
       parentId: skills.id, name: tag, text: tag,
-      buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-      size: [ptToUnits(112), ptToUnits(34)]
+      buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular'
     })
     skillItems.push(chip)
   }
@@ -628,21 +620,18 @@ function profileTpl() {
   const follow = makePanel('button', {
     parentId: actions.id, name: 'Follow',
     text: 'Follow', symbolName: 'person.crop.circle.badge.plus',
-    buttonStyle: 'borderedProminent', buttonShape: 'capsule', buttonSize: 'large',
-    size: [ptToUnits(160), ptToUnits(52)]
+    buttonStyle: 'borderedProminent', buttonBorderShape: 'capsule', controlSize: 'large'
   })
   const message = makePanel('button', {
     parentId: actions.id, name: 'Message',
     text: 'Message', symbolName: 'bubble.left',
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'large',
-    size: [ptToUnits(160), ptToUnits(52)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'large'
   })
   const moreBtn = makePanel('button', {
     parentId: actions.id, name: 'More',
     text: '', symbolName: 'ellipsis',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'large',
-    size: [ptToUnits(52), ptToUnits(52)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'large',
   })
   // Recent-activity row — a single horizontal strip of three thumbs so
   // the profile reads as having content, not just chrome.
@@ -653,7 +642,7 @@ function profileTpl() {
   })
   const recentLabel = makePanel('text', {
     parentId: recents.id, name: 'Recent Label', text: 'Recent Work',
-    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textStyle: 'footnote',
     fontWeight: 'semibold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'secondary'
   })
@@ -706,21 +695,21 @@ function articleTpl() {
   })
   const eyebrow = makePanel('text', {
     parentId: column.id, name: 'Category', text: 'DESIGN · ESSAY',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'systemBlue'
   })
   const headline = makePanel('text', {
     parentId: column.id, name: 'Headline',
     text: 'Designing for the Spatial Era',
-    textStyle: 'extraLargeTitle2', fontSize: textStyleToFontSize('extraLargeTitle2'),
+    textStyle: 'extraLargeTitle2',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'primary'
   })
   const deck = makePanel('text', {
     parentId: column.id, name: 'Deck',
     text: 'Why the rules of flat interfaces stop applying the moment your canvas can see the room.',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    textStyle: 'title3',
     fontWeight: 'regular', textAlign: 'left',
     widthMode: 'fill', colorToken: 'secondary'
   })
@@ -740,18 +729,18 @@ function articleTpl() {
   })
   const author = makePanel('text', {
     parentId: byline.id, name: 'Author', text: 'Avery Chen',
-    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textStyle: 'footnote',
     fontWeight: 'semibold', textAlign: 'left',
     widthMode: 'fit', colorToken: 'primary'
   })
   const sep = makePanel('text', {
     parentId: byline.id, name: 'Sep', text: '·',
-    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textStyle: 'footnote',
     widthMode: 'fit', colorToken: 'tertiary'
   })
   const meta = makePanel('text', {
     parentId: byline.id, name: 'Meta', text: 'May 15 · 6 min read',
-    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textStyle: 'footnote',
     textAlign: 'left',
     widthMode: 'fill', colorToken: 'secondary'
   })
@@ -759,15 +748,13 @@ function articleTpl() {
     parentId: byline.id, name: 'Save',
     text: '', symbolName: 'bookmark',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(40), ptToUnits(34)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular',
   })
   const shareBtn = makePanel('button', {
     parentId: byline.id, name: 'Share',
     text: '', symbolName: 'square.and.arrow.up',
     styles: { labelStyle: 'iconOnly' },
-    buttonStyle: 'bordered', buttonShape: 'capsule', buttonSize: 'regular',
-    size: [ptToUnits(40), ptToUnits(34)]
+    buttonStyle: 'bordered', buttonBorderShape: 'capsule', controlSize: 'regular',
   })
   const hero = makePanel('image', {
     parentId: column.id, name: 'Hero',
@@ -781,14 +768,14 @@ function articleTpl() {
   const heroCaption = makePanel('text', {
     parentId: column.id, name: 'Hero Caption',
     text: 'Mountain ranges photographed on a clear afternoon — an environment Apple ships pre-installed on the Vision Pro.',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     textAlign: 'left',
     widthMode: 'fill', colorToken: 'secondary'
   })
   const body1 = makePanel('text', {
     parentId: column.id, name: 'Paragraph 1',
     text: 'Vision changes the rules. Surfaces become unbounded, depth becomes a first-class material, and motion suggests presence rather than navigation. The result is software that feels physical without pretending to be — interfaces that breathe with the room rather than blocking it.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     textAlign: 'left', widthMode: 'fill', colorToken: 'primary'
   })
   // Pull quote — recessed glass tile with a hairline accent on the
@@ -802,27 +789,27 @@ function articleTpl() {
   const quoteText = makePanel('text', {
     parentId: quoteCard.id, name: 'Quote',
     text: '“Spatial design isn\'t a new canvas. It\'s the canvas remembering it has weight.”',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    textStyle: 'title3',
     fontWeight: 'medium', textAlign: 'left',
     widthMode: 'fill', colorToken: 'primary'
   })
   const quoteAttr = makePanel('text', {
     parentId: quoteCard.id, name: 'Quote Attribution',
     text: '— Avery Chen, Lumen Studio',
-    textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+    textStyle: 'footnote',
     textAlign: 'left',
     widthMode: 'fill', colorToken: 'secondary'
   })
   const body2 = makePanel('text', {
     parentId: column.id, name: 'Paragraph 2',
     text: 'A button on a flat screen has a single job — react. A spatial button has three: it has to read at a glance, it has to feel reachable, and it has to forgive the wearer when they look slightly off-target. We end up designing fewer pixels and more affordances.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     textAlign: 'left', widthMode: 'fill', colorToken: 'primary'
   })
   const body3 = makePanel('text', {
     parentId: column.id, name: 'Paragraph 3',
     text: 'The most interesting work right now is happening at the seam — where the operating system stops being a layer and starts being a peer. Once your interface is part of the room, every design decision is also a courtesy.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     textAlign: 'left', widthMode: 'fill', colorToken: 'primary'
   })
   // Related strip at the bottom — three small cards, same style as the
@@ -830,7 +817,7 @@ function articleTpl() {
   const relatedLabel = makePanel('text', {
     parentId: column.id, name: 'Related Label',
     text: 'KEEP READING',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'tertiary'
   })
@@ -862,13 +849,13 @@ function articleTpl() {
     })
     const t = makePanel('text', {
       parentId: card.id, name: `${r.title} Title`, text: r.title,
-      textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+      textStyle: 'footnote',
       fontWeight: 'semibold', textAlign: 'left',
       widthMode: 'fill', colorToken: 'primary'
     })
     const t2 = makePanel('text', {
       parentId: card.id, name: `${r.title} Read`, text: `${r.read} read`,
-      textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+      textStyle: 'caption',
       textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
     })
     relatedItems.push(card, thumb, t, t2)
@@ -903,7 +890,7 @@ function settingsTpl() {
   // Page title — large nav-style header at the top.
   const pageTitle = makePanel('text', {
     parentId: root.id, name: 'Page Title', text: 'Settings',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'largeTitle',
     fontWeight: 'bold', textAlign: 'left',
     widthMode: 'fixed', size: [ptToUnits(COL_W), ptToUnits(40)]
   })
@@ -930,18 +917,18 @@ function settingsTpl() {
   })
   const acctName = makePanel('text', {
     parentId: nameCol.id, name: 'Name', text: 'Avery Chen',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', textAlign: 'left',
     widthMode: 'fill', colorToken: 'primary'
   })
   const acctEmail = makePanel('text', {
     parentId: nameCol.id, name: 'Email', text: 'avery@example.com',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'left', widthMode: 'fill', colorToken: 'secondary'
   })
   const acctSub = makePanel('text', {
     parentId: nameCol.id, name: 'Plan', text: 'iCloud+ · 200 GB',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     textAlign: 'left', widthMode: 'fill', colorToken: 'tertiary'
   })
   const acctChevron = makePanel('label', {
@@ -955,7 +942,7 @@ function settingsTpl() {
   const sectionTitle = (text) => {
     const t = makePanel('text', {
       parentId: root.id, name: `${text} Header`, text,
-      textStyle: 'footnote', fontSize: textStyleToFontSize('footnote'),
+      textStyle: 'footnote',
       fontWeight: 'semibold', textAlign: 'left',
       widthMode: 'fixed', size: [ptToUnits(COL_W), ptToUnits(20)],
       colorToken: 'secondary'
@@ -1022,13 +1009,14 @@ function settingsTpl() {
   const signOut = makePanel('button', {
     parentId: footer.id, name: 'Sign Out',
     text: 'Sign Out',
-    buttonStyle: 'destructive', buttonShape: 'capsule', buttonSize: 'large',
-    size: [ptToUnits(180), ptToUnits(50)]
+    // Destructive is a ButtonRole, not a ButtonStyle - setting it as a style
+    // emitted `.buttonStyle(.destructive)`, which does not compile.
+    buttonRole: 'destructive', buttonBorderShape: 'capsule', controlSize: 'large'
   })
   const footnote = makePanel('text', {
     parentId: footer.id, name: 'Footer Note',
     text: 'visionOS 2.1 · Made for the wearer',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     textAlign: 'center', widthMode: 'fill', colorToken: 'tertiary'
   })
   return {
@@ -1074,12 +1062,12 @@ function musicPlayer() {
   })
   const trackTitle = makePanel('text', {
     parentId: trackInfo.id, name: 'Track Title', text: 'Midnight City',
-    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    textStyle: 'title2',
     fontWeight: 'semibold', textAlign: 'center', widthMode: 'fill'
   })
   const trackArtist = makePanel('text', {
     parentId: trackInfo.id, name: 'Artist', text: 'M83',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
 
@@ -1100,7 +1088,6 @@ function musicPlayer() {
   // the visual hierarchy still reads at a glance.
   const prev = makePanel('button', {
     parentId: transport.id, name: 'Prev', text: '',
-    size: [ptToUnits(52), ptToUnits(52)],
     cornerRadius: ptToUnits(26),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1109,14 +1096,12 @@ function musicPlayer() {
   })
   const play = makePanel('button', {
     parentId: transport.id, name: 'Play', text: '',
-    size: [ptToUnits(64), ptToUnits(64)],
     cornerRadius: ptToUnits(32),
     buttonStyle: 'borderedProminent',
     symbolName: 'play.fill'
   })
   const next = makePanel('button', {
     parentId: transport.id, name: 'Next', text: '',
-    size: [ptToUnits(52), ptToUnits(52)],
     cornerRadius: ptToUnits(26),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1127,7 +1112,7 @@ function musicPlayer() {
   // Up Next list.
   const queueHeader = makePanel('text', {
     parentId: root.id, name: 'Up Next', text: 'Up Next',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
   })
   const queue = makePanel('list', {
@@ -1168,20 +1153,20 @@ function smartHome() {
 
   const greeting = makePanel('text', {
     parentId: root.id, name: 'Greeting', text: 'Good evening',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'largeTitle',
     fontWeight: 'bold', widthMode: 'fill'
   })
   const status = makePanel('text', {
     parentId: root.id, name: 'Status',
     text: '4 lights on · 2 devices charging · climate set to 21°',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     widthMode: 'fill', colorToken: 'secondary'
   })
 
   // Room cards row.
   const sectionLabel = makePanel('text', {
     parentId: root.id, name: 'Rooms Header', text: 'ROOMS',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
   })
   const rooms = makeStack({
@@ -1210,17 +1195,16 @@ function smartHome() {
     const icon = makePanel('label', {
       parentId: card.id, name: `${r.name} Icon`, text: '',
       symbolName: r.icon, textStyle: 'title2',
-      fontSize: textStyleToFontSize('title2'),
       colorToken: 'primary'
     })
     const title = makePanel('text', {
       parentId: card.id, name: `${r.name} Title`, text: r.name,
-      textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+      textStyle: 'headline',
       fontWeight: 'semibold', widthMode: 'fill'
     })
     const sub = makePanel('text', {
       parentId: card.id, name: `${r.name} Sub`, text: r.summary,
-      textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+      textStyle: 'caption',
       widthMode: 'fill', colorToken: 'secondary'
     })
     roomItems.push(card, icon, title, sub)
@@ -1229,7 +1213,7 @@ function smartHome() {
   // Scenes row of pill buttons.
   const scenesLabel = makePanel('text', {
     parentId: root.id, name: 'Scenes Header', text: 'SCENES',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
   })
   const scenes = makeStack({
@@ -1246,8 +1230,6 @@ function smartHome() {
   const sceneItems = sceneData.map((label) => makePanel('button', {
     parentId: scenes.id, name: label, text: label,
     textStyle: 'subheadline',
-    fontSize: textStyleToFontSize('subheadline'),
-    size: [ptToUnits(140), ptToUnits(40)],
     cornerRadius: ptToUnits(12),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1291,7 +1273,7 @@ function settings() {
   })
   const title = makePanel('text', {
     parentId: root.id, name: 'Title', text: 'Settings',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'largeTitle',
     fontWeight: 'bold', widthMode: 'fill'
   })
   // Fill width so the search field tracks the window plate at any
@@ -1328,13 +1310,13 @@ function settings() {
   })
   const acctName = makePanel('text', {
     parentId: acctLabels.id, name: 'Account Name', text: 'Danyal Sarfraz',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', widthMode: 'fill'
   })
   const acctMail = makePanel('text', {
     parentId: acctLabels.id, name: 'Account Mail',
     text: 'you@icloud.com',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     widthMode: 'fill', colorToken: 'secondary'
   })
 
@@ -1353,7 +1335,7 @@ function settings() {
   // Display group.
   const displayHeader = makePanel('text', {
     parentId: root.id, name: 'Display Header', text: 'DISPLAY',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
   })
   const brightness = makePanel('slider', {
@@ -1371,7 +1353,7 @@ function settings() {
   // Connectivity group.
   const connectHeader = makePanel('text', {
     parentId: root.id, name: 'Connect Header', text: 'CONNECTIVITY',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'semibold', widthMode: 'fill', colorToken: 'secondary'
   })
   const wifi = makePanel('toggle', {
@@ -1439,7 +1421,7 @@ function mailApp() {
   // (#d8d8dc) calls for dark type so the title reads cleanly.
   const sidebarHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Mail Header', text: 'Mail',
-    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    textStyle: 'title2',
     fontWeight: 'bold', widthMode: 'fill', colorToken: null,
     color: '#000000'
   })
@@ -1459,9 +1441,8 @@ function mailApp() {
   // visionOS Mail draws its rows flush to the sidebar's leading edge.
   const navRows = navData.map((n) => makePanel('button', {
     parentId: sidebar.id, name: n.label, text: n.label,
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     widthMode: 'fill',
-    size: [ptToUnits(248), ptToUnits(36)],
     cornerRadius: ptToUnits(8),
     buttonStyle: 'plain',
     color: '#00000000', colorToken: null,
@@ -1484,13 +1465,13 @@ function mailApp() {
   const senderName = makePanel('text', {
     parentId: senderLabels.id, name: 'Sender Name',
     text: 'Apple Developer',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', widthMode: 'fill'
   })
   const senderTime = makePanel('text', {
     parentId: senderLabels.id, name: 'Sender Time',
     text: 'Today at 10:23 AM',
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     widthMode: 'fill', colorToken: 'secondary'
   })
   const reply = makePanel('button', {
@@ -1501,7 +1482,7 @@ function mailApp() {
   const subject = makePanel('text', {
     parentId: detail.id, name: 'Subject',
     text: 'Your visionOS submission has been approved',
-    textStyle: 'title3', fontSize: textStyleToFontSize('title3'),
+    textStyle: 'title3',
     fontWeight: 'semibold', widthMode: 'fill'
   })
   // Body text uses a fixed-height fill frame so the parent VStack
@@ -1511,7 +1492,7 @@ function mailApp() {
   const body = makePanel('text', {
     parentId: detail.id, name: 'Body',
     text: 'Hi, thanks for your patience while we reviewed your app. We\'re happy to let you know that your submission is approved and ready for distribution on the App Store for visionOS.\n\n— The Apple Developer team',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     widthMode: 'fill',
     heightMode: 'fixed', size: [ptToUnits(640), ptToUnits(160)]
   })
@@ -1543,17 +1524,17 @@ function tabBarApp() {
   const heroIcon = makePanel('label', {
     parentId: stk.id, name: 'Hero Icon', text: '',
     symbolName: 'sparkles', textStyle: 'largeTitle',
-    fontSize: ptToUnits(48), colorToken: 'primary'
+    colorToken: 'primary'
   })
   const title = makePanel('text', {
     parentId: stk.id, name: 'Title', text: 'Home',
-    textStyle: 'largeTitle', fontSize: textStyleToFontSize('largeTitle'),
+    textStyle: 'largeTitle',
     fontWeight: 'bold', textAlign: 'center', widthMode: 'fill'
   })
   const body = makePanel('text', {
     parentId: stk.id, name: 'Body',
     text: 'The active tab’s content lives here. Switch tabs in the bar below.',
-    textStyle: 'body', fontSize: textStyleToFontSize('body'),
+    textStyle: 'body',
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
 
@@ -1584,9 +1565,8 @@ function tabBarApp() {
   const TAB_HEIGHT = 44
   const tabs = tabLabels.map((label, i) => makePanel('button', {
     parentId: bar.id, name: label, text: label,
-    textStyle: 'caption', fontSize: textStyleToFontSize('caption'),
+    textStyle: 'caption',
     fontWeight: 'medium',
-    size: [ptToUnits(110), ptToUnits(TAB_HEIGHT)],
     cornerRadius: ptToUnits(TAB_HEIGHT / 2),
     buttonStyle: i === 0 ? 'borderedProminent' : 'plain',
     color: i === 0 ? '#0a84ff' : '#ecedef', colorToken: null,
@@ -1655,12 +1635,11 @@ function filesApp() {
   })
   const sidebarTitle = makePanel('text', {
     parentId: sidebarHeader.id, name: 'Title', text: 'Files',
-    textStyle: 'title1', fontSize: textStyleToFontSize('title1'),
+    textStyle: 'title1',
     fontWeight: 'bold', widthMode: 'fill'
   })
   const sidebarMenu = makePanel('button', {
     parentId: sidebarHeader.id, name: 'Menu', text: '',
-    size: [ptToUnits(32), ptToUnits(32)],
     cornerRadius: ptToUnits(16),
     buttonStyle: 'plain',
     color: '#ecedef', colorToken: null,
@@ -1691,7 +1670,7 @@ function filesApp() {
   // the right edge of inbox-like rows (the "42" affordance).
   const locationsHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Locations Header', text: 'Locations',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', widthMode: 'fill',
     colorToken: 'primary'
   })
@@ -1709,7 +1688,7 @@ function filesApp() {
   // Tags section.
   const tagsHeader = makePanel('text', {
     parentId: sidebar.id, name: 'Tags Header', text: 'Tags',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', widthMode: 'fill',
     colorToken: 'primary'
   })
@@ -1745,7 +1724,6 @@ function filesApp() {
   })
   const back = makePanel('button', {
     parentId: toolbar.id, name: 'Back', text: '',
-    size: [ptToUnits(30), ptToUnits(30)],
     cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1754,7 +1732,6 @@ function filesApp() {
   })
   const fwd = makePanel('button', {
     parentId: toolbar.id, name: 'Forward', text: '',
-    size: [ptToUnits(30), ptToUnits(30)],
     cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1764,7 +1741,7 @@ function filesApp() {
   const leadSpacer = makePanel('spacer', { parentId: toolbar.id, name: 'Lead Spacer' })
   const crumb = makePanel('text', {
     parentId: toolbar.id, name: 'Crumb', text: 'Recents',
-    textStyle: 'headline', fontSize: textStyleToFontSize('headline'),
+    textStyle: 'headline',
     fontWeight: 'semibold', textAlign: 'center',
     // Explicit width so the layout engine never wraps the title to
     // two lines when the spacers push the centre slot small.
@@ -1773,7 +1750,6 @@ function filesApp() {
   const trailSpacer = makePanel('spacer', { parentId: toolbar.id, name: 'Trail Spacer' })
   const select = makePanel('button', {
     parentId: toolbar.id, name: 'Select', text: 'Select',
-    size: [ptToUnits(64), ptToUnits(30)],
     cornerRadius: ptToUnits(15),
     buttonStyle: 'plain',
     color: '#d8d8dc', colorToken: null,
@@ -1788,7 +1764,6 @@ function filesApp() {
   })
   const emptyIcon = makePanel('button', {
     parentId: empty.id, name: 'Icon', text: '',
-    size: [ptToUnits(56), ptToUnits(56)],
     cornerRadius: ptToUnits(28),
     buttonStyle: 'plain',
     color: '#00000000', colorToken: null,
@@ -1796,13 +1771,13 @@ function filesApp() {
   })
   const emptyTitle = makePanel('text', {
     parentId: empty.id, name: 'Title', text: 'No Recents',
-    textStyle: 'title2', fontSize: textStyleToFontSize('title2'),
+    textStyle: 'title2',
     fontWeight: 'semibold', textAlign: 'center', widthMode: 'fill'
   })
   const emptyBody = makePanel('text', {
     parentId: empty.id, name: 'Body',
     text: 'Recently opened documents will appear here.',
-    textStyle: 'subheadline', fontSize: textStyleToFontSize('subheadline'),
+    textStyle: 'subheadline',
     textAlign: 'center', widthMode: 'fill', colorToken: 'secondary'
   })
 

@@ -10,7 +10,7 @@ The companion docs are [README.md](README.md) (run/build) and
 implementer's map - paths, defaults, emit patterns, and the path from the
 inspector field to the SwiftUI export.
 
-> **Last updated:** 2026-05-30 *(Materials & Colors editor overhaul: clickable browser + selection-following picker dropdown + user-editable stacked layers in `scene.materialProps`; SwiftUI-style segmented control with a Material tier picker)*
+> **Last updated:** 2026-09-14 *(round-trip contract: one field per concept, frame emission driven by `frameMode`, and a parity harness that fails the build when the canvas and the exporter read different fields — see [AUDIT.md](AUDIT.md))*
 
 ---
 
@@ -18,14 +18,15 @@ inspector field to the SwiftUI export.
 
 1. [How the scene graph fits together](#how-the-scene-graph-fits-together)
 2. [Coordinate system & units](#coordinate-system--units)
-3. [Window](#window)
-4. [Window-group tab bar (navigation capsule)](#window-group-tab-bar-navigation-capsule)
-5. [Tab](#tab)
-6. [Stack](#stack)
-7. [Panels: alphabetical reference](#panels-alphabetical-reference)
-8. [Entities (RealityKit)](#entities-realitykit)
-9. [Design tokens & enums](#design-tokens--enums)
-10. [How to update this file](#how-to-update-this-file)
+3. [The round-trip contract](#the-round-trip-contract)
+4. [Window](#window)
+5. [Window-group tab bar (navigation capsule)](#window-group-tab-bar-navigation-capsule)
+6. [Tab](#tab)
+7. [Stack](#stack)
+8. [Panels: alphabetical reference](#panels-alphabetical-reference)
+9. [Entities (RealityKit)](#entities-realitykit)
+10. [Design tokens & enums](#design-tokens--enums)
+11. [How to update this file](#how-to-update-this-file)
 
 ---
 
@@ -66,6 +67,45 @@ Stack, Panel, or Entity. Each has its own defaults block in
   [src/appleSystem.js](src/appleSystem.js).
 - Sizes stored on `item.size` are always in **units** (metres). Inspector
   fields convert to/from pt at the edge.
+- **Y points UP** in scene space. SwiftUI's `.offset(y:)` points DOWN, so
+  anything that round-trips a vertical offset flips sign at the boundary.
+  `panel.position` and the `offset` modifier both do.
+
+---
+
+## The round-trip contract
+
+Every view here is rendered twice: by `components/` onto the 3D canvas, and
+by `export/` as SwiftUI. **The canvas is the specification** — the export has
+to reproduce what the designer sees, not the other way round.
+
+Two rules follow, and `src/parity.test.js` enforces both:
+
+1. **One field per concept.** If the canvas reads one field and the exporter
+   reads another, they will drift — and they did, until each pair collapsed
+   onto the single field the exporter needs (the real SwiftUI spelling) with
+   the canvas deriving its metrics from it. Adding a field that only one side
+   reads fails the build unless it is declared in `src/parity.baseline.js`
+   with a reason.
+2. **Sizing comes from `frameMode`.** Each panel type declares how its frame
+   is decided, and the exporter reads the same vocabulary the inspector does:
+
+   | `frameMode` | Means | Export emits |
+   | ----------- | ----- | ------------ |
+   | `explicit` | `size` IS the authored box | `.frame(width:height:)` from `size` |
+   | `figma` | Fit / Fixed / Fill picker | from `widthMode`/`heightMode`; `fit` hugs |
+   | `none` | the type sizes itself | nothing (shapes emit their own; Button derives from `controlSize`) |
+
+   The canonical copy lives in `panels/registry.js` (`panelFrameMode`) so the
+   exporter can read it without importing the inspector's JSX;
+   `registry.test.js` pins it against `PANEL_META.frameMode`.
+
+Modifier order is part of the contract too. The canvas composes a container as
+*content inset → box sized → box painted*, so the exporter emits
+`.padding()` before `.frame()` before `.background()`. Reversing the first two
+turns a 640pt box with inset content into a 688pt box.
+
+`AUDIT.md` tracks what still diverges, and `npm test` prints the open count.
 
 ---
 
@@ -372,8 +412,8 @@ Per-type metadata in `PANEL_META` ([src/panels/inspectors.jsx](src/panels/inspec
 ### Controls
 
 #### `button`
-- **Default:** 86×44 (Regular), `buttonSize: 'regular'`, `buttonShape: 'capsule'`, cornerRadius `100pt`, text `'Button'`, fontSize `17pt`, textColor `'designButtonText'`, color `'designButton'` (#b7b6b1), `buttonStyle: 'automatic'`, `buttonBorderShape: 'automatic'`, `tapAction: null`.
-- **Frame mode:** none (driven by `buttonSize`).
+- **Default:** `controlSize: 'regular'` (86×44), text `'Button'`, textStyle `body`, textColor `'designButtonText'`, color `'designButton'` (#b7b6b1), `buttonStyle: 'automatic'`, `buttonBorderShape: 'automatic'`, `buttonRole: 'none'`, `tapAction: null`.
+- **Frame mode:** none. The frame comes from the `controlSize` preset plus the measured label (`computeButtonFramePt`), and the corner radius from `buttonBorderShape` (`buttonRadiusPt`). Neither `size` nor `cornerRadius` is stored — they were mirrors the canvas read while the exporter read `controlSize` / `buttonBorderShape`, and the two could disagree.
 - **Side padding:** 12pt each side, fixed (renderer in [Panel3D.jsx](src/components/Panel3D.jsx) - see `textInset`).
 - **Auto-grow width:** the rendered frame is `[max(presetWidth, textWidth + 24pt + symbolReserve), presetHeight]` - computed by `computeButtonFramePt` in [src/appleSystem.js](src/appleSystem.js) via `measureTextWidthPt` (canvas 2D, Inter font). Height stays at the preset; width grows past the preset whenever a longer label needs it, keeping the 12pt side padding and a single line. A leading SF Symbol reserves an extra `fontPt × 1.1 + 4pt` on the leading edge.
 - **Size presets (`BUTTON_SIZES`):** small `65×32 / 15pt`, regular `86×44 / 17pt`, large `101×52 / 19pt`.
@@ -670,7 +710,8 @@ the tree today.
 - **Emit:** each line of `code` is pushed at the current indentation, so the
   fragment's own internal indentation nests correctly inside the generated
   view. Line endings are normalised, so a fragment pasted from a Windows
-  editor does not carry `` into the Swift file. An empty `code` emits
+  editor does not carry `
+` into the Swift file. An empty `code` emits
   `EmptyView()` rather than nothing — the node occupies a slot in a result
   builder, and emitting nothing there would silently change the parent's
   layout.
@@ -1046,6 +1087,10 @@ Notable entries the inspector and exporter depend on:
    reader will consult before opening the file.
 5. **When a feature lands behind a flag or partial wiring:** note it
    inline with `*(WIP)*` so the doc still reflects shipped reality.
+6. **When you add a field to any item:** wire it into BOTH the canvas and
+   the exporter, or declare it in `src/parity.baseline.js` with a reason.
+   `src/parity.test.js` fails the build otherwise — see
+   [The round-trip contract](#the-round-trip-contract).
 
 This file is the maintainer's reference. User-visible behaviour lives in
 [FEATURES.md](FEATURES.md); install / build / run instructions live in

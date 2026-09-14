@@ -425,23 +425,13 @@ function LabelInspector({ item, updateItem, scene }) {
 // (small/regular/large) so every button matches an Apple-spec size.
 function ButtonInspector({ item, updateItem, scene }) {
   const renameItem = useStore((s) => s.renameItem)
-  const applySize = (key) => {
-    const s = BUTTON_SIZES[key] || BUTTON_SIZES.regular
-    updateItem(item.id, {
-      buttonSize: key,
-      size: [ptToUnits(s.width), ptToUnits(s.height)],
-      fontSize: ptToUnits(s.fontPt),
-      controlSize: key === 'small' ? 'small' : key === 'large' ? 'large' : 'regular'
-    })
-  }
-  const applyShape = (key) => {
-    const s = BUTTON_SHAPES[key] || BUTTON_SHAPES.capsule
-    updateItem(item.id, {
-      buttonShape: key,
-      buttonBorderShape: key,
-      cornerRadius: ptToUnits(s.radiusPt)
-    })
-  }
+  // One field per concept. These used to write four fields between them —
+  // `buttonSize` + `size` + `fontSize` + `controlSize`, and `buttonShape` +
+  // `buttonBorderShape` + `cornerRadius` — where the canvas read one half
+  // and the exporter the other. The frame, the point size and the radius are
+  // all derived from these two now, so there is nothing left to keep in sync.
+  const applySize = (key) => updateItem(item.id, { controlSize: key })
+  const applyShape = (key) => updateItem(item.id, { buttonBorderShape: key })
   return (
     <Section title="Button" defaultOpen={true}>
       <Row label="Name">
@@ -449,7 +439,7 @@ function ButtonInspector({ item, updateItem, scene }) {
       </Row>
       <Row label="Size">
         <Select
-          value={item.buttonSize || 'regular'}
+          value={item.controlSize || 'regular'}
           options={BUTTON_SIZE_ORDER.map((k) => ({
             value: k,
             label: `${BUTTON_SIZES[k].label} (${BUTTON_SIZES[k].width}×${BUTTON_SIZES[k].height})`
@@ -459,7 +449,7 @@ function ButtonInspector({ item, updateItem, scene }) {
       </Row>
       <Row label="Style">
         <Select
-          value={item.buttonShape || 'capsule'}
+          value={item.buttonBorderShape === 'automatic' ? 'capsule' : (item.buttonBorderShape || 'capsule')}
           options={BUTTON_SHAPE_ORDER.map((k) => ({
             value: k,
             label: BUTTON_SHAPES[k].label

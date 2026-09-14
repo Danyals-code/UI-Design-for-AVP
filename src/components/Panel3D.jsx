@@ -14,7 +14,8 @@ import {
   LIST_STYLES,
   computeListHeightPt,
   computeButtonFramePt,
-  BUTTON_SIZES,
+  buttonSizePreset,
+  buttonRadiusPt,
   NAVBAR_STYLE_SPECS,
   NAVBAR_SIDE_PADDING_PT,
   NAVBAR_ITEM_PT,
@@ -553,9 +554,14 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const isInputField = panelType === 'textfield' || panelType === 'securefield' || panelType === 'search'
   // Segmented controls are always a full pill (radius tracks the height),
   // matching SwiftUI's `.pickerStyle(.segmented)` track on visionOS.
+  // A button's radius is derived from `buttonBorderShape` — the field the
+  // exporter emits — rather than from a stored `cornerRadius` the inspector
+  // had to keep in sync. `automatic` is visionOS's capsule default.
   const cornerRadius = ((isInputField && (panel.fieldShape || 'pill') === 'pill') || panelType === 'segmented')
     ? Math.min(size[0], size[1]) / 2
-    : (panel.cornerRadius ?? 0)
+    : panelType === 'button'
+      ? ptToUnits(buttonRadiusPt(panel.buttonBorderShape))
+      : (panel.cornerRadius ?? 0)
   // Shape stroke (Rectangle / Circle / Capsule / Ellipse / UnevenRoundedRect)
   // — rendered as a slightly larger copy of the shape in `strokeColor`
   // placed BEHIND the fill. Half the width sits outside the shape's
@@ -918,14 +924,15 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   const imageHasMedia = (panelType === 'image' || panelType === 'asyncimage') && !!panel.imageUrl
   const showDefaultLabel = !isEditing && labelTypes.includes(panelType) && !imagePlaceholder && !imageHasMedia
 
-  // Buttons read their font size from the `BUTTON_SIZES` preset that
-  // matches `panel.buttonSize`. The Label section's text-style picker
-  // doesn't apply to buttons — the Size dropdown is the single control
-  // for the button's text point size (15 / 17 / 19 pt at small /
-  // regular / large). Other panel types still resolve through
-  // `textStyle` then fall back to `fontSize`.
+  // Buttons read their font size from the size preset `controlSize` selects
+  // — the same field the exporter emits as `.controlSize(...)`, so the two
+  // cannot disagree. The Label section's text-style picker doesn't apply to
+  // buttons; the Size dropdown is the single control for the button's text
+  // point size (15 / 17 / 19 pt at small / regular / large). Other panel
+  // types resolve through `textStyle`, falling back to a legacy `fontSize`
+  // that nothing writes any more.
   const baseFontSize = panelType === 'button'
-    ? ptToUnits(BUTTON_SIZES[panel.buttonSize]?.fontPt ?? 17)
+    ? ptToUnits(buttonSizePreset(panel.controlSize).fontPt)
     : panel.textStyle
       ? ptToUnits(TEXT_STYLES[panel.textStyle]?.pt ?? 17)
       : (panel.fontSize || 0.15)
@@ -2162,7 +2169,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // Order is preserved in the SwiftUI export; the canvas uses the reduced
   // last-write-wins values for an approximate preview.
   const modOffX = ptToUnits(modSummary.offsetX || 0)
-  const modOffY = ptToUnits(modSummary.offsetY || 0)
+  // NEGATED: `.offset(y:)` is stored in SwiftUI's coordinate space, where +y
+  // points DOWN — that is what the arrow-key nudge writes and what the
+  // exporter emits verbatim. The canvas is a 3D scene with +y UP, so adding
+  // the stored value directly sent a panel the opposite way from the key the
+  // user pressed: ArrowUp moved it down. X needs no flip; both spaces agree
+  // that +x is right.
+  const modOffY = -ptToUnits(modSummary.offsetY || 0)
   const modRot = (modSummary.rotation || 0) * DEG2RAD
   const modScaleX = modSummary.scaleX ?? 1
   const modScaleY = modSummary.scaleY ?? 1

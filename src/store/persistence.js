@@ -29,6 +29,7 @@ import {
   seedScene, DEFAULT_SCENE
 } from './factories'
 import { buildTemplate } from '../templates'
+import { normalizeButton } from '../appleSystem'
 
 // Bump when a field changes shape in a way older files cannot satisfy, and
 // add a branch to `migrate`. Additive fields do not need a bump: unknown
@@ -62,11 +63,26 @@ export function serializeProject(state, { includeAssets = true } = {}) {
   }
 }
 
-// Bring an older payload up to the current shape. No migrations exist yet
-// (v1 is the first format); the branch point is here so the first real one
-// has an obvious home.
+// Bring an older payload up to the current shape.
+//
+// Migrations are keyed off content rather than a version bump when the old
+// shape is unambiguously wrong: a project saved with
+// `buttonStyle: 'destructive'` predates that value being removed from
+// BUTTON_STYLES, and exporting it produced `.buttonStyle(.destructive)` —
+// which is not a SwiftUI ButtonStyle and does not compile. The designer's
+// intent was the destructive ROLE, so that is where it lands. Doing it on
+// load (as well as in the emitter) means the inspector shows the corrected
+// value rather than an option that no longer exists.
 function migrate(raw) {
-  return raw
+  if (!Array.isArray(raw.items)) return raw
+  let changed = false
+  const items = raw.items.map((it) => {
+    if (!it || it.type !== 'panel' || it.panelType !== 'button') return it
+    const next = normalizeButton(it)
+    if (next !== it) changed = true
+    return next
+  })
+  return changed ? { ...raw, items } : raw
 }
 
 export class ProjectLoadError extends Error {}
