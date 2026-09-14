@@ -14,6 +14,11 @@ import { measureSwiftUIText, singleLineWidth } from './text'
 // `measureSwiftUIText` the same numbers — what's reserved must match
 // what's rendered.
 export function textMetrics(item, modSummary) {
+  // Read the summary through a plain object rather than `modSummary?.`. The
+  // two are the same code; the difference is that the parity scan matches
+  // `mod.field` as text and an optional chain as nothing, so the `?.` form
+  // quietly reported every modifier read here as unread. AUDIT #5.
+  const mod = modSummary || {}
   const fontSize = item.textStyle
     ? ptToUnits(TEXT_STYLES[item.textStyle]?.pt ?? 17)
     : (item.fontSize || ptToUnits(17))
@@ -24,19 +29,25 @@ export function textMetrics(item, modSummary) {
   // applies (visionOS body resolves to medium, titles to bold).
   const fontWeight = item.fontWeight
     || (item.textStyle ? textStyleDefaultWeight(item.textStyle) : 'regular')
+  // `.fontDesign(_:)` picks one of four faces, and each one has its own
+  // advances — measuring a serif heading as Inter wraps it in the wrong place.
+  // The modifier wins over the panel's own field, the way `.navigationTitle`
+  // wins over `navTitle`: the modifier is the SwiftUI spelling and it is what
+  // the exporter emits. AUDIT #5.
+  const fontDesign = mod.fontDesign || item.fontDesign || 'default'
   // tracking + kerning both widen inter-character space in SwiftUI;
   // they're additive in the layout too so measurement matches render.
-  const trackingPt    = (modSummary?.tracking || 0) + (modSummary?.kerning || 0)
-  const lineSpacingPt = modSummary?.lineSpacing || 0
-  const lineLimit     = modSummary?.lineLimit ?? null
-  const truncationMode = modSummary?.truncationMode || 'tail'
-  const minimumScaleFactor = modSummary?.minimumScaleFactor ?? 1
-  const allowsTightening   = !!modSummary?.allowsTightening
-  const fixedSizeH = !!modSummary?.fixedSizeH
-  const fixedSizeV = !!modSummary?.fixedSizeV
+  const trackingPt    = (mod.tracking || 0) + (mod.kerning || 0)
+  const lineSpacingPt = mod.lineSpacing || 0
+  const lineLimit     = mod.lineLimit ?? null
+  const truncationMode = mod.truncationMode || 'tail'
+  const minimumScaleFactor = mod.minimumScaleFactor ?? 1
+  const allowsTightening   = !!mod.allowsTightening
+  const fixedSizeH = !!mod.fixedSizeH
+  const fixedSizeV = !!mod.fixedSizeV
   return {
-    fontSize, fontWeight, trackingPt, lineSpacingPt, lineLimit, truncationMode,
-    minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
+    fontSize, fontWeight, fontDesign, trackingPt, lineSpacingPt, lineLimit,
+    truncationMode, minimumScaleFactor, allowsTightening, fixedSizeH, fixedSizeV
   }
 }
 
@@ -215,7 +226,7 @@ function textIntrinsicSize(item, wrapBound = null) {
     ptToUnits(40),
     hardLines.reduce((acc, l) => Math.max(
       acc,
-      singleLineWidth(l, m.fontSize, m.trackingPt || 0, 1, m.fontWeight)
+      singleLineWidth(l, m.fontSize, m.trackingPt || 0, 1, m.fontWeight, m.fontDesign)
     ), 0)
   )
 

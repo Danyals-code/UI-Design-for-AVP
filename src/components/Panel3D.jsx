@@ -37,9 +37,10 @@ import {
   textStyleDefaultWeight,
   roundedBoxRadius
 } from '../appleSystem'
-import { getInterFont } from '../fonts'
+import { getFont, getInterFont } from '../fonts'
 import { summarizeModifiers } from '../modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from '../text'
+import { textMetrics } from '../layout'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
 
@@ -528,7 +529,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
         // Must match what layout.js reserved for this panel, or the box the
         // stack set aside and the text drawn into it disagree.
         fontWeight: panel.fontWeight
-          || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
+          || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular'),
+        fontDesign: textMetrics(panel, modSummary).fontDesign
       })
       const w = frameWidthU != null
         ? frameWidthU
@@ -987,7 +989,13 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // troika's `fontStyle` prop only takes effect if the font file itself
   // carries italic glyphs. For non-text panel kinds (button, picker, …)
   // italic isn't exposed in the UI so we stay on the upright face.
-  const fontUrl = getInterFont(
+  // `.fontDesign(_:)` picks the face. Resolved through `textMetrics` — the
+  // same function the layout engine measures with — so the file troika shapes
+  // and the face the wrapper measured are never two different answers to one
+  // question. Until AUDIT #5 three of the four designs drew Inter.
+  const fontDesign = textMetrics(panel, modSummary).fontDesign
+  const fontUrl = getFont(
+    fontDesign,
     panel.fontWeight,
     (panelType === 'text' || panelType === 'link') && !!modSummary.italic
   )
@@ -3332,7 +3340,8 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
               fixedSizeH:         !!modSummary.fixedSizeH,
               fixedSizeV:         !!modSummary.fixedSizeV,
               fontWeight: panel.fontWeight
-                || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular')
+                || (panel.textStyle ? textStyleDefaultWeight(panel.textStyle) : 'regular'),
+              fontDesign
             })
           : null
         // Join the post-pipeline lines back with '\n' so drei's <Text>

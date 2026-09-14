@@ -238,8 +238,14 @@ export const BUTTON_TEXT_INSET_PT = 12
 // with the 12pt side padding intact. The 0.58-glyph-advance fallback is
 // only used during SSR / when `document` isn't available — the renderer
 // always runs in the browser so the canvas path is the live one.
+//
+// `family` is a CSS font-family list, for the three `.fontDesign(_:)` faces
+// that are not Inter. It arrives as a string rather than as a design name so
+// this module stays free of `fonts.js` and its 32 asset imports — the caller
+// that knows about designs does the lookup. AUDIT #5.
+const DEFAULT_MEASURE_FAMILY = 'Inter, system-ui, sans-serif'
 let _btnMeasureCanvas = null
-export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
+export function measureTextWidthPt(text, fontSizePt, weight = 'regular', family = DEFAULT_MEASURE_FAMILY) {
   if (!text) return 0
   if (typeof document === 'undefined') return text.length * fontSizePt * 0.58
   if (!_btnMeasureCanvas) _btnMeasureCanvas = document.createElement('canvas')
@@ -248,7 +254,7 @@ export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
   const cssWeight = weight === 'bold' ? 700
     : weight === 'semibold' ? 600
     : weight === 'medium' ? 500 : 400
-  ctx.font = `${cssWeight} ${fontSizePt}px Inter, system-ui, sans-serif`
+  ctx.font = `${cssWeight} ${fontSizePt}px ${family || DEFAULT_MEASURE_FAMILY}`
   return ctx.measureText(text).width
 }
 

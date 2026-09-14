@@ -13,7 +13,7 @@ Three docs at the repo root work together:
   view *do* and what are its defaults" map. Update whenever you add or
   change a view type, default, or design-system constant.
 
-> **Last updated:** 2026-05-30 *(Materials & Colors overhaul: clickable material browser, picker dropdown that follows the canvas selection, stacked colour layers in the material editor; SwiftUI-style segmented control with a Material tier picker)*
+> **Last updated:** 2026-09-14 *(font designs: `.fontDesign(.serif/.rounded/.monospaced)` now draw and measure through bundled faces rather than falling back to Inter)*
 
 ---
 
@@ -505,9 +505,13 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   describe the same thing — `.foregroundStyle` vs the Color well,
   `.navigationTitle` vs the NavStack's Title, `.hoverEffect` vs the
   Hover section, `.tint` vs the scene tint — the modifier wins, because
-  it is the SwiftUI spelling. Two exceptions draw nothing and say so:
-  `.fontDesign` and `.monospacedDigit` need a rounded / serif /
-  monospaced face, and the app bundles Inter alone.
+  it is the SwiftUI spelling. `.fontDesign` is one of them: all four
+  designs draw, in Inter / Nunito / Source Serif 4 / Roboto Mono, and
+  each is measured through its own face so lines wrap where the device
+  wraps them. One exception draws nothing and says so:
+  `.monospacedDigit` — tabular figures are an OpenType feature the 3D
+  text renderer will not apply, and faking the advances would break
+  layout/render agreement.
 - **Styles:** control-size + per-control style picker (Toggle, Label,
   TextField). All three change the canvas as well as the export: a
   Toggle set to `.button` draws as a button rather than a switch, a

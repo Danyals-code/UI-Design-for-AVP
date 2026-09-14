@@ -51,7 +51,8 @@ Xcode, a Mac, or a headset.
   a preview, and fragments are structurally validated before they can
   break the generated file.
 - **Text measured with real font metrics.** Wrapping, truncation and
-  intrinsic sizing run on actual Inter advance widths (weight included)
+  intrinsic sizing run on actual advance widths — weight *and*
+  `.fontDesign(_:)` included, so a serif heading is measured in a serif —
   rather than a flat per-character constant, so the canvas breaks lines
   where the device does.
 - **SwiftUI text pipeline.** A dedicated text engine (`src/text.js`)
@@ -81,7 +82,7 @@ Xcode, a Mac, or a headset.
 | ----------------- | ---------------------------------------------- |
 | UI framework      | React 18                                       |
 | Build / dev       | Vite 5                                         |
-| Styling           | Tailwind CSS, PostCSS, Inter via `@fontsource` |
+| Styling           | Tailwind CSS, PostCSS; Inter / Nunito / Source Serif 4 / Roboto Mono via `@fontsource`, one per `.fontDesign(_:)` case |
 | 3D rendering      | three.js + `@react-three/fiber` + `drei`       |
 | Icons             | `lucide-react` (SF Symbol → Lucide map)        |
 | State             | Zustand                                        |

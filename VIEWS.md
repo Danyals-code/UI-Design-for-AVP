@@ -122,9 +122,17 @@ turns a 640pt box with inset content into a 688pt box.
    correct Swift. `parity.test.js` runs every `summarize()` against a
    recording proxy and fails when nothing a renderer reads comes out.
 
-   Two modifiers are declared invisible on purpose: `.fontDesign` and
-   `.monospacedDigit` need a rounded / serif / monospaced face and the app
-   bundles Inter alone, so there is nothing honest to draw.
+   One modifier is declared invisible on purpose: `.monospacedDigit`. Tabular
+   figures are the `tnum` OpenType feature — Inter already has them — and the
+   canvas's text renderer applies a fixed whitelist of GSUB features that
+   excludes it, with no per-glyph advance API to place digits by hand. Widening
+   digits in measurement alone would break the one invariant this file is
+   about, so there is nothing honest to draw.
+
+   `.fontDesign` used to sit beside it and no longer does: Nunito, Source
+   Serif 4 and Roboto Mono are bundled beside Inter, so all four designs draw
+   — and are measured through their own face, which is the half that matters
+   for wrapping.
 
 The per-control **Styles** section is part of it as well. `toggleStyle`,
 `labelStyle` and `textFieldStyle` now change the canvas, and the bag holds

@@ -29,16 +29,16 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**. Every phase in the plan has landed and the unnumbered tail has
-been sorted and worked through, so **the count is now 4 — and all four are the
-same defect**: `fontDesign` and `monospacedDigit`, on the modifier and on the
-panel, blocked on shipping a rounded / serif / mono face (#5). Everything that
-could be closed without new assets is closed; everything left one-sided carries
+been sorted and worked through, so **the count is now 2**, both of them
+`monospacedDigit` — on the modifier and on the panel — which needs a text
+renderer that can apply an OpenType feature rather than any font this app
+could ship (#5). Everything else is closed; everything left one-sided carries
 a written reason.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | **0** |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 4 (all #5) |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 2 (both #5) |
 | Neither side reads a field the inspector writes | 7 fields | **0** |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
@@ -101,11 +101,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 674 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 692 passing, 12 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35 and +6 from #32).
+  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35 and +6 from #32 and +18 from #5).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1284,6 +1284,70 @@ bounds box that recedes visibly further at 1.6 m than at 0.5 m.
 rounded / serif / mono face. Everything the triage found that could be closed
 without new assets is closed.
 
+**#5 — the two blocked modifiers** ✅ **`fontDesign` done; `monospacedDigit` re-filed**
+This was the last entry, and it was two different problems filed as one.
+
+**`fontDesign` really was blocked on assets, and now is not.** Three faces are
+bundled beside Inter, each with the same four weights and both styles, so a
+design swap never silently changes the weight too:
+
+| SwiftUI | Apple's face | Bundled stand-in |
+| ------- | ------------ | ---------------- |
+| `.default` | SF Pro | Inter *(already the app's stand-in)* |
+| `.rounded` | SF Pro Rounded | Nunito |
+| `.serif` | New York | Source Serif 4 |
+| `.monospaced` | SF Mono | Roboto Mono |
+
+The half of this that is easy to get wrong is **measurement**. The canvas draws
+3D text through troika, which needs a font *file*, and measures it through
+Canvas2D, which needs a CSS *family* — two engines that have to be looking at
+the same face, or a serif heading wraps at Inter's widths and draws in Source
+Serif. So the design threads all the way down: `textMetrics` resolves it (the
+modifier beating the panel's own field, because the modifier is what the
+exporter emits), `measureSwiftUIText` carries it beside the weight, the
+measurer keys its cache on it, and `Panel3D` picks the troika file through the
+same `textMetrics` call rather than a second copy of the rule.
+
+Two things that would each have left the fix half-done:
+
+- **Nothing in the DOM renders in the three new families**, so the browser
+  would never have downloaded them — and Canvas2D measures an absent family as
+  its fallback, silently. The measurer now asks for all sixteen faces at
+  startup before waiting on `document.fonts.ready`. Confirmed in the app:
+  `document.fonts.check` is true for all four, and measuring one string across
+  the four designs gives four different widths (955 / 934 / 944 / 1020 pt at
+  100pt) rather than one.
+- **The parity scan could not see the modifier read.** `textMetrics` took the
+  summary as `modSummary?.field`, and the scan matches `modSummary.field` or
+  `mod.field` as text — an optional chain reads as neither, so every modifier
+  read in that function counted as unread. It now destructures once into
+  `mod`, which is the same code and visible to the checker. That is the third
+  time the scan's text matching has cost something; each instance is now
+  commented where it bites.
+
+**`monospacedDigit` was filed under the wrong blocker.** Inter already *has*
+tabular figures — they are the `tnum` OpenType feature — so no font this app
+could ship would help. The blocker is the renderer: troika-three-text applies
+a fixed whitelist of GSUB features (`liga`, `mset`, `isol`, `init`, `fina`,
+`medi`, `half`, `pres`, `blws`, `ccmp`) with no prop to extend it, and exposes
+no per-glyph advance API to place digits by hand either. The one thing the
+canvas must **not** do is widen digits in measurement alone: this app's whole
+invariant is that the box a stack reserves and the text drawn into it are the
+same box. So it stays DEBT with an accurate reason, and closing it needs a
+text renderer that can apply a font feature.
+
+*Acceptance:* a new `src/fonts.test.js` — 18 tests over the face table, the
+vocabulary the inspector renders from it, the design reaching every stage of
+the measurement pipeline, and the seam (the design the canvas picks a face for
+is the design `.fontDesign(_:)` emits). The wiring was ripped out on both
+sides to confirm the tests and the harness catch it. Verified in the app: four
+text panels, one per design, draw in four visibly different faces — and wrap
+at different points, which is the measurement half showing its work. Parity
+debt 4 → 2.
+
+*Cost:* 64 font files, 1.5 MB on disk, fetched on demand; the JS bundle grew
+6 kB, which is the URL strings.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1312,8 +1376,10 @@ not a plan but an ordering of what the triage left, worst first:
 ✅ #34 three unrelated gaps  — done.
 ✅ #35 unblurred stack exports a Material — done.
 ✅ #32 volume geometry      — done.
-—  #5  fontDesign / monospacedDigit — blocked on shipping font assets, and the
-       only parity debt left.
+✅ #5  fontDesign            — done; three faces bundled.
+—  #5  monospacedDigit       — the only parity debt left, and not for the
+       reason it was filed under: tabular figures need a text renderer that
+       can apply an OpenType feature, not a font.
 ```
 
 #33 led not because it was large — it was the smallest — but because it was
@@ -1334,7 +1400,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 2 | ~~Explicit sizing never exported~~ — **fixed in 2.1**, 171 items now framed | `export/swiftui.js` | — |
 | 3 | ~~`stack.scrollable` exports a comment, not a `ScrollView`~~ — **fixed in 2.2** | `export/swiftui.js` | — |
 | 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
-| 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4. The last 2 (`fontDesign`, `monospacedDigit`) are blocked on font assets, not wiring — see §4.1. | `modifiers/registry.js`, `Panel3D.jsx`, `SceneTree.jsx` | Low |
+| 5 | ~~17 modifiers emit Swift but draw nothing~~ — **13 wired in 1.1**, 2 in 1.4, `fontDesign` in the font pass (three faces bundled; the canvas draws and measures all four designs). `monospacedDigit` is the one thing in this audit still open, and the blocker turned out not to be font assets at all — see below. | `modifiers/registry.js`, `Panel3D.jsx`, `fonts.js` | Low |
 | 6 | ~~`form` / `outlinegroup` rows invisible on canvas~~ — **fixed in 1.2.** Both draw their rows; `rowHeight`, which reached neither side, now lays them out and rides along as `.frame(minHeight:)`. | `Panel3D.jsx`, `panels/registry.js` | — |
 | 7 | ~~`confirmationdialog` / `inspector` inline on canvas, modal in code~~ — **fixed in 1.3.** One presentation set, imported by all three readers. | `appleSystem.js`, `SceneTree.jsx` | — |
 | 8 | ~~Window `.frame` / `.padding` order inverts the inset~~ — **fixed in 2.1** | `export/swiftui.js` | — |

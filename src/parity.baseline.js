@@ -249,10 +249,11 @@ export const PANEL = {
   // the matching `attachmentAnchor:`.
 
   // -- typography and 3D ----------------------------------------------------
-  // Same blocker as their modifier twins in MODIFIER_VISIBILITY — see the
-  // note there. Closing these means shipping a rounded / serif / mono face.
-  fontDesign: debt('export-only: only Inter is bundled, so there is no face to swap to', 5),
-  monospacedDigit: debt('export-only: tabular figures need a face the app does not ship', 5),
+  // `fontDesign` left this table in #5: the three faces it needed are bundled
+  // now and the canvas draws all four designs. `monospacedDigit` did not, and
+  // the blocker turned out not to be the one recorded — see its twin in
+  // MODIFIER_VISIBILITY.
+  monospacedDigit: debt('export-only: tabular figures are an OpenType feature the canvas text renderer will not apply; see the note in MODIFIER_VISIBILITY', 5),
   // `styles` left this table in phase #31. The bag now holds exactly the
   // three fields both sides read — `toggleStyle`, `labelStyle` and
   // `textFieldStyle` — and the four that were second homes for concepts with
@@ -309,18 +310,22 @@ export const MODIFIER_VISIBILITY = {
   // `toolbarBackground`, `navigationTitle`, `hoverEffect`,
   // `hoverEffectDisabled` and `layoutPriority` all draw now.
   //
-  // The two below are the exception, and the blocker is assets rather than
-  // wiring: the app bundles Inter alone (upright + italic per weight, see
-  // `fonts.js`), troika needs a real font file to shape 3D text, and there is
-  // no rounded, serif or monospaced face to point it at. Anything the canvas
-  // did here — nudging weight, faking advances — would be a guess dressed as
-  // a preview, and the canvas drawing a *different* wrong thing from the
-  // device is worse than drawing nothing. Closing these means shipping the
-  // faces (e.g. an `@fontsource` mono + serif) and mapping `.rounded` /
-  // `.serif` / `.monospaced` onto them; `monospacedDigit` then follows as
-  // tabular figures. Deliberate, and signposted rather than faked.
-  fontDesign: debt('blocked on font assets: only Inter is bundled, so there is no face to swap to', 5),
-  monospacedDigit: debt('blocked on font assets: tabular figures need a face the app does not ship', 5),
+  // `fontDesign` was blocked on assets and is closed: Nunito, Source Serif 4
+  // and Roboto Mono are bundled beside Inter and the canvas draws all four
+  // designs, measuring each through its own face so a serif heading wraps
+  // where the device wraps it. See `fonts.js`.
+  //
+  // `monospacedDigit` was filed under the same blocker and that was wrong.
+  // Inter already HAS tabular figures — they are the `tnum` OpenType feature,
+  // and no font this app could ship would help, because the blocker is the
+  // renderer. troika-three-text applies a fixed whitelist of GSUB features
+  // (liga, mset, isol, init, fina, medi, half, pres, blws, ccmp) with no prop
+  // to extend it, so `tnum` is unreachable and there is no per-glyph advance
+  // API to place digits by hand either. The one thing the canvas must NOT do
+  // is widen digits in measurement alone: this app's whole invariant is that
+  // the box a stack reserves and the text drawn into it are the same box.
+  // Closing this needs a text renderer that can apply a font feature.
+  monospacedDigit: debt('export-only: tabular figures are the `tnum` OpenType feature, and troika applies a fixed GSUB whitelist that excludes it; measuring digits wider than they draw would break layout/render agreement', 5),
   // `scrollIndicators` and `scrollDisabled` left this table in phase 1.4.
   // Both had an empty `summarize()` and so wrote nothing for any renderer to
   // read; both now write, and Stack3D reads them to hide the scroll thumb
@@ -364,4 +369,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 4
+export const DEBT_CEILING = 2
