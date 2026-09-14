@@ -243,7 +243,7 @@ Each stack carries: alignment, spacing (or auto / nil), padding (number
 or per-edge), width/height mode (`fit` / `fixed` / `fill`), optional
 background + corner radius + per-corner radii (`cornerRadii: [tl, tr,
 br, bl]` - matches SwiftUI's `UnevenRoundedRectangle`), ornament anchor,
-scrollable flag, modifiers.
+scrollable flag + axis + live scroll offset, modifiers.
 
 ### Panels
 Every SwiftUI primitive lives here (~55 types - full list and per-type
@@ -412,6 +412,17 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   (number or 4-edge), grid / scrollView / viewThatFits options per
   type, Size sub-block (W/H mode: Fit / Fixed / Fill, with pt values
   when Fixed), Scroll sub-block (Scrollable On/Off).
+  **Scrollable stacks scroll on the canvas.** The stack's frame becomes
+  a viewport, its content anchors to the top (or the leading edge for a
+  horizontal axis) instead of centring, the wheel moves it, and content
+  is clipped to the stack's own box — composed with the window's, so a
+  scroller nested in a plate stays inside both. The indicator on the
+  trailing edge is sized to the visible fraction and tracks position;
+  `.scrollIndicators(.hidden)` hides it and `.scrollDisabled(true)`
+  turns the gesture off, exactly as they do on device. A `ScrollView`
+  stack scrolls on its own; Section, DisclosureGroup, Tab bodies,
+  toolbars and NavigationSplitView bring their own scrolling and are
+  left alone, which is also where the exporter draws the line.
 - **Section / Disclosure / Navigation / TabView / Tab / ToolbarItem**
   (shown only when applicable): header/footer text, expanded state,
   title, active index, placement.
@@ -654,7 +665,9 @@ The exporter ([src/export/swiftui.js](src/export/swiftui.js)) emits:
   width/height, or `maxWidth: .infinity` for a Fill axis — plus per-edge
   `.padding(.top, …)` where the edges differ.
 - **Scrolling**: a stack marked Scrollable becomes a real `ScrollView`, with
-  the frame on the viewport and the padding on the scrolling content.
+  the frame on the viewport and the padding on the scrolling content — the
+  same split the canvas now uses, so what scrolls on screen scrolls on
+  device. `scrollAxis` and `scrollShowsIndicators` are read by both sides.
 - **Free placement**: a control dragged around a window plate exports the
   matching `.offset(x:y:)`.
 

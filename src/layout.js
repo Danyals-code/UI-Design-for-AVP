@@ -54,7 +54,12 @@ const stackSpacing = (s) =>
 
 // ---- padding helpers ----
 
-function resolvePadding(item) {
+// Per-edge padding in scene units, with the uniform `padding` as the
+// fallback. Exported because the renderer needs the same four numbers to
+// size a scroller's viewport, and a second copy of the `paddingEdges ??
+// padding` fallback is exactly the kind of drift this codebase keeps
+// finding.
+export function resolvePadding(item) {
   if (item.paddingEdges) {
     const e = item.paddingEdges
     return {
@@ -70,6 +75,38 @@ function resolvePadding(item) {
 
 function padW(pad) { return pad.leading + pad.trailing }
 function padH(pad) { return pad.top + pad.bottom }
+
+// Container types that bring their own scrolling semantics. Each one returns
+// early in the exporter's `renderStack` and never gets a ScrollView wrapper,
+// so none of them scrolls on the canvas either — the two sides have to agree
+// about WHICH views scroll before they can agree about how far.
+const SELF_SCROLLING_STACK_TYPES = new Set([
+  'toolbar', 'toolbarItem', 'toolbarItemGroup', 'tab', 'section', 'disclosure'
+])
+
+// Which axes a stack scrolls on, mirroring `scrollViewOpener` in
+// `export/swiftui.js` exactly: the `scrollView` stack TYPE always scrolls,
+// any other plain stack scrolls when the `scrollable` FLAG is set, and the
+// axis comes from `scrollAxis` on both sides (default `.vertical`).
+//
+// The axis is read literally rather than inferred from the stack's main
+// axis. An HStack marked scrollable with the default vertical axis exports
+// `ScrollView { HStack { … } }` — a vertical scroller — so that is what the
+// canvas has to draw, however odd it looks. Guessing the "sensible" axis
+// here would put the canvas back out of step with the file it generates.
+export function scrollAxesOf(stack) {
+  const none = { vertical: false, horizontal: false }
+  if (!stack || stack.type !== 'stack') return none
+  if (stack.splitStyle) return none
+  if (SELF_SCROLLING_STACK_TYPES.has(stack.stackType)) return none
+  const isScroller = stack.stackType === 'scrollView' || stack.scrollable === true
+  if (!isScroller) return none
+  const axis = stack.scrollAxis || 'vertical'
+  return {
+    vertical:   axis === 'vertical'   || axis === 'both',
+    horizontal: axis === 'horizontal' || axis === 'both'
+  }
+}
 
 // Column count for a `grid` stack. Mirrors SwiftUI's two `GridItem` flavours:
 //   gridMode === 'fixed'    → `GridItem(.fixed(size), count: N)` — uses
@@ -736,7 +773,10 @@ export function layoutStack(stack, items, outerSize = null) {
       return [flexW, ch]
     })
     const totalW = effectiveSizes.reduce((s, [cw]) => s + cw, 0) + totalGap
-    let x = -totalW / 2
+    // Leading-anchor a horizontal scroller, for the same reason the vertical
+    // path top-anchors: the content is wider than the box, so centring it
+    // puts the first child off the leading edge. See the note there.
+    let x = -(scrollAxesOf(stack).horizontal ? innerW : totalW) / 2
     for (let i = 0; i < children.length; i++) {
       const [cw, ch] = effectiveSizes[i]
       let y = 0
@@ -781,7 +821,19 @@ export function layoutStack(stack, items, outerSize = null) {
     isFlexV(children[i]) ? [cw, flexH] : [cw, ch]
   )
   const totalH = effectiveSizes.reduce((s, [, ch]) => s + ch, 0) + totalGap
-  let y = totalH / 2 + headerH / 2 - footerH / 2
+  // A vertical scroller lays its content out from the TOP of the viewport
+  // rather than around the viewport's centre. Centring is right for a stack
+  // that hugs its children — the two heights are equal and the distinction
+  // is invisible — but a ScrollView's content is taller than its box by
+  // definition, and centring it hid the first screenful above the top edge
+  // and the last below the bottom: the `settings` template opened mid-page
+  // with its own title unreachable. Substituting the available height for
+  // the content height pins the content's top edge to the box's top edge,
+  // which is where SwiftUI puts it, and lets `scrollY` walk the rest into
+  // view. Short content top-anchors too, which is also what a ScrollView
+  // does. AUDIT #4.
+  const anchorH = scrollAxesOf(stack).vertical ? available : totalH
+  let y = anchorH / 2 + headerH / 2 - footerH / 2
 
   // Offset for asymmetric padding
   const padOffsetX = (pad.leading - pad.trailing) / 2

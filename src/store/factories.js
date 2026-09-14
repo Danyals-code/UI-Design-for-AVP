@@ -242,6 +242,12 @@ export const makeStack = (overrides = {}) => ({
   // default to true. Both feed the SwiftUI exporter.
   scrollAxis: 'vertical',     // 'vertical' | 'horizontal' | 'both'
   scrollShowsIndicators: true,
+  // Live scroll offset of the preview, in scene units, clamped to the
+  // overflow. Not a document property — the exporter has nothing to emit
+  // for it — but it lives on the item rather than in component state so it
+  // round-trips through undo and serialization like the window's own.
+  scrollY: 0,
+  scrollX: 0,
   // ViewThatFits — `in:` axes; default both.
   fitsAxes: 'both',           // 'both' | 'horizontal' | 'vertical'
   // Section-specific

@@ -1,9 +1,10 @@
-import { useRef, useMemo, useState } from 'react'
+import { useRef, useMemo, useState, createContext, useContext } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useStore, isEffectivelyVisible } from '../store'
-import { layoutStack, computeSize, resolvedChildSizes } from '../layout'
+import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
+import { summarizeModifiers } from '../modifiers/registry'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape } from '../shapes'
 import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial } from '../appleSystem'
 
@@ -11,6 +12,70 @@ import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
 import { EntityChildren } from './Entity3D'
 import { SymbolIcon3D } from './SymbolIcon3D'
+
+// ---------------------------------------------------------------------------
+// Clipping
+//
+// A window clips its content to the plate; a scrolling stack clips its
+// content to its own viewport. Both do it the same way — four world-space
+// half-spaces assigned to every material in the subtree — and a scroller
+// inside a window has to obey BOTH rects, so the plane lists compose rather
+// than replace. `three` already gives us that: with `clipIntersection` off,
+// a fragment survives only if it is inside every plane in the array.
+//
+// The rule that keeps it deterministic is single ownership. `ClipContext`
+// carries the ancestor's plane list down; each clipper concatenates its own,
+// assigns the combined list across its subtree, and marks its group
+// `userData.ownsClip` so the ancestor's walk stops at that boundary instead
+// of overwriting the combination with its own shorter list. Without the
+// prune the two walks would fight, and which one won would depend on
+// `useFrame` registration order.
+// ---------------------------------------------------------------------------
+const ClipContext = createContext(null)
+
+// Four half-spaces (left / right / bottom / top) bounding an axis-aligned
+// rect. Allocated once per clipper and mutated in place every frame: the
+// array identity is what every material in the subtree holds, so
+// re-allocating would strand them all on last frame's planes.
+function makeClipPlanes() {
+  return [
+    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),   // x >= leftEdge
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // x <= rightEdge
+    new THREE.Plane(new THREE.Vector3(0,  1, 0), 0),   // y >= bottomEdge
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),   // y <= topEdge
+  ]
+}
+
+// Plane equation: dot(normal, p) + constant >= 0 means "keep". So for the
+// left edge (normal +X) the constant is the negative of the leftmost
+// world-x, and the same shape holds for the other three sides.
+function updateClipPlanes(planes, wx, wy, halfW, halfH) {
+  planes[0].constant = -(wx - halfW)
+  planes[1].constant =  (wx + halfW)
+  planes[2].constant = -(wy - halfH)
+  planes[3].constant =  (wy + halfH)
+}
+
+// Assign `planes` to every material under `root`, stopping at any descendant
+// that owns a composed clip of its own. `Object3D.traverse` can't prune a
+// branch, hence the hand-rolled walk.
+function applyClipPlanes(root, planes) {
+  const visit = (obj) => {
+    const m = obj.material
+    if (Array.isArray(m)) {
+      for (const mm of m) { mm.clippingPlanes = planes; mm.clipIntersection = false }
+    } else if (m) {
+      m.clippingPlanes = planes
+      m.clipIntersection = false
+    }
+    // Prune at the next clipper down: it assigns this list plus its own,
+    // and descending past it would replace that combination.
+    for (const child of obj.children) {
+      if (!child.userData?.ownsClip) visit(child)
+    }
+  }
+  visit(root)
+}
 
 // Build a real soft shadow as a CanvasTexture. The canvas 2D `shadowBlur`
 // gives a true Gaussian falloff (not the old hard inflated-rect / ring),
@@ -410,6 +475,57 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     return true
   })
 
+  // ---- Scrolling ----------------------------------------------------------
+  // Which axes scroll is decided by `scrollAxesOf` in layout.js, which
+  // mirrors the exporter's routing, so the canvas scrolls exactly the views
+  // that export a ScrollView. `.scrollDisabled(true)` in the modifier stack
+  // turns it back off, the way it does on device.
+  const modSummary = summarizeModifiers(stack.modifiers)
+  const axes = scrollAxesOf(stack)
+  const scrollsV = axes.vertical   && !modSummary.scrollDisabled
+  const scrollsH = axes.horizontal && !modSummary.scrollDisabled
+  const scrolls = scrollsV || scrollsH
+
+  // The content extent, measured from the boxes the renderer is about to
+  // draw rather than from `computeSize`. Same principle as the layout /
+  // renderer agreement tests: derive the scroll range from what is on
+  // screen and the two cannot disagree about how far there is to go.
+  const pad = resolvePadding(stack)
+  const contentSpan = useMemo(() => {
+    if (!scrolls) return null
+    let top = -Infinity, bottom = Infinity, left = Infinity, right = -Infinity
+    for (const c of children) {
+      const p = childPositions.get(c.id)
+      if (!p) continue
+      const [cw, ch] = childSizes.get(c.id) || computeSize(c, items)
+      top    = Math.max(top,    p[1] + ch / 2)
+      bottom = Math.min(bottom, p[1] - ch / 2)
+      left   = Math.min(left,   p[0] - cw / 2)
+      right  = Math.max(right,  p[0] + cw / 2)
+    }
+    if (top === -Infinity) return { width: 0, height: 0 }
+    // Padding rides with the scrolling content, not the viewport — that is
+    // where the exporter puts it (`ScrollView { VStack{}.padding(24) }`), so
+    // the inset scrolls away with the first screenful on both sides.
+    return {
+      width:  (right - left) + pad.leading + pad.trailing,
+      height: (top - bottom) + pad.top + pad.bottom
+    }
+  }, [scrolls, children, childPositions, childSizes, items, pad.top, pad.bottom, pad.leading, pad.trailing])
+
+  const maxScrollY = scrollsV && contentSpan ? Math.max(0, contentSpan.height - h) : 0
+  const maxScrollX = scrollsH && contentSpan ? Math.max(0, contentSpan.width  - w) : 0
+  const scrollY = Math.min(Math.max(0, Number(stack.scrollY) || 0), maxScrollY)
+  const scrollX = Math.min(Math.max(0, Number(stack.scrollX) || 0), maxScrollX)
+
+  // Two inputs suppress the indicators, and the exporter reads both: the
+  // ScrollView's own `showsIndicators:` argument and `.scrollIndicators()`
+  // in the modifier stack. SwiftUI spells "off" as either `.hidden` or
+  // `.never`; every other case shows.
+  const indicatorMod = modSummary.scrollIndicators
+  const showScrollIndicators = stack.scrollShowsIndicators !== false &&
+                               indicatorMod !== 'hidden' && indicatorMod !== 'never'
+
   const hasBackground = stack.ornament != null || stack.background != null
   // Allow a stack to override its background corner radius (e.g. the
   // separated NavigationSplitView sidebar uses a 30pt dialogue radius).
@@ -475,8 +591,82 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
     }
   }
 
+  // ScrollView wheel handling. Same 0.0015 units-per-tick feel as the
+  // window's, and the offset is persisted on the stack so it round-trips
+  // through undo and serialization like every other preview affordance.
+  // Wheel events bubble from any descendant, so a row inside the scroller
+  // still takes clicks — `onPointerDown` and `onWheel` are separate event
+  // channels in three-fiber.
+  const onScrollWheel = (e) => {
+    if (maxScrollY === 0 && maxScrollX === 0) return
+    e.stopPropagation()
+    // OrbitControls dollies the camera on wheel from its own DOM listener on
+    // the same canvas element, so three-fiber's `stopPropagation` — which
+    // only walks the scene graph — does not reach it, and scrolling a list
+    // would zoom the viewport at the same time. R3F registers its listener
+    // when the canvas mounts, before OrbitControls registers its own, so
+    // stopping immediate propagation from here suppresses the dolly for
+    // exactly the wheel events this scroller consumes and leaves every other
+    // one alone.
+    e.nativeEvent?.stopImmediatePropagation?.()
+    const patch = {}
+    if (maxScrollY > 0) {
+      const next = Math.max(0, Math.min(maxScrollY, scrollY + e.deltaY * 0.0015))
+      if (Math.abs(next - scrollY) > 0.0001) patch.scrollY = next
+    }
+    // Trackpads send deltaX; a wheel-only mouse gets the vertical delta
+    // routed sideways when the view scrolls horizontally and nowhere else,
+    // which is what a horizontal ScrollView does on device.
+    if (maxScrollX > 0) {
+      const dx = e.deltaX || (maxScrollY === 0 ? e.deltaY : 0)
+      const next = Math.max(0, Math.min(maxScrollX, scrollX + dx * 0.0015))
+      if (Math.abs(next - scrollX) > 0.0001) patch.scrollX = next
+    }
+    if (Object.keys(patch).length) updateItem(stack.id, patch)
+  }
+
+  // Clip the scrolling content to this stack's own viewport, composed with
+  // whatever rect an ancestor already imposes (see the ClipContext note at
+  // the top of the file). Without this the overflow would only be bounded
+  // by the window, so a small scroller in the middle of a plate would spill
+  // its content across everything around it.
+  const inheritedClip = useContext(ClipContext)
+  const ownClipPlanes = useMemo(makeClipPlanes, [])
+  const composedClip = useMemo(
+    () => (inheritedClip ? [...inheritedClip, ...ownClipPlanes] : ownClipPlanes),
+    [inheritedClip, ownClipPlanes]
+  )
+  const viewportRef = useRef()
+  const wasClippingRef = useRef(false)
+  useFrame(() => {
+    const vp = viewportRef.current
+    if (!vp) return
+    if (!scrolls) {
+      // Hand the subtree back to the ancestor's rect on the frame after
+      // scrolling is switched off, so materials don't keep a viewport that
+      // no longer exists.
+      if (wasClippingRef.current) {
+        applyClipPlanes(vp, inheritedClip)
+        wasClippingRef.current = false
+      }
+      return
+    }
+    vp.updateMatrixWorld()
+    updateClipPlanes(
+      ownClipPlanes,
+      vp.matrixWorld.elements[12],
+      vp.matrixWorld.elements[13],
+      w / 2, h / 2
+    )
+    applyClipPlanes(vp, composedClip)
+    wasClippingRef.current = true
+  })
+
   return (
-    <group position={localPosition || [0, 0, 0]} onWheel={stack.splitStyle ? onSidebarWheel : undefined}>
+    <group
+      position={localPosition || [0, 0, 0]}
+      onWheel={stack.splitStyle ? onSidebarWheel : (scrolls ? onScrollWheel : undefined)}
+    >
       {isSelected && (
         <mesh position={[0, 0, -0.02]}>
           <shapeGeometry args={[outlineShape]} />
@@ -525,13 +715,35 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         )
       })()}
 
-      {/* Scrollbar indicator for scrollable stacks */}
-      {stack.scrollable && (
-        <mesh position={[w / 2 - 0.02, 0, 0.003]}>
-          <planeGeometry args={[0.02, h * 0.5]} />
-          <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.5} />
-        </mesh>
-      )}
+      {/* Scroll indicators. The thumb is sized to the visible fraction of
+          the content and tracks `scrollY` / `scrollX`, so it reads as a
+          real position rather than the fixed decorative bar this used to
+          draw. Hidden when there is nothing to scroll, and suppressed by
+          either `scrollShowsIndicators` (the ScrollView's own argument) or
+          `.scrollIndicators(.hidden)` in the modifier stack — the same two
+          inputs the exporter reads. */}
+      {showScrollIndicators && maxScrollY > 0 && (() => {
+        const thumbH = Math.max(ptToUnits(24), h * Math.min(1, h / contentSpan.height))
+        const travel = Math.max(0, h - thumbH)
+        const t = maxScrollY > 0 ? scrollY / maxScrollY : 0
+        return (
+          <mesh position={[w / 2 - 0.012, h / 2 - thumbH / 2 - t * travel, 0.004]}>
+            <planeGeometry args={[0.012, thumbH]} />
+            <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.55} />
+          </mesh>
+        )
+      })()}
+      {showScrollIndicators && maxScrollX > 0 && (() => {
+        const thumbW = Math.max(ptToUnits(24), w * Math.min(1, w / contentSpan.width))
+        const travel = Math.max(0, w - thumbW)
+        const t = maxScrollX > 0 ? scrollX / maxScrollX : 0
+        return (
+          <mesh position={[-w / 2 + thumbW / 2 + t * travel, -h / 2 + 0.012, 0.004]}>
+            <planeGeometry args={[thumbW, 0.012]} />
+            <meshBasicMaterial color={scene.tintColor || '#007aff'} transparent opacity={0.55} />
+          </mesh>
+        )
+      })()}
 
       {/* Section header/footer text */}
       {stack.stackType === 'section' && stack.sectionHeader && (
@@ -606,6 +818,14 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
       {/* TabView: auto-render bottom tab bar with clickable tabs */}
       {stack.stackType === 'tabView' && <TabBar3D stack={stack} childItems={children} w={w} h={h} scene={scene} />}
 
+      {/* Viewport → scrolled content → children.
+          The viewport group is the clip boundary and stays put, so the rect
+          derived from its world matrix is stable; the offset lives on the
+          group inside it. `ownsClip` tells an ancestor's clip walk to stop
+          here, because this subtree needs the ancestor's planes AND these,
+          and the walk that assigns both is the one above. */}
+      <group ref={viewportRef} userData={{ ownsClip: scrolls }}>
+      <group position={scrolls ? [-scrollX, scrollY, 0] : [0, 0, 0]}>
       {children.map((c) => {
         // In a TabView, only the active Tab is positioned by layoutStack.
         const pos = childPositions.get(c.id)
@@ -618,6 +838,8 @@ function Stack3D({ stack, localPosition, items, resolvedSize }) {
         // inner width rather than its intrinsic content width.
         return <Panel3D key={c.id} panel={c} localPosition={pos} resolvedSize={resolved} />
       })}
+      </group>
+      </group>
     </group>
   )
 }
@@ -714,12 +936,7 @@ function Window3D({ window: win, items, previewPosition }) {
   // frame without re-allocating. Local clipping is turned on globally
   // in Canvas3D's `gl` config; without that flag the renderer ignores
   // every material's `clippingPlanes` array.
-  const clipPlanes = useMemo(() => [
-    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),   // x ≥ leftEdge
-    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),   // x ≤ rightEdge
-    new THREE.Plane(new THREE.Vector3(0,  1, 0), 0),   // y ≥ bottomEdge
-    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),   // y ≤ topEdge
-  ], [])
+  const clipPlanes = useMemo(makeClipPlanes, [])
   const contentClipRef = useRef()
 
   const [w, h] = win.size
@@ -904,25 +1121,11 @@ function Window3D({ window: win, items, previewPosition }) {
     outer.updateMatrixWorld()
     const wx = outer.matrixWorld.elements[12]
     const wy = outer.matrixWorld.elements[13]
-    const halfW = w / 2
-    const halfH = h / 2
-    // Plane equation: dot(normal, p) + constant >= 0 means "keep". So
-    // for the left edge (normal +X) the constant is the *negative* of
-    // the leftmost world-x. Same shape for the other three sides.
-    clipPlanes[0].constant = -(wx - halfW)
-    clipPlanes[1].constant =  (wx + halfW)
-    clipPlanes[2].constant = -(wy - halfH)
-    clipPlanes[3].constant =  (wy + halfH)
-    inner.traverse((obj) => {
-      const m = obj.material
-      if (!m) return
-      if (Array.isArray(m)) {
-        for (const mm of m) { mm.clippingPlanes = clipPlanes; mm.clipIntersection = false }
-      } else {
-        m.clippingPlanes = clipPlanes
-        m.clipIntersection = false
-      }
-    })
+    updateClipPlanes(clipPlanes, wx, wy, w / 2, h / 2)
+    // Stops at any scrolling stack inside: that stack assigns these planes
+    // plus its own viewport's, and descending past it would drop its half
+    // of the pair.
+    applyClipPlanes(inner, clipPlanes)
   })
 
   if (isPreviewActive && !previewPosition) {
@@ -1009,6 +1212,11 @@ function Window3D({ window: win, items, previewPosition }) {
           ornaments and chrome stay outside this group so they can
           overlap the edge. Wheel events on the plate's hit surface
           bubble up here when the window is marked scrollable. */}
+      {/* Descendants inherit the window's clip rect: a scrolling stack
+          inside composes its own viewport planes with these rather than
+          replacing them, so its content stays inside BOTH boxes. A
+          volumetric window publishes nothing, because it clips nothing. */}
+      <ClipContext.Provider value={isVolumetric ? null : clipPlanes}>
       <group
         ref={contentClipRef}
         position={[0, win.scrollable ? (win.scrollY || 0) : 0, 0]}
@@ -1095,6 +1303,7 @@ function Window3D({ window: win, items, previewPosition }) {
         <EntityChildren hostId={win.id} items={items} scene={scene} />
       )}
       </group>
+      </ClipContext.Provider>
 
       {/* Ornaments — pinned to edges. Sit a touch in front of content
           (which is at 0.012-0.020) so toolbar items overlap content

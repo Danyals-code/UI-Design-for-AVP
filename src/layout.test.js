@@ -18,11 +18,13 @@
 
 import { describe, it, expect } from 'vitest'
 import {
-  computeSize, layoutStack, resolvedChildSizes, gridColumnCount, SYSTEM_SPACING_PT
+  computeSize, layoutStack, resolvedChildSizes, gridColumnCount, SYSTEM_SPACING_PT,
+  scrollAxesOf
 } from './layout'
 import { ptToUnits } from './appleSystem'
-import { makeStack, makePanel, textStyleToFontSize } from './store/factories'
+import { makeStack, makePanel, makeTab, makeWindow, textStyleToFontSize } from './store/factories'
 import { TEMPLATES } from './templates'
+import { exportSwiftUI } from './export/swiftui'
 
 const EPS = 1e-6
 
@@ -365,5 +367,152 @@ describe('spacing', () => {
     const pos = layoutStack(col, items, computeSize(col, items))
     const delta = pos.get(a.id)[1] - pos.get(b.id)[1]
     expect(delta).toBeCloseTo(ptToUnits(40 + SYSTEM_SPACING_PT), 9)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Scrolling (AUDIT #4)
+//
+// A scrollable stack used to draw a decorative bar and nothing else: its
+// content was laid out around the box's CENTRE, so an overflowing stack was
+// clipped at both ends at once and its first screenful sat above the top
+// edge, unreachable. The `settings` and `article` templates both ship that
+// way, which made it the most visible "this is broken" moment in the app.
+//
+// Two properties are pinned here. The first is the layout half of the fix:
+// a scroller anchors its content to the leading edge of the axis it scrolls.
+// The second is the agreement that matters - the canvas must scroll exactly
+// the views the exporter wraps in a ScrollView, checked against what the
+// generator actually emits rather than against the list `scrollAxesOf` is
+// built from, since comparing a predicate to its own source is a tautology
+// that would not catch the two drifting apart.
+// ---------------------------------------------------------------------------
+describe('scrolling', () => {
+  // A column of `rows` fixed-height rows inside a viewport of `viewportPt`,
+  // so the content overflows by a known amount.
+  const column = (stackOverrides, { rows = 6, rowPt = 100, viewportPt = 300 } = {}) => {
+    const col = makeStack({
+      stackType: 'vstack', padding: 0, spacing: 0,
+      heightMode: 'fixed', fixedHeight: viewportPt,
+      widthMode: 'fixed', fixedWidth: 200,
+      ...stackOverrides
+    })
+    const kids = Array.from({ length: rows }, () =>
+      makePanel('rectangle', { parentId: col.id, size: [ptToUnits(200), ptToUnits(rowPt)] }))
+    return { col, items: [col, ...kids], kids }
+  }
+
+  it('anchors an overflowing scroller to the top, not the centre', () => {
+    const { col, items, kids } = column({ scrollable: true })
+    const [, h] = computeSize(col, items)
+    const firstTop = layoutStack(col, items).get(kids[0].id)[1] + ptToUnits(100) / 2
+    // The first row's top edge sits at the viewport's top edge.
+    expect(firstTop).toBeCloseTo(h / 2, 9)
+  })
+
+  it('still centres a stack that does not scroll', () => {
+    const { col, items, kids } = column({ scrollable: false })
+    const [, h] = computeSize(col, items)
+    const firstTop = layoutStack(col, items).get(kids[0].id)[1] + ptToUnits(100) / 2
+    // 600pt of content in a 300pt box, centred: the top overhangs by 150pt.
+    expect(firstTop).toBeCloseTo(h / 2 + ptToUnits(150), 9)
+    expect(firstTop).toBeGreaterThan(h / 2)
+  })
+
+  it('leaves the overflow reachable below the box, not above it', () => {
+    const { col, items, kids } = column({ scrollable: true })
+    const [, h] = computeSize(col, items)
+    const lastBottom = layoutStack(col, items).get(kids[5].id)[1] - ptToUnits(100) / 2
+    // 600pt of content measured down from the viewport top edge.
+    expect(h / 2 - lastBottom).toBeCloseTo(ptToUnits(600), 9)
+  })
+
+  it('reads the declared axis literally, as the exporter does', () => {
+    expect(scrollAxesOf(makeStack({ scrollable: true, scrollAxis: 'vertical' })))
+      .toEqual({ vertical: true, horizontal: false })
+    expect(scrollAxesOf(makeStack({ scrollable: true, scrollAxis: 'horizontal' })))
+      .toEqual({ vertical: false, horizontal: true })
+    expect(scrollAxesOf(makeStack({ scrollable: true, scrollAxis: 'both' })))
+      .toEqual({ vertical: true, horizontal: true })
+  })
+
+  it('leading-anchors a horizontal scroller', () => {
+    const row = makeStack({
+      stackType: 'hstack', padding: 0, spacing: 0,
+      scrollable: true, scrollAxis: 'horizontal',
+      widthMode: 'fixed', fixedWidth: 300, heightMode: 'fixed', fixedHeight: 100
+    })
+    const kids = Array.from({ length: 6 }, () =>
+      makePanel('rectangle', { parentId: row.id, size: [ptToUnits(100), ptToUnits(100)] }))
+    const items = [row, ...kids]
+    const [w] = computeSize(row, items)
+    const firstLeft = layoutStack(row, items).get(kids[0].id)[0] - ptToUnits(100) / 2
+    expect(firstLeft).toBeCloseTo(-w / 2, 9)
+  })
+
+  it('scrolls a scrollView stack without the flag being set', () => {
+    expect(scrollAxesOf(makeStack({ stackType: 'scrollView' })).vertical).toBe(true)
+  })
+
+  it('never scrolls a container that brings its own scrolling', () => {
+    // Each of these returns early in the exporter's renderStack and never
+    // receives a ScrollView wrapper, so the canvas must not scroll it either.
+    for (const stackType of ['section', 'disclosure', 'tab', 'toolbar', 'toolbarItem', 'toolbarItemGroup']) {
+      const s = makeStack({ stackType, scrollable: true })
+      expect(scrollAxesOf(s), `${stackType} should not scroll`)
+        .toEqual({ vertical: false, horizontal: false })
+    }
+    const split = makeStack({ stackType: 'vstack', scrollable: true, splitStyle: 'joined' })
+    expect(scrollAxesOf(split)).toEqual({ vertical: false, horizontal: false })
+  })
+
+  it('scrolls exactly the stacks the exporter wraps in a ScrollView', () => {
+    // The agreement the audit is about, measured against the generator's
+    // real output rather than against a mirrored list.
+    for (const stackType of [
+      'vstack', 'hstack', 'zstack', 'lazyvstack', 'lazyhstack', 'scrollView',
+      'section', 'disclosure', 'tab', 'toolbar', 'toolbarItem', 'toolbarItemGroup',
+      'grid', 'lazyVGrid', 'lazyHGrid', 'navigationStack', 'tabView', 'viewThatFits'
+    ]) {
+      const tab = makeTab({ name: 'T' })
+      const win = makeWindow({ name: 'W', parentId: tab.id })
+      const stack = makeStack({ stackType, parentId: win.id, scrollable: true, name: 'S' })
+      const kid = makePanel('rectangle', { parentId: stack.id, size: [ptToUnits(50), ptToUnits(50)] })
+      const swift = exportSwiftUI([tab, win, stack, kid], 'App', {}).map((f) => f.content).join('\n')
+      const axes = scrollAxesOf(stack)
+      expect(axes.vertical || axes.horizontal,
+        `${stackType}: canvas scrolls=${axes.vertical || axes.horizontal} but ` +
+        `export emits ScrollView=${swift.includes('ScrollView')}`
+      ).toBe(swift.includes('ScrollView'))
+    }
+  })
+
+  it('brings the title of the shipped scrolling templates back on screen', () => {
+    // The regression in user terms: loading `settings` used to drop you
+    // mid-page with the page title clipped off the top of the window.
+    for (const key of ['settings', 'article']) {
+      const { items } = TEMPLATES[key].build()
+      const win = items.find((i) => i.type === 'window')
+      const root = items.find((i) => i.parentId === win.id && i.scrollable)
+      expect(root, `${key} no longer has a scrollable root`).toBeTruthy()
+
+      // The window resolves a fill-mode child to its inner box, which is the
+      // viewport the stack actually renders at.
+      const padU = ptToUnits(win.padding ?? 14)
+      const viewport = [win.size[0] - padU * 2, win.size[1] - padU * 2]
+      const pos = layoutStack(root, items, viewport)
+      const sizes = resolvedChildSizes(root, items, viewport)
+      const kids = childrenOf(root, items)
+      const tops = kids.map((c) => pos.get(c.id)[1] + sizes.get(c.id)[1] / 2)
+      const highest = Math.max(...tops)
+
+      // Nothing starts above the viewport's top edge any more.
+      expect(highest, `${key}: content still overhangs the top of the window`)
+        .toBeLessThanOrEqual(viewport[1] / 2 + EPS)
+      // And it really does overflow, or the template would not be testing
+      // anything - the content is taller than the box it sits in.
+      const lowest = Math.min(...kids.map((c) => pos.get(c.id)[1] - sizes.get(c.id)[1] / 2))
+      expect(highest - lowest).toBeGreaterThan(viewport[1])
+    }
   })
 })

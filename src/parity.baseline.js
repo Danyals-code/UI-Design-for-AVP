@@ -51,6 +51,8 @@ export const STACK = {
   activeChild: ex('canvas-only: which ViewThatFits branch the preview shows'),
   activeTab: ex('canvas-only: selected in-window tab, a preview affordance'),
   collapsed: ex('neither: layers-tree disclosure state, pure editor chrome'),
+  scrollY: ex('canvas-only: live scroll offset of the preview, not a document property'),
+  scrollX: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
   // -- material -------------------------------------------------------------
   blur: debt('canvas-only: frosted-glass toggle on a stack background is not emitted'),
@@ -66,7 +68,9 @@ export const STACK = {
   ornamentOffset: debt('neither: read by no one — either wire it or delete the field', 14),
 
   // -- scrolling / chrome ---------------------------------------------------
-  scrollShowsIndicators: debt('export-only: blocked behind real stack scrolling', 4),
+  // `scrollShowsIndicators` left this table in phase 1.4: a scrollable stack
+  // now draws a real scroll thumb, and both sides read the field to decide
+  // whether to show it.
   toolbarPlacement: debt('export-only: canvas draws toolbar items in tree order, ignoring placement'),
   fitsAxes: debt('export-only: canvas picks a ViewThatFits branch via activeChild instead of measuring axes'),
 
@@ -234,8 +238,10 @@ export const MODIFIER_VISIBILITY = {
   monospacedDigit: debt('no tabular figures', 5),
   navigationTitle: debt('canvas reads stack.navTitle instead — two sources for one thing', 5),
   toolbarBackground: debt('draws nothing', 5),
-  scrollIndicators: debt('blocked behind real stack scrolling', 4),
-  scrollDisabled: debt('blocked behind real stack scrolling', 4),
+  // `scrollIndicators` and `scrollDisabled` left this table in phase 1.4.
+  // Both had an empty `summarize()` and so wrote nothing for any renderer to
+  // read; both now write, and Stack3D reads them to hide the scroll thumb
+  // and to refuse the wheel respectively.
   hoverEffect: debt('canvas has its own hover path off panel.hoverEffect', 5),
   hoverEffectDisabled: debt('canvas has its own hover path off panel.hoverEffect', 5),
   layoutPriority: debt('writes nothing to the summary at all — a no-op on BOTH sides', 15)
@@ -278,4 +284,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 100
+export const DEBT_CEILING = 97

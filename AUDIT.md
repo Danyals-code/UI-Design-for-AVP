@@ -1,6 +1,9 @@
 # Round-trip Audit — Code ↔ Visual
 
-**Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` @ `5b294cb` · **Working tree:** clean
+**Date:** 2026-09-14 · **Branch:** `feat/inspector-materials-overhaul` · **Working tree:** clean
+
+*Audited at `5b294cb`. Phases 2.1–2.6 and 1.4 have landed since; each is marked
+where it changed a finding.*
 
 The goal this document serves, in the project's own framing:
 
@@ -25,12 +28,13 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **Stage 2 is complete and the count is now 100**.
+divergences**; **Stage 2 is complete, Stage 1 is under way, and the count is
+now 97**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
 | Canvas honours a field, exporter drops it | 28 fields | 16 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 78 |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 75 |
 | Neither side reads a field the inspector writes | 7 fields | 6 |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
@@ -44,10 +48,24 @@ export, every button sized differently by the layout engine and the renderer).
 
 **Where things stand.** Stage 2 (visual → code) is done: the export now
 carries sizing, per-edge padding, real ScrollViews, free placement and a
-compile-clean enum surface. **Stage 1 (code → visual) is untouched** — and it
-is where the remaining 100 sit, dominated by defect #5 (17 modifiers that emit
-correct Swift and draw nothing) and #7 (8 presentation fields with no canvas
-equivalent). Estimate for Stage 1 ≈ 4–6 working days.
+compile-clean enum surface. **Stage 1 (code → visual) has started** — phase
+1.4 landed and scrollable stacks now scroll — and it is where the remaining 97
+sit, dominated by defect #5 (17 modifiers that emit correct Swift and draw
+nothing) and #7 (8 presentation fields with no canvas equivalent).
+
+**A scoping correction, found while planning Stage 1.** Phases 1.1–1.6 as
+written below retire exactly the 35 divergences that carry a defect number —
+100 → 65. The other 65 have no phase: **#17 (18), #19 (13) and #20 (10)**
+account for 41 of them and the ornament / volume / presentation-metric tail
+for the rest. So the plan as drafted closes about a third of what is left, and
+#17 in particular deserves a phase of its own: the audit files it as High but
+never schedules it, it is the largest single block after #5, and it is a
+wrong-pixels bug rather than an unread field — a slider authored `0…100` at
+value `50` draws hard right on the canvas and centred on device. Sequenced
+below as **1.7**, though it is cheap enough to take before 1.1.
+
+Estimate for Stage 1 as originally scoped ≈ 4–6 working days; adding #17,
+#19 and #20 roughly doubles it.
 
 ---
 
@@ -58,10 +76,10 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 | Subsystem | Size | Status | Notes |
 | --------- | ---- | ------ | ----- |
 | **Store** (`src/store/`) | 2,400 ln | ✅ Solid | 8 slices over one flat `items` array. Undo/redo, clipboard, persistence all covered by tests (51 assertions). |
-| **Layout engine** (`layout.js`) | 807 ln | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template (25 tests). |
+| **Layout engine** (`layout.js`) | 807 ln → 850 | ✅ Solid | `layoutStack` / `resolvedChildSizes` agreement is pinned across every stack in every template. 34 tests since 1.4 added scroll anchoring. |
 | **Text pipeline** (`text.js`, `textMeasure.js`) | 410 ln | ✅ Solid | Full tighten → scale → wrap → truncate, on real Inter advance widths. 41 tests. Best-tested part of the app. |
 | **Panel registry** (`panels/registry.js`) | 1,840 ln | ✅ Solid | 56 view types, every one with `defaults` + `emit()`. No gaps. |
-| **Modifier registry** (`modifiers/registry.js`) | 887 ln | 🟡 Half-wired | 43 modifiers, all 43 emit Swift, **only 23 reach the canvas**. See §4.1. |
+| **Modifier registry** (`modifiers/registry.js`) | 887 ln | 🟡 Half-wired | 43 modifiers, all 43 emit Swift, **25 reach the canvas** (23 before 1.4). See §4.1. |
 | **SwiftUI exporter** (`export/swiftui.js`) | 1,081 ln → 1,400 | ✅ Solid *(was: good, lossy)* | Idiomatic output — real `ZStack` / `.toolbar` / `.ornament` / `.sheet`. Since Stage 2 it also carries frames, per-edge padding, ScrollViews and free placement. See §5. |
 | **RealityKit exporter** (`export/realitykit.js`) | 595 ln | ✅ Strongest | Real `ModelEntity`, `PhysicallyBasedMaterial`, `AnchorEntity`, attachments, collision shapes. Output is production-grade. |
 | **Behaviour codegen** (`export/behaviors.js`) | 680 ln | ✅ Honest | 8/12 triggers and 11/15 actions generate real Swift; the remaining 8 are emitted as a documented “still to wire up” block naming the real API. Deliberate and clearly marked. |
@@ -75,8 +93,9 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 454 passing, 10 files (365 at the audit; +89 from the harness and the Stage 2 phases).
-- **Lint:** 0 errors, 51 warnings (all `react-hooks/exhaustive-deps` hygiene in
+- **Tests:** 463 passing, 10 files (365 at the audit; +89 from the harness and
+  the Stage 2 phases, +9 from phase 1.4).
+- **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
 
@@ -130,15 +149,16 @@ reads **23** of the fields. The other 20 are silently inert:
 | `monospacedDigit` | Minor | Tabular figures. |
 | `navigationTitle` | **Yes** | Canvas reads `stack.navTitle` instead — two sources for one thing. |
 | `toolbarBackground` | **Yes** | |
-| `scrollIndicators` | Yes, after §4.3 | Meaningless until stack scrolling works. |
-| `scrollDisabled` | Yes, after §4.3 | Same. |
+| ~~`scrollIndicators`~~ | **Wired in 1.4** | Was meaningless until stack scrolling worked; now hides the scroll thumb. |
+| ~~`scrollDisabled`~~ | **Wired in 1.4** | Now refuses the wheel, as it does on device. |
 | `layoutPriority` | **Yes** (layout) | Writes nothing to the summary at all — affects neither side's layout. |
 | `hoverEffect` | Partial | Canvas has its own hover path off `panel.hoverEffect`; the modifier is a second, ignored source. |
 | `hoverEffectDisabled` | Partial | Same. |
 | `contentShape` | No | Hit-testing only — correctly invisible. |
 | `customModifier` | No | Raw Swift, uninterpretable by design. |
 
-So **17 of 20 are real gaps**; `contentShape` and `customModifier` are correct
+So **17 of 20 are real gaps** (15 of them still open after 1.4 wired the two
+scroll modifiers); `contentShape` and `customModifier` are correct
 as-is, and `layoutPriority` is a distinct bug (it is a no-op on both sides).
 
 > `src/modifiers/registry.js:867` — `summarizeModifiers`
@@ -165,12 +185,13 @@ lists only `['sheet', 'popover', 'alert']` as presentation types, while
 `swiftui.js:747` lists five. The two extra types are therefore laid out as
 ordinary children on screen and emitted as modal modifiers in the code.
 
-### 4.3 Scrollable stacks draw a scrollbar that does not scroll
+### 4.3 Scrollable stacks draw a scrollbar that does not scroll ✅ **fixed in 1.4**
 
-`stack.scrollable` renders a decorative bar (`SceneTree.jsx:529`) and stops
-there. Only `win.scrollable` wires a wheel handler (`SceneTree.jsx:1015`).
-Content is also centred rather than top-aligned, so an overflowing stack is
-clipped at *both* ends and its top is unreachable.
+*Original finding.* `stack.scrollable` renders a decorative bar
+(`SceneTree.jsx:529`) and stops there. Only `win.scrollable` wires a wheel
+handler (`SceneTree.jsx:1015`). Content is also centred rather than
+top-aligned, so an overflowing stack is clipped at *both* ends and its top is
+unreachable.
 
 Two shipped templates rely on it:
 
@@ -182,6 +203,8 @@ article  : root VStack 957×1255 pt inside an 800 pt window
 Loading the `settings` template puts you mid-page with the title off-screen and
 no way to scroll to it. This is the most visible “it's broken” moment in the
 app. (The exporter does not save it either — §5.2.)
+
+See phase **1.4** below for what shipped.
 
 ### 4.4 `rotateGesture` has no preview runtime
 
@@ -411,11 +434,53 @@ row overlays to copy from (`Panel3D.jsx:1444`, `:1639`).
 Single-line fix: align `SceneTree.jsx:784` with the exporter's list at
 `swiftui.js:747`. Then give each a presentation chrome consistent with `alert`.
 
-**1.4 — Make stack scrolling real** *(1 day)*
-Lift the window's wheel handler (`SceneTree.jsx:1015`) to any scrollable
-container; clip to the stack's frame; **anchor overflowing content to the top**
-rather than the centre. Honour `scrollAxis`. This is what makes `settings` and
-`article` usable.
+**1.4 — Make stack scrolling real** ✅ **done**
+
+A scrollable stack is now a real viewport: content is anchored to the leading
+edge of the axis it scrolls, the wheel moves it, it is clipped to the stack's
+own frame, and the indicator reports position instead of decorating the edge.
+`settings` and `article` are usable again. Parity debt 100 → 97, retiring
+defect #4.
+
+Four things worth knowing:
+
+- **Which views scroll is now one function, and it mirrors the exporter.**
+  `scrollAxesOf` in `layout.js` answers for both sides: the `scrollView` stack
+  TYPE always scrolls, any other plain stack scrolls on the `scrollable` FLAG,
+  and the containers that bring their own scrolling — toolbars,
+  NavigationSplitView, Tab bodies, Section, DisclosureGroup — never do,
+  because each returns early in `renderStack` and never receives a ScrollView.
+  A test asserts the predicate against **what the generator actually emits**
+  for all 18 stack types rather than against the list the predicate is built
+  from, since comparing it to its own source would not catch the two drifting.
+- **The axis is read literally, not inferred.** An HStack marked scrollable
+  with the default `scrollAxis: 'vertical'` exports a *vertical* ScrollView,
+  so that is what the canvas draws, however odd it looks. Guessing the
+  sensible axis would put the canvas back out of step with its own output.
+- **Padding rides with the content, frame sizes the viewport** — the same
+  split 2.2 established for the export, now on the canvas, so the top inset
+  scrolls away with the first screenful on both sides. The scroll range is
+  measured from the boxes the renderer is about to draw rather than from
+  `computeSize`, so what is reachable and what is painted cannot disagree.
+- **Clip rects compose rather than overwrite.** A scroller inside a window
+  must obey both rectangles. `ClipContext` passes the ancestor's planes down
+  and each clipper concatenates its own, assigns the combination across its
+  subtree, and marks its group `ownsClip` so the ancestor's walk stops there.
+  Without the prune the two walks fight and the winner depends on `useFrame`
+  registration order.
+
+Two modifiers came unblocked with it. `scrollIndicators` and `scrollDisabled`
+both had an empty `summarize()` — they wrote nothing any renderer could read.
+Both now write, and the canvas hides the thumb and refuses the wheel
+respectively, so they leave the MODIFIER_VISIBILITY ledger too.
+
+*Acceptance:* 9 new layout tests, verified by perturbation — reverting the
+anchor change fails three of them, one naming `settings` by name. Confirmed in
+the running app: the title is visible at rest, the wheel reaches the footer,
+both ends clamp, the thumb tracks position, and the viewport no longer zooms
+while you scroll (OrbitControls dollies from its own DOM listener on the same
+element that three-fiber uses, so the scroller stops immediate propagation for
+exactly the events it consumes).
 
 **1.5 — Clean up the dead controls** *(½ day)*
 Implement or remove Immersion / Resizability / Gestures. If they are
@@ -424,6 +489,22 @@ the inspector stops implying a preview.
 
 **1.6 — Add `rotateGesture` to the preview runtime** *(½ day)*
 Alongside the existing `drag` and `pinch` handling.
+
+**1.7 — Honour control ranges (#17)** *(½ day)* — *added after 1.4; see the
+scoping correction in §1.*
+Slider, Gauge, Stepper and ProgressView all treat their value as already
+normalised `0…1`, so `sliderMin/Max/Step`, `gaugeMin/Max`, `stepperMin/Max/Step`
+and `total` reach the export only. One `(value − min) / (max − min)` helper,
+used in four places, closes 18 divergences — the best debt-per-day ratio in
+Stage 1, and the only Stage 1 phase that fixes pixels that are *wrong* rather
+than missing.
+*Acceptance:* a slider authored `0…100` at `50` draws at its midpoint, and a
+test pins the canvas fraction against the value the exporter emits.
+
+**1.8 — Per-type style pickers (#19)** *(1–2 days)* · **1.9 — Canvas-only
+visuals the export drops (#20)** *(1 day)*
+The remaining two filed groups, 23 divergences between them. Both were left
+unscheduled by the original plan.
 
 ---
 
@@ -634,10 +715,17 @@ Both docs now also describe what the export actually carries after 2.1–2.4
 ## 7. Suggested sequencing
 
 ```
-Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions
-Week 2   1.4 real scrolling  →  1.1 inert modifiers  →  1.2 form/outlinegroup
-Week 3   1.3 presentations · 2.3 field collapse · 2.4 position · 1.5 · 1.6 · 2.5 · 2.6
+Week 1   6.0 parity harness  →  2.1 emit frames  →  2.2 wrong emissions   ✅
+Week 2   1.4 real scrolling ✅  →  1.7 control ranges  →  1.1 inert modifiers
+Week 3   1.2 form/outlinegroup · 1.3 presentations · 1.5 · 1.6
+Week 4   1.8 style pickers (#19) · 1.9 canvas-only visuals (#20)
 ```
+
+*Revised after 1.4.* Stage 2's phases are done. **1.7 moved ahead of 1.1**: it
+is half a day against 1.1's two, it retires 18 divergences against 17, and
+unlike most of Stage 1 it fixes pixels that are actively wrong rather than
+absent. Weeks 3–4 pick up the three defect groups the original plan left
+unscheduled — see the scoping correction in §1.
 
 Rationale for putting Stage 2's first two phases before most of Stage 1: 2.1
 and 2.2 are where the *credibility* of the export lives — a generated file that
@@ -653,7 +741,7 @@ than an unrendered `.background()` does. They're also small and fully testable.
 | 1 | ~~`.buttonStyle(.destructive)` does not compile; shipped in `settings`~~ — **fixed in 2.2** | `appleSystem.js`, `store/persistence.js` | — |
 | 2 | ~~Explicit sizing never exported~~ — **fixed in 2.1**, 171 items now framed | `export/swiftui.js` | — |
 | 3 | ~~`stack.scrollable` exports a comment, not a `ScrollView`~~ — **fixed in 2.2** | `export/swiftui.js` | — |
-| 4 | Scrollable stacks don't scroll; content centred not top-anchored | `SceneTree.jsx:529` | **High** |
+| 4 | ~~Scrollable stacks don't scroll; content centred not top-anchored~~ — **fixed in 1.4** | `SceneTree.jsx`, `layout.js` | — |
 | 5 | 17 modifiers emit Swift but draw nothing | `modifiers/registry.js:867` | **High** |
 | 6 | `form` / `outlinegroup` rows invisible on canvas | `Panel3D.jsx` (no branch) | **High** |
 | 7 | `confirmationdialog` / `inspector` inline on canvas, modal in code | `SceneTree.jsx:784` | **High** |

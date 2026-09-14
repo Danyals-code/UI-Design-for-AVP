@@ -302,12 +302,13 @@ superset of all stack-type fields; the inspector and exporter consult
 | `fixedWidth`, `fixedHeight` | `null` | Used when mode is `'fixed'`. |
 | `material` | `'regular'` | Background material tier. |
 | `background` | `null` | Optional fill (`{ token, color }`). |
-| `scrollable` | `false` | Wraps content in `ScrollView`. |
+| `scrollable` | `false` | Wraps content in `ScrollView` on export; makes the stack's frame a scrolling viewport on the canvas. |
+| `scrollY`, `scrollX` | `0`, `0` (units) | Live scroll offset of the content sub-group, clamped to the overflow. Preview state, not a document property — the exporter emits nothing for it. |
 | `columns` | `2` | Grid columns. |
 | `gridMode` | `'fixed'` | `'fixed'` \| `'adaptive'`. |
 | `minColumnWidth` | `140pt` | Adaptive grid minimum. |
-| `scrollAxis` | `'vertical'` | ScrollView axis. |
-| `scrollShowsIndicators` | `true` | |
+| `scrollAxis` | `'vertical'` | ScrollView axis. Read literally by both sides — an HStack marked scrollable with the default axis scrolls *vertically*, because that is what it exports. |
+| `scrollShowsIndicators` | `true` | Shows the scroll thumb on the canvas and `showsIndicators:` on export. |
 | `fitsAxes` | `'both'` | ViewThatFits axes. |
 | `sectionHeader`, `sectionFooter` | `''`, `''` | Section text. |
 | `expanded` | `false` | Disclosure default. |
@@ -326,7 +327,7 @@ superset of all stack-type fields; the inspector and exporter consult
 - **Stack** - name + kind picker (or **Navigation Split View** for split layouts).
 - **Layout** - alignment, spacing, padding, per-type fields (Grid columns, ScrollView axis, …).
 - **Size** - width/height mode (Fit / Fixed / Fill, pt values when Fixed).
-- **Scroll** - Scrollable toggle.
+- **Scroll** - Scrollable toggle, axis, indicators.
 - **Section / Disclosure / Navigation / TabView / Tab / ToolbarItem** - only shown for the matching `stackType`.
 - **Ornament** - anchor mode, edge, alignment, visibility, offset, background, material.
 - **Environment** - font, foreground, direction, locale.
@@ -928,6 +929,21 @@ text, panels, gradients can never leak past the plate edges. When
 `scrollY` (clamped to the content overflow); the group translates by
 `scrollY` while the clip planes stay pinned, so off-bounds content is
 discarded.
+
+A **scrollable stack** does the same thing one level down, and the two
+compose. `scrollAxesOf` (`layout.js`) decides which stacks scroll, and
+mirrors the exporter exactly: the `scrollView` TYPE always, any other
+plain stack on the `scrollable` FLAG, and never the containers that
+return early in `renderStack` (toolbars, NavigationSplitView, Tab,
+Section, DisclosureGroup). `layoutStack` anchors a scroller's content to
+the leading edge of its axis rather than centring it, because a
+ScrollView's content is taller than its box by definition. Clip rects
+**compose rather than replace**: `ClipContext` passes an ancestor's
+planes down, each clipper concatenates its own and assigns the
+combination across its subtree, and marks its group `userData.ownsClip`
+so the ancestor's walk stops at that boundary. Padding rides with the
+scrolling content and the frame sizes the viewport — the same split the
+exporter uses.
 
 ### Lists (`LIST_STYLES`)
 

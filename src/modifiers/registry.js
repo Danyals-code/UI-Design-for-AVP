@@ -736,7 +736,10 @@ export const MODIFIERS = {
     group: 'Scroll',
     defaults: { value: 'hidden' },
     appliesTo: (k) => k === 'stack',
-    summarize() {},
+    // Read by Stack3D to suppress the scroll thumb, alongside the
+    // ScrollView's own `showsIndicators:` argument. Inert until AUDIT #4
+    // gave scrollable stacks something to indicate.
+    summarize(args, acc) { acc.scrollIndicators = args.value },
     emit(args) {
       if (!args.value || args.value === 'automatic') return null
       return `.scrollIndicators(.${args.value})`
@@ -749,7 +752,10 @@ export const MODIFIERS = {
     group: 'Scroll',
     defaults: { value: true },
     appliesTo: (k) => k === 'stack',
-    summarize() {},
+    // Read by Stack3D, which stops honouring the scroll axes when set —
+    // matching the device, where the content still overflows its box but
+    // the gesture does nothing.
+    summarize(args, acc) { acc.scrollDisabled = isOn(args.value) },
     emit(args) { return isOn(args.value) ? `.scrollDisabled(true)` : null }
   },
 
