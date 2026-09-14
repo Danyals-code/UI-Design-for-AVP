@@ -28,13 +28,17 @@ by one side and ignored by the other, so the two have drifted apart.
 
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
-divergences**; **every phase in the plan has landed, the unnumbered tail has
-been sorted, and the count is now 20 — every one of them filed**.
+divergences**. Every phase in the plan has landed and the unnumbered tail has
+been sorted and worked through, so **the count is now 4 — and all four are the
+same defect**: `fontDesign` and `monospacedDigit`, on the modifier and on the
+panel, blocked on shipping a rounded / serif / mono face (#5). Everything that
+could be closed without new assets is closed; everything left one-sided carries
+a written reason.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
-| Canvas honours a field, exporter drops it | 28 fields | 2 |
-| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 19 |
+| Canvas honours a field, exporter drops it | 28 fields | **0** |
+| Exporter emits a property, canvas ignores it | 83 fields + modifiers | 4 (all #5) |
 | Neither side reads a field the inspector writes | 7 fields | **0** |
 | Two fields for one concept, kept in sync by hand | 4 fields | **0** |
 | Generated lines that do not compile | 1 (shipped in a template) | **0** |
