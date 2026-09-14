@@ -260,8 +260,7 @@ export function measureTextWidthPt(text, fontSizePt, weight = 'regular') {
 // only floor is the preset height — keeps an empty button from
 // collapsing to a 24pt sliver while it's being authored.
 export function computeButtonFramePt(panel) {
-  const sizeKey = panel?.buttonSize || 'regular'
-  const preset  = BUTTON_SIZES[sizeKey] || BUTTON_SIZES.regular
+  const preset  = buttonSizePreset(panel?.controlSize || panel?.buttonSize || 'regular')
   const fontPt  = preset.fontPt
   // +1pt safety margin on the measured width — troika's text layout
   // and canvas 2D's advance metric can disagree by a fraction at the
@@ -278,8 +277,13 @@ export function computeButtonFramePt(panel) {
 // `automatic` is the visionOS default — it resolves to a glass-bordered
 // capsule for text/text+icon and to a circle for icon-only buttons.
 // `glass` / `glassProminent` are the explicit visionOS 26 styles.
-// `destructive` isn't a SwiftUI ButtonStyle — it's expressed via the
-// `role: .destructive` initializer — kept here as a convenience.
+//
+// Every key here is emitted verbatim as `.buttonStyle(.<key>)`, so every key
+// has to name a real `ButtonStyle`. `destructive` used to sit in this list
+// as "a convenience" and produced `.buttonStyle(.destructive)`, which does
+// not compile: destructive is a `ButtonRole`, carried by the separate
+// `buttonRole` field and emitted as `Button(role: .destructive)`. Scenes
+// that still carry it are normalised by `normalizeButton` below.
 export const BUTTON_STYLES = {
   automatic:         { label: 'Automatic (Glass Capsule)' },
   plain:             { label: 'Plain' },
@@ -287,8 +291,63 @@ export const BUTTON_STYLES = {
   bordered:          { label: 'Bordered' },
   borderedProminent: { label: 'Prominent' },
   glass:             { label: 'Glass' },
-  glassProminent:    { label: 'Glass Prominent' },
-  destructive:       { label: 'Destructive' }
+  glassProminent:    { label: 'Glass Prominent' }
+}
+
+// Bring a button's legacy field shapes onto the canonical ones.
+//
+// Buttons accumulated three pairs of fields that meant one thing each, where
+// the canvas read one half and the exporter read the other:
+//
+//   buttonStyle: 'destructive'  ->  buttonRole: 'destructive'
+//     Not a ButtonStyle at all. `.buttonStyle(.destructive)` does not
+//     compile; the role is what the designer meant.
+//   buttonSize                  ->  controlSize
+//     Same concept, two vocabularies. `.controlSize` is the real SwiftUI
+//     spelling, so it wins and the canvas metrics key off it.
+//   buttonShape                 ->  buttonBorderShape
+//     Same concept, and `buttonShape` was only ever mirrored into a stored
+//     `cornerRadius` the renderer read. The radius is derived now.
+//
+// Shared by the project loader (so the inspector shows the corrected value)
+// and by the button emitter (so a scene already in memory, or a template
+// that has not been re-seeded, still exports correct Swift).
+export function normalizeButton(panel) {
+  if (!panel) return panel
+  let out = panel
+  const set = (patch) => { out = { ...out, ...patch } }
+
+  if (out.buttonStyle === 'destructive') {
+    set({
+      buttonStyle: 'automatic',
+      buttonRole: out.buttonRole && out.buttonRole !== 'none' ? out.buttonRole : 'destructive'
+    })
+  }
+  if (out.buttonSize && !out.controlSize) set({ controlSize: out.buttonSize })
+  if (out.buttonShape && (!out.buttonBorderShape || out.buttonBorderShape === 'automatic')) {
+    set({ buttonBorderShape: out.buttonShape })
+  }
+  return out
+}
+
+// visionOS ships three standard button frames. `controlSize` carries five
+// cases, because SwiftUI applies it to every control; the two the canvas has
+// no spec for collapse onto the nearest one it does. Approximating on the
+// canvas is honest — the exported `.controlSize(.mini)` is still exact.
+export function buttonSizePreset(controlSize) {
+  const key = controlSize === 'mini' ? 'small'
+            : controlSize === 'extraLarge' ? 'large'
+            : controlSize
+  return BUTTON_SIZES[key] || BUTTON_SIZES.regular
+}
+
+// Corner radius in points for a button's border shape. `automatic` is the
+// visionOS default, which draws a capsule for text and text+icon buttons.
+export function buttonRadiusPt(buttonBorderShape) {
+  const key = !buttonBorderShape || buttonBorderShape === 'automatic'
+    ? 'capsule'
+    : buttonBorderShape
+  return (BUTTON_SHAPES[key] || BUTTON_SHAPES.capsule).radiusPt
 }
 
 // Default `.buttonBorderShape()` shape per visionOS HIG: capsule for

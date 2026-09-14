@@ -15,7 +15,10 @@
 // docs.
 
 import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS } from '../appleSystem'
-import { emitPanel, isInteractivePanel, compileTapAction } from '../panels/registry'
+import {
+  emitPanel, isInteractivePanel, compileTapAction,
+  panelFrameMode, panelHeightIsDerived
+} from '../panels/registry'
 import { MODIFIERS } from '../modifiers/registry'
 import { emitRealityView, hasEntityChildren } from './realitykit'
 import {
@@ -33,6 +36,171 @@ import {
 let pendingBehaviorPlans = []
 
 // ---------- helpers ----------
+
+// ---------- frame + padding emission ----------
+//
+// The canvas sizes a view from `widthMode` / `heightMode` plus an explicit
+// value, and until now none of that reached the export: a stack pinned to a
+// 640 pt column came out hugging its content, and a `fill` child came out
+// intrinsic. These two helpers close that.
+//
+// The mode resolution below deliberately duplicates the one in
+// `layout.js` → `computeSize` rather than importing it, for the same reason
+// `resolvedChildSizes` duplicates `layoutStack`: the two paths answer
+// different questions (one produces a number to draw, one produces SwiftUI
+// source) and sharing a function would not make them agree about the output
+// that matters. `export/swiftui.test.js` pins the agreement instead, by
+// checking every emitted frame against `computeSize` for every template.
+//
+// Units: stacks store `fixedWidth` / `fixedHeight` in POINTS; panels store
+// `size` in internal UNITS. Both leave here as points.
+function frameSpec(item) {
+  if (!item) return null
+  if (item.type === 'stack') {
+    // Backwards compatibility, matching computeSize: an unset mode with a
+    // concrete fixedWidth/fixedHeight still means 'fixed'.
+    const widthMode = item.widthMode || (item.fixedWidth != null ? 'fixed' : 'fit')
+    const heightMode = item.heightMode || (item.fixedHeight != null ? 'fixed' : 'fit')
+    return {
+      widthMode,
+      heightMode,
+      // A 'fixed' axis with no value falls back to hugging — that is what
+      // the canvas does, and the export has to agree rather than invent a
+      // number. Several templates are in exactly this state.
+      width: widthMode === 'fixed' && item.fixedWidth != null ? item.fixedWidth : null,
+      height: heightMode === 'fixed' && item.fixedHeight != null ? item.fixedHeight : null
+    }
+  }
+  if (item.type === 'panel') {
+    const mode = panelFrameMode(item.panelType)
+    // 'none': the type sizes itself — shapes and gradients emit their own
+    // frame, a Button sizes from its label and `controlSize`, a Spacer has
+    // no frame. Emitting one here would fight whichever of those applies.
+    if (mode === 'none') return null
+    const size = Array.isArray(item.size) ? item.size : null
+    // 'explicit': `size` IS the authored box, which is what the inspector's
+    // width/height fields write and what the canvas draws. `widthMode` is
+    // not part of the contract for these types, so a default 'fit' does not
+    // mean "hug" the way it does for Text.
+    if (mode === 'explicit') {
+      return {
+        widthMode: item.widthMode || 'fit',
+        heightMode: item.heightMode || 'fit',
+        width: size?.[0] ? unitsToPt(size[0]) : null,
+        // A List grows with its rows on the canvas and in SwiftUI alike, so
+        // only its width is meaningful.
+        height: !panelHeightIsDerived(item.panelType) && size?.[1]
+          ? unitsToPt(size[1])
+          : null
+      }
+    }
+    // 'figma': Fit / Fixed / Fill, where 'fit' genuinely means hug and
+    // pinning the measured intrinsic would freeze the text at whatever
+    // width this machine's font metrics happened to produce.
+    const widthMode = item.widthMode || 'fit'
+    const heightMode = item.heightMode || 'fit'
+    return {
+      widthMode,
+      heightMode,
+      width: widthMode === 'fixed' && size?.[0] ? unitsToPt(size[0]) : null,
+      height: heightMode === 'fixed' && size?.[1] ? unitsToPt(size[1]) : null
+    }
+  }
+  return null
+}
+
+// `.frame(...)` for an item's sizing intent, or null when it hugs on both
+// axes (SwiftUI's default — emitting `.frame()` for that would be noise).
+//   fixed + value → width: / height:
+//   fill          → maxWidth: .infinity / maxHeight: .infinity
+//   fit           → nothing
+function frameModifier(item) {
+  const spec = frameSpec(item)
+  if (!spec) return null
+  const parts = []
+  if (spec.width != null) parts.push(`width: ${spec.width}`)
+  else if (spec.widthMode === 'fill') parts.push('maxWidth: .infinity')
+  if (spec.height != null) parts.push(`height: ${spec.height}`)
+  else if (spec.heightMode === 'fill') parts.push('maxHeight: .infinity')
+  if (parts.length === 0) return null
+  return `.frame(${parts.join(', ')})`
+}
+
+// A panel parented straight to a window can be dragged anywhere on the plate,
+// and the canvas places it at `panel.position`. Nothing carried that into the
+// export, so every freely-placed control landed centred in the generated
+// ZStack. Panels inside a stack are positioned by the layout engine instead,
+// and their `position` is ignored on both sides — emitting one for those
+// would fight the stack.
+//
+// Signs: `position` is scene-space (+y UP); SwiftUI's `.offset` is +y DOWN,
+// so y flips. This composes with any `.offset` entry in the modifier stack
+// exactly as the canvas composes them — additively.
+function positionOffset(panel, items) {
+  if (!panel || !Array.isArray(panel.position)) return null
+  const parent = items.find((it) => it.id === panel.parentId)
+  if (parent?.type !== 'window') return null
+  const x = unitsToPt(panel.position[0] || 0)
+  const y = unitsToPt(panel.position[1] || 0)
+  if (!x && !y) return null
+  return `.offset(x: ${x}, y: ${-y})`
+}
+
+// Padding, honouring the per-edge override the inspector writes as
+// `paddingEdges`. SwiftUI has no four-value `.padding()`, so unequal edges
+// emit one call per edge; equal ones collapse back to the short form.
+function paddingModifiers(item) {
+  const e = item.paddingEdges
+  if (!e) return item.padding ? [`.padding(${item.padding})`] : []
+  const top = e.top ?? 0
+  const bottom = e.bottom ?? 0
+  const leading = e.leading ?? 0
+  const trailing = e.trailing ?? 0
+  if (top === bottom && leading === trailing) {
+    if (top === 0 && leading === 0) return []
+    if (top === leading) return [`.padding(${top})`]
+    const out = []
+    if (leading) out.push(`.padding(.horizontal, ${leading})`)
+    if (top) out.push(`.padding(.vertical, ${top})`)
+    return out
+  }
+  const out = []
+  if (top) out.push(`.padding(.top, ${top})`)
+  if (bottom) out.push(`.padding(.bottom, ${bottom})`)
+  if (leading) out.push(`.padding(.leading, ${leading})`)
+  if (trailing) out.push(`.padding(.trailing, ${trailing})`)
+  return out
+}
+
+// `ScrollView` opener, shared by the `scrollView` stack TYPE and the
+// `scrollable` FLAG that any stack can carry. Spec 1.24 - axes default to
+// `.vertical` and indicators to shown, so both arguments are omitted unless
+// the designer overrode them.
+function scrollViewOpener(stack) {
+  const axis = stack?.scrollAxis === 'horizontal' ? '.horizontal'
+             : stack?.scrollAxis === 'both' ? '[.horizontal, .vertical]'
+             : null
+  const shows = stack?.scrollShowsIndicators === false
+  if (!axis && !shows) return 'ScrollView {'
+  const args = [axis, shows ? 'showsIndicators: false' : null].filter(Boolean)
+  return `ScrollView(${args.join(', ')}) {`
+}
+
+// Emit the container box's closing modifiers — content inset first, then the
+// frame that sizes the box. Every `renderStack` branch that closes a
+// container routes through here so a stack's sizing behaves the same whether
+// it is a plain VStack, a Section, a Tab body or a DisclosureGroup.
+function closeStackBox(stack, out, indentStr) {
+  for (const p of paddingModifiers(stack)) out.push(`${indentStr}${p}`)
+  const f = frameModifier(stack)
+  if (f) out.push(`${indentStr}${f}`)
+}
+
+// A `.frame` entry in the modifier stack is the user editing the frame where
+// they can see it, and `layout.js` already treats it as the source of truth
+// over the panel-root fields. Let renderModifiers emit that one instead.
+const hasFrameModifier = (item) =>
+  Array.isArray(item.modifiers) && item.modifiers.some((m) => m.type === 'frame')
 
 function sanitize(name) {
   // Convert "Tab 1 · Library" → "Tab1Library". Must start with a letter.
@@ -133,16 +301,7 @@ function stackOpener(stackType, alignment, spacing, stack) {
     // Spec §1.24 — ScrollView axes default to `.vertical`. We only emit
     // the axis argument when the designer overrode the default; same for
     // showsIndicators (default true).
-    case 'scrollView': {
-      const axis = stack?.scrollAxis === 'horizontal' ? '.horizontal'
-                 : stack?.scrollAxis === 'both' ? '[.horizontal, .vertical]'
-                 : null
-      const showsArg = stack?.scrollShowsIndicators === false ? `, showsIndicators: false` : ''
-      const axisArg = axis ? axis : ''
-      const argsCombined = axis ? `(${axisArg}${showsArg})`
-                                : (showsArg ? `(${showsArg.replace(/^,\s*/, '')})` : '')
-      return `ScrollView${argsCombined} {`
-    }
+    case 'scrollView':      return scrollViewOpener(stack)
     // ViewThatFits accepts an `in:` axis set; default is both axes.
     case 'viewThatFits': {
       const axes = stack?.fitsAxes
@@ -330,6 +489,21 @@ function renderPanel(panel, items, pad, out) {
   })
 
   renderModifiers(panel, out, pad)
+
+  // Panel sizing, after the user's own modifier chain so the frame bounds
+  // whatever that chain produced — the same order the stack closer uses.
+  // `frameSpec` returns null for the types that size themselves, so the only
+  // guard needed here is the one for a `.frame` entry the user put in the
+  // modifier stack, which layout.js treats as the source of truth.
+  if (!hasFrameModifier(panel)) {
+    const f = frameModifier(panel)
+    if (f) out.push(`${indent(pad)}    ${f}`)
+  }
+
+  // Free placement last, so it moves the framed view rather than being
+  // absorbed by a later frame.
+  const off = positionOffset(panel, items)
+  if (off) out.push(`${indent(pad)}    ${off}`)
 }
 
 // ---------- presentation emission (sheet/popover/alert) -----------------
@@ -503,14 +677,46 @@ function renderStack(stack, items, pad, out, stateBag) {
   }
 
   // NavigationSplitView — styled root HStack with splitStyle.
+  //
+  // Which child goes in which column mirrors `layout.js`, which renders
+  // EVERY child of a split view: an explicit `slot` wins (what the sidebar
+  // wizard writes), then the wrapper-stack names the older templates use,
+  // and failing both the first child becomes the sidebar and the rest the
+  // detail. Matching only two children by their user-visible name used to
+  // drop whole panes on the floor — renaming "Detail" to anything else in
+  // the layers panel deleted it from the export, and the `filesApp`
+  // template (whose detail pane is called "Main") lost its entire
+  // right-hand side.
   if (stack.splitStyle) {
-    const children = items.filter((c) => c.parentId === stack.id)
-    const sidebar = children.find((c) => c.type === 'stack' && c.name === 'Sidebar')
-    const detail = children.find((c) => c.type === 'stack' && c.name === 'Detail')
+    const children = items.filter((c) => c.parentId === stack.id && c.visible !== false)
+    const slotted = children.some((c) => c.slot === 'sidebar' || c.slot === 'detail')
+    let sidebarKids
+    let detailKids
+    if (slotted) {
+      sidebarKids = children.filter((c) => (c.slot || 'sidebar') === 'sidebar')
+      detailKids = children.filter((c) => c.slot === 'detail')
+    } else {
+      const byName = (n) => children.filter((c) => c.name === n)
+      const named = { sidebar: byName('Sidebar'), detail: byName('Detail') }
+      const coversEverything =
+        named.sidebar.length > 0 && named.detail.length > 0 &&
+        named.sidebar.length + named.detail.length === children.length
+      sidebarKids = coversEverything ? named.sidebar : children.slice(0, 1)
+      detailKids = coversEverything ? named.detail : children.slice(1)
+    }
+    const renderChild = (c) => {
+      if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
+      else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
+    }
     out.push(`${ind}NavigationSplitView {`)
-    if (sidebar) renderStack(sidebar, items, pad + 1, out, stateBag)
+    for (const c of sidebarKids) renderChild(c)
     out.push(`${ind}} detail: {`)
-    if (detail) renderStack(detail, items, pad + 1, out, stateBag)
+    if (detailKids.length === 0) {
+      // Empty placeholder so the closure compiles.
+      out.push(`${indent(pad + 1)}Text("Detail")`)
+    } else {
+      for (const c of detailKids) renderChild(c)
+    }
     out.push(`${ind}}`)
     if (stack.searchable && stack.searchable !== 'none') {
       out.push(`${ind}    .searchable(text: .constant(""), placement: .${stack.searchable === 'sidebar' ? 'sidebar' : 'toolbar'}, prompt: "${escapeString(stack.searchPrompt || 'Search')}")`)
@@ -545,7 +751,7 @@ function renderStack(stack, items, pad, out, stateBag) {
         else if (c.type === 'panel') renderPanel(c, items, pad + 2, out)
       }
       out.push(`${ind}    }`)
-      if (stack.padding) out.push(`${ind}        .padding(${stack.padding})`)
+      closeStackBox(stack, out, `${ind}        `)
     }
     out.push(`${ind}}`)
     return
@@ -570,7 +776,7 @@ function renderStack(stack, items, pad, out, stateBag) {
       out.push(`${ind}    Text("${escapeString(footer)}")`)
     }
     out.push(`${ind}}`)
-    if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
+    closeStackBox(stack, out, `${ind}    `)
     return
   }
 
@@ -588,9 +794,25 @@ function renderStack(stack, items, pad, out, stateBag) {
     out.push(`${ind}} label: {`)
     out.push(`${ind}    Text("${escapeString(label)}")`)
     out.push(`${ind}}`)
-    if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
+    closeStackBox(stack, out, `${ind}    `)
     return
   }
+
+  // A stack marked `scrollable` becomes a real `ScrollView` wrapping the
+  // stack, which is what the canvas models: the box is the viewport and the
+  // children overflow inside it. This used to emit a
+  // `// wrap in ScrollView { ... }` comment instead, so the two shipped
+  // templates that rely on it (settings, article) exported a view that
+  // simply clipped its overflow. AUDIT #3.
+  //
+  // Only the plain-stack path scrolls. Section, DisclosureGroup, Tab bodies
+  // and NavigationSplitView return earlier and bring their own scrolling
+  // semantics; the canvas does not offer the toggle on those either.
+  const scrolls = !!stack.scrollable
+  const boxInd = indent(pad)
+  const contentPad = scrolls ? pad + 1 : pad
+  const contentInd = indent(contentPad)
+  if (scrolls) out.push(`${boxInd}${scrollViewOpener(stack)}`)
 
   // Grid family — `grid`, `lazyVGrid`, `lazyHGrid` all share the
   // adaptive-vs-fixed column model on the canvas. SwiftUI's `Grid` view
@@ -608,44 +830,65 @@ function renderStack(stack, items, pad, out, stateBag) {
     const ctor = isHorizontal ? 'LazyHGrid' : 'LazyVGrid'
     const tracksKey = isHorizontal ? 'rows' : 'columns'
     if ((stack.gridMode || 'fixed') === 'adaptive') {
-      out.push(`${ind}${ctor}(${tracksKey}: [GridItem(.adaptive(minimum: ${stack.minColumnWidth ?? 140})${itemSp})]${gridSp}) {`)
+      out.push(`${contentInd}${ctor}(${tracksKey}: [GridItem(.adaptive(minimum: ${stack.minColumnWidth ?? 140})${itemSp})]${gridSp}) {`)
     } else {
-      out.push(`${ind}${ctor}(${tracksKey}: Array(repeating: GridItem(.flexible()${itemSp}), count: ${stack.columns || 2})${gridSp}) {`)
+      out.push(`${contentInd}${ctor}(${tracksKey}: Array(repeating: GridItem(.flexible()${itemSp}), count: ${stack.columns || 2})${gridSp}) {`)
     }
   } else {
-    out.push(`${ind}${stackOpener(stack.stackType, stack.alignment, stack.spacing, stack)}`)
+    out.push(`${contentInd}${stackOpener(stack.stackType, stack.alignment, stack.spacing, stack)}`)
   }
 
   const kids = items.filter((c) => c.parentId === stack.id)
   for (const c of kids) {
-    if (c.type === 'stack') renderStack(c, items, pad + 1, out, stateBag)
-    else if (c.type === 'panel') renderPanel(c, items, pad + 1, out)
+    if (c.type === 'stack') renderStack(c, items, contentPad + 1, out, stateBag)
+    else if (c.type === 'panel') renderPanel(c, items, contentPad + 1, out)
   }
-  out.push(`${ind}}`)
+  out.push(`${contentInd}}`)
+
+  // Content-level modifiers: padding insets the children and scrolls WITH
+  // them, so it stays on the stack even when a ScrollView wraps it.
+  for (const p of paddingModifiers(stack)) out.push(`${contentInd}    ${p}`)
+
+  // Close the ScrollView, if one was opened above. Everything after this
+  // point describes the BOX — its size, its fill, its clip — and the box is
+  // the ScrollView's viewport, not the scrolling content. Putting the frame
+  // inside would pin the content to the viewport height and it would never
+  // scroll; putting the background inside would scroll the fill away with
+  // the content.
+  if (scrolls) out.push(`${boxInd}}`)
 
   // Closing modifiers on the stack container.
-  if (stack.padding) out.push(`${ind}    .padding(${stack.padding})`)
+  //
+  // Order is load-bearing and mirrors how the canvas composes the box:
+  //   .padding  — insets the CONTENT, inside the frame (emitted above)
+  //   .frame    — sizes the box itself
+  //   .background / .clipShape — paint that box
+  // Emitting `.frame` before `.padding` would grow the view past its frame
+  // instead of insetting within it, and painting the background before the
+  // frame would leave it sized to the content rather than the box.
+  const boxMod = `${boxInd}    `
+  const f = frameModifier(stack)
+  if (f) out.push(`${boxMod}${f}`)
   if (stack.background) {
     const mat = swiftMaterial(stack.background)
     if (mat) {
-      out.push(`${ind}    .background(${mat})`)
+      out.push(`${boxMod}.background(${mat})`)
     } else {
       const bg = stack.background.startsWith('#')
         ? swiftColor(null, stack.background)
         : swiftColor(stack.background, null)
-      out.push(`${ind}    .background(${bg})`)
+      out.push(`${boxMod}.background(${bg})`)
     }
   }
   if (stack.cornerRadius) {
     const cr = unitsToPt(stack.cornerRadius)
-    out.push(`${ind}    .clipShape(RoundedRectangle(cornerRadius: ${cr}, style: .continuous))`)
+    out.push(`${boxMod}.clipShape(RoundedRectangle(cornerRadius: ${cr}, style: .continuous))`)
   }
-  if (stack.scrollable) out.push(`${ind}    // wrap in ScrollView { … } for scrollable content`)
-  if (stack.navTitle) out.push(`${ind}    .navigationTitle("${escapeString(stack.navTitle)}")`)
+  if (stack.navTitle) out.push(`${boxMod}.navigationTitle("${escapeString(stack.navTitle)}")`)
   if (stack.ornament) {
-    out.push(`${ind}    .ornament(attachmentAnchor: .scene(.${stack.ornament})) {`)
-    out.push(`${ind}        // ornament content — render the stack's children here`)
-    out.push(`${ind}    }`)
+    out.push(`${boxMod}.ornament(attachmentAnchor: .scene(.${stack.ornament})) {`)
+    out.push(`${boxInd}        // ornament content — render the stack's children here`)
+    out.push(`${boxMod}}`)
   }
 }
 
@@ -790,8 +1033,13 @@ function renderWindow(win, items, pad, out, stateBag) {
   // volumes do not.
   const isVolumetric = win.windowStyle === 'volumetric'
   if (!isVolumetric) {
-    out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
+    // Padding BEFORE frame. The canvas treats `win.padding` as an inner
+    // inset — a 1200×800 plate whose content area is 1172×772 — and
+    // `.frame(…).padding(14)` is the opposite: it grows the view to
+    // 1228×828 with the content still at full size. Insetting first and
+    // then pinning the box reproduces what the designer sees.
     if (win.padding) out.push(`${ind}    .padding(${win.padding})`)
+    out.push(`${ind}    .frame(width: ${unitsToPt(win.size?.[0] || 0)}, height: ${unitsToPt(win.size?.[1] || 0)})`)
   }
 
   // Toolbars first — they sit at the chrome level. Each child Toolbar

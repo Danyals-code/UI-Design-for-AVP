@@ -18,7 +18,7 @@
 
 import {
   TEXT_STYLES, ptToUnits, segmentedFrame, materialSwiftValue,
-  NAVBAR_HEIGHT_PT
+  NAVBAR_HEIGHT_PT, normalizeButton
 } from '../appleSystem'
 
 const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?? 17)
@@ -47,6 +47,16 @@ function materialColor(colorToken, hexColor) {
     }
   }
   return 'UIColor(Color.white)'
+}
+
+// LIST_STYLES doubles as the canvas's list-rendering preset table, so it
+// carries a 'default' preset that SwiftUI has no `.default` case for --
+// `.listStyle(.default)` does not compile. SwiftUI spells that meaning
+// `.automatic`, and `.automatic` is the implicit default, so it is elided
+// entirely rather than emitted as noise.
+function swiftListStyle(key) {
+  if (!key || key === 'default' || key === 'automatic') return ''
+  return `.listStyle(.${key})`
 }
 
 // Emit a `.clipShape(RoundedRectangle(...))` chain suffix for a given corner
@@ -163,7 +173,6 @@ export const PANELS = {
       cornerRadius: 0,
       text: 'Hello World',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       // visionOS body defaults to Medium (one step heavier than iOS Regular)
       // for legibility on glass — see TEXT_STYLES in appleSystem.js.
       fontWeight: 'medium',
@@ -188,22 +197,22 @@ export const PANELS = {
   button: {
     defaults: {
       // Fixed-size button. visionOS buttons ship at three standard sizes —
-      // small (65×32), regular (86×44), large (101×52). The corner radius
-      // is driven by `buttonShape`: 100pt for capsule (effectively a pill)
-      // or 16pt for the rounded-rect treatment. Side padding (text inset)
-      // is fixed at 12pt — see the renderer in Panel3D.jsx. Width/height
-      // are NOT user-editable; the size selector is the only way to
-      // change them, which keeps every button on the canvas matching one
-      // of the three Apple-spec frames.
-      size: [ptToUnits(86), ptToUnits(44)],
-      buttonSize: 'regular',             // 'small' | 'regular' | 'large'
-      buttonShape: 'capsule',            // 'capsule' | 'roundedRectangle'
+      // small (65×32), regular (86×44), large (101×52) — selected by
+      // `controlSize`, which is also what the exporter emits. Side padding
+      // (text inset) is fixed at 12pt; see the renderer in Panel3D.jsx.
+      // Width/height are NOT user-editable: `computeButtonFramePt` derives
+      // the frame from the size preset and the label, so every button on
+      // the canvas matches an Apple-spec frame.
+      //
+      // Neither `size` nor `cornerRadius` is stored. They used to be, which
+      // meant the canvas read a mirrored copy while the exporter read
+      // `controlSize` / `buttonBorderShape`, and the two could disagree.
+      // Both are derived at render time now.
+      controlSize: 'regular',            // 'small' | 'regular' | 'large'
       color: '#b7b6b1',
       colorToken: 'designButton',
-      cornerRadius: ptToUnits(100),      // capsule by default (100pt)
       text: 'Button',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       fontWeight: 'semibold',
       textAlign: 'center',
       textColor: '#ffffff',
@@ -235,17 +244,22 @@ export const PANELS = {
       // `role:` is part of the Button initializer (not a modifier) so it
       // sits inside the parentheses. visionOS still draws a glass capsule
       // but the system flags it as destructive/cancel for VoiceOver.
-      const role = panel.buttonRole && panel.buttonRole !== 'none'
-        ? `(role: .${panel.buttonRole}) ` : ''
+      // A scene built before `destructive` was removed from BUTTON_STYLES
+      // still carries `buttonStyle: 'destructive'`, which is not a real
+      // ButtonStyle and does not compile. Normalising here means the emitter
+      // never writes that line, whatever shape the scene arrived in.
+      const btn = normalizeButton(panel)
+      const role = btn.buttonRole && btn.buttonRole !== 'none'
+        ? `(role: .${btn.buttonRole}) ` : ''
       // `.automatic` and `.plain` are SwiftUI's built-in zero-config styles —
       // for `.automatic` we omit the modifier entirely so visionOS picks the
       // system glass treatment.
-      const bs = panel.buttonStyle && panel.buttonStyle !== 'automatic' && panel.buttonStyle !== 'plain'
-        ? `.buttonStyle(.${panel.buttonStyle})` : ''
-      const shape = panel.buttonBorderShape && panel.buttonBorderShape !== 'automatic'
-        ? `.buttonBorderShape(.${panel.buttonBorderShape})` : ''
-      const size = panel.controlSize && panel.controlSize !== 'regular'
-        ? `.controlSize(.${panel.controlSize})` : ''
+      const bs = btn.buttonStyle && btn.buttonStyle !== 'automatic' && btn.buttonStyle !== 'plain'
+        ? `.buttonStyle(.${btn.buttonStyle})` : ''
+      const shape = btn.buttonBorderShape && btn.buttonBorderShape !== 'automatic'
+        ? `.buttonBorderShape(.${btn.buttonBorderShape})` : ''
+      const size = btn.controlSize && btn.controlSize !== 'regular'
+        ? `.controlSize(.${btn.controlSize})` : ''
       const tint = panel.tint
         ? `.tint(${swiftColor(null, panel.tint)})` : ''
       // Compile the editor's `tapAction` to the canonical SwiftUI
@@ -302,7 +316,6 @@ export const PANELS = {
       widthMode: 'fill',
       text: 'Toggle',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       textAlign: 'left',
       textColor: '#000000',
       textColorToken: 'primary',
@@ -388,7 +401,6 @@ export const PANELS = {
       cornerRadius: ptToUnits(18),
       text: 'Breaking News  ·  Latest update  ·  More stories  ·  Live coverage',
       textStyle: 'footnote',
-      fontSize: textStyleToFontSize('footnote'),
       fontWeight: 'semibold',
       textColor: '#ffffff',
       textColorToken: null,
@@ -423,7 +435,6 @@ export const PANELS = {
       // ignores it (SwiftUI's `.searchable` binds the parent's @State).
       searchValue: '',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',          // visionOS body weight
       // Labels/Secondary on glass — see textfield rationale.
       textColor: '#545454',
@@ -496,10 +507,13 @@ export const PANELS = {
         { title: 'Fourth Item', subtitle: 'Subtitle text' }
       ],
       // Must match a key in LIST_STYLES (appleSystem.js): 'default' |
-      // 'plain' | 'inset' | 'insetGrouped' | 'grouped' | 'sidebar'. These
-      // map 1:1 onto SwiftUI's `.listStyle(.*)` cases — visionOS does not
-      // ship `.bordered` / `.carousel` / `.elliptical` so we don't list
-      // them either.
+      // 'plain' | 'inset' | 'insetGrouped' | 'grouped' | 'sidebar'. All but
+      // 'default' map 1:1 onto SwiftUI's `.listStyle(.*)` cases — visionOS
+      // does not ship `.bordered` / `.carousel` / `.elliptical` so we don't
+      // list them either. LIST_STYLES is a CANVAS preset table (row height,
+      // insets, separators) as much as a SwiftUI mirror, and its 'default'
+      // preset has no `.default` case in SwiftUI; `swiftListStyle` below
+      // maps it to `.automatic`, which is what it means.
       listStyle: 'insetGrouped',
       // Spec §1.19 — list-row modifiers. Each affects the export only
       // (canvas list visuals are driven by the listStyle preset).
@@ -536,7 +550,7 @@ export const PANELS = {
           : `Text("${escapeString(r.title || '')}")`
         push(`    ${rowLabel}${rowChain}`)
       })
-      const ls = panel.listStyle ? `.listStyle(.${panel.listStyle})` : ''
+      const ls = swiftListStyle(panel.listStyle)
       const hp = panel.headerProminence && panel.headerProminence !== 'standard'
         ? `.headerProminence(.${panel.headerProminence})` : ''
       const sp = panel.listRowSpacing ? `.listRowSpacing(${panel.listRowSpacing})` : ''
@@ -681,7 +695,6 @@ export const PANELS = {
       widthMode: 'fill',
       text: 'Stepper',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       textAlign: 'left',
       textColor: '#000000',
       textColorToken: 'primary',
@@ -893,7 +906,6 @@ export const PANELS = {
       cornerRadius: 0,
       text: 'Label',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',          // visionOS body weight
       textAlign: 'left',
       iconName: 'A',
@@ -935,7 +947,6 @@ export const PANELS = {
       text: 'Placeholder',
       textfieldValue: '',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       // Apple's visionOS placeholder is `#545454` (Labels/Secondary on glass),
       // not the iOS-stock `secondary` (#8e8e93). Clear the token so the
       // explicit hex wins over scheme resolution.
@@ -1006,7 +1017,6 @@ export const PANELS = {
       // field reads as a password field even before the wearer types.
       dotCount: 8,
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       // Apple's visionOS kit shows the dots in #545454, not pure black.
       textColor: '#545454',
       textColorToken: null,
@@ -1032,7 +1042,6 @@ export const PANELS = {
       text: 'Type here...',
       lineCount: 5,
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       textColor: '#8e8e93',
       textColorToken: 'secondary'
     },
@@ -1052,8 +1061,7 @@ export const PANELS = {
       pickerValue: 'Option 1',
       pickerOptions: ['Option 1', 'Option 2', 'Option 3'],
       pickerStyle: 'automatic',  // → .menu on visionOS (spec §1.7)
-      textStyle: 'body',
-      fontSize: textStyleToFontSize('body')
+      textStyle: 'body'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
@@ -1082,8 +1090,7 @@ export const PANELS = {
       // we model the four documented combinations (date, time, both, or
       // visionOS-2-only seconds form).
       displayedComponents: 'dateAndTime',
-      textStyle: 'body',
-      fontSize: textStyleToFontSize('body')
+      textStyle: 'body'
     },
     emit(panel, ctx) {
       const { push, escapeString } = ctx
@@ -1113,8 +1120,7 @@ export const PANELS = {
       // SwiftUI default is true (spec §1.9). Stored explicitly so the
       // exporter can omit `supportsOpacity:` when the default holds.
       supportsOpacity: true,
-      textStyle: 'body',
-      fontSize: textStyleToFontSize('body')
+      textStyle: 'body'
     },
     emit(panel, ctx) {
       const { push, escapeString, swiftColor } = ctx
@@ -1135,7 +1141,6 @@ export const PANELS = {
       // initializer. visionOS opens the URL in Safari in a new window.
       url: 'https://www.apple.com/vision-pro/',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',   // visionOS body weight
       textAlign: 'left',
       italic:        false,
@@ -1178,7 +1183,6 @@ export const PANELS = {
       navValue: 'detail',          // Hashable identifier for value-based links
       destinationName: 'DetailView',
       textStyle: 'body',
-      fontSize: textStyleToFontSize('body'),
       fontWeight: 'medium',
       textAlign: 'left'
     },
@@ -1260,8 +1264,7 @@ export const PANELS = {
       cornerRadius: ptToUnits(16),
       text: 'No Results',
       alertMessage: 'Try a different search term.',
-      textStyle: 'title3',
-      fontSize: textStyleToFontSize('title3')
+      textStyle: 'title3'
     },
     emit(panel, ctx) {
       const { push, escapeString, sym } = ctx
@@ -1305,7 +1308,6 @@ export const PANELS = {
       cornerRadius: ptToUnits(12),
       text: 'Settings',
       textStyle: 'headline',
-      fontSize: textStyleToFontSize('headline'),
       groupBoxStyle: 'automatic'
     },
     emit(panel, ctx) {
@@ -1657,7 +1659,6 @@ export const PANELS = {
       cornerRadius: 0,
       text: 'Hello',
       textStyle: 'largeTitle',
-      fontSize: textStyleToFontSize('largeTitle'),
       fontWeight: 'bold',
       extrusionDepth: 20,    // pt
       depth: 60
@@ -1815,6 +1816,56 @@ const INTERACTIVE_PANEL_TYPES = new Set([
 export const isInteractivePanel = (panelType) => INTERACTIVE_PANEL_TYPES.has(panelType)
 
 // ---- public helpers ----
+
+// How a panel type's frame is decided. The inspector carries the same
+// vocabulary in `PANEL_META.frameMode` (inspectors.jsx) because it drives
+// which fields that inspector renders; this copy lives here so the exporter
+// can read it without importing JSX, and `parity.test.js` pins the two to
+// agree.
+//
+//   'explicit' - `size` IS the authored box. The exporter emits
+//                `.frame(width:height:)` from it.
+//   'figma'    - Fit / Fixed / Fill. `widthMode` / `heightMode` decide, and
+//                'fit' means hug, so nothing is emitted.
+//   'none'     - the type sizes itself: shapes and gradients write their own
+//                `.frame(...)`, a Button sizes from its label and
+//                `controlSize`, a Spacer has no frame at all.
+const FRAME_MODES = {
+  text: 'figma',
+  link: 'figma',
+  button: 'none',
+  spacer: 'none',
+  divider: 'none',
+  segmented: 'none',
+  navbar: 'none',
+  realityview: 'none',
+  rectangle: 'none',
+  circle: 'none',
+  capsule: 'none',
+  ellipse: 'none',
+  path: 'none',
+  unevenRoundedRect: 'none',
+  linearGradient: 'none',
+  radialGradient: 'none',
+  angularGradient: 'none',
+  canvas: 'none',
+  sphere: 'none',
+  box: 'none',
+  plane: 'none',
+  cone: 'none',
+  cylinder: 'none',
+  text3d: 'none',
+  mesh: 'none'
+  // everything else: 'explicit'
+}
+
+// Panel types whose height is derived from their content rather than stored,
+// so only the width of their `size` is meaningful. Mirrors `lockHeight` in
+// PANEL_META.
+const DERIVED_HEIGHT = new Set(['list'])
+
+export const panelFrameMode = (panelType) => FRAME_MODES[panelType] || 'explicit'
+export const panelHeightIsDerived = (panelType) => DERIVED_HEIGHT.has(panelType)
 
 export const panelTypes = () => Object.keys(PANELS)
 

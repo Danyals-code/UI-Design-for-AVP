@@ -104,18 +104,20 @@ export const createPanelsSlice = (set, get) => ({
     }
   }),
 
+  // `fontSize` is deliberately NOT written here. Both the layout engine
+  // (textMetrics) and the renderer resolve the point size from `textStyle`
+  // whenever it is set, and it always is — so a stored `fontSize` was a
+  // second copy of the same number that only the canvas read, while the
+  // exporter emitted `.font(.<textStyle>)`. A divergent value would have
+  // rendered and not exported. The read-side fallback stays for projects
+  // saved before this, but nothing writes the field any more.
   applyTextStyle: (id, styleKey) => undoable(set, get, (s) => {
     const style = TEXT_STYLES[styleKey]
     if (!style) return s
     return {
       items: s.items.map((it) =>
         it.id === id
-          ? {
-              ...it,
-              textStyle: styleKey,
-              fontSize: ptToUnits(style.pt),
-              fontWeight: style.weight
-            }
+          ? { ...it, textStyle: styleKey, fontWeight: style.weight }
           : it
       )
     }

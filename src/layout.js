@@ -2,7 +2,9 @@
 // DisclosureGroup/NavigationStack semantics. Given a stack item and its children,
 // returns a map of { childId -> [x, y, z] } in local coordinates.
 
-import { ptToUnits, computeListHeightPt, TEXT_STYLES, textStyleDefaultWeight } from './appleSystem'
+import {
+  ptToUnits, computeListHeightPt, computeButtonFramePt, TEXT_STYLES, textStyleDefaultWeight
+} from './appleSystem'
 import { summarizeModifiers } from './modifiers/registry'
 import { measureSwiftUIText, singleLineWidth } from './text'
 
@@ -191,6 +193,15 @@ export function computeSize(item, items) {
       // resized later inside layoutStack once innerW is known. `fixed`
       // heightMode wins over the intrinsic guess when present.
       return [iw, fixedH ?? ih]
+    }
+    // Button: the frame comes from the `controlSize` preset plus the label
+    // width, exactly as `Panel3D` draws it. Both call the same function, so
+    // the space the layout engine reserves and the box the renderer paints
+    // cannot disagree — they used to, because the layout read a stored
+    // `size` while the renderer computed its own.
+    if (item.type === 'panel' && item.panelType === 'button') {
+      const [wPt, hPt] = computeButtonFramePt(item)
+      return [ptToUnits(wPt), ptToUnits(hPt)]
     }
     // List: height is driven by (row count × style row height) + style pad.
     // Width uses the stored frame or a sensible default — Apple lets Lists

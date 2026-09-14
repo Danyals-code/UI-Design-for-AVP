@@ -568,17 +568,33 @@ Volume entities can carry a list of behaviors. Each behavior is a
 trigger + ordered actions. Implementation lives in
 [src/behaviors/](src/behaviors/) (eventBus, registry, runtime, tween).
 
-### Triggers
-`sceneStart`, `tap`, `hover`, `drag`, `pinch`, `rotateGesture`,
-`timer`, `proximity`, `collision`, `inView`, `lookAt`, `orbit`,
-`follow`, `animationFinished`, `eventReceived`.
+### Triggers (12)
+`tap`, `hover`, `drag`, `pinch`, `rotateGesture`, `sceneStart`, `timer`,
+`proximity`, `collision`, `inView`, `animationFinished`, `eventReceived`.
 
-### Actions
-`moveTo`, `rotateTo`, `scaleTo`, `setMaterial`, `playAnimation`,
-`spawn`, `destroy`, `showHide`, `broadcast`, `repeat`, `wait`,
-`shaderEffect`.
+### Actions (15)
+`scaleTo`, `moveTo`, `rotateTo`, `lookAt`, `follow`, `orbit`, `showHide`,
+`setMaterial`, `shaderEffect`, `spawn`, `destroy`, `playAnimation`, `wait`,
+`repeat`, `broadcast`.
 
-Behaviors are exported as RealityKit code in [src/realityKit/registry.js](src/realityKit/registry.js).
+### What reaches the Swift export
+
+The vocabulary is deliberately wider than what the generator can write:
+**8 of 12 triggers and 11 of 15 actions become real Swift.** The rest are
+emitted as a documented block naming the RealityKit API to finish them with
+(`proximity` and `inView` need a per-frame System, for instance) — nothing
+you author disappears silently.
+
+The Behaviors inspector says which is which **before** you export: choosing a
+trigger or action that only documents shows an amber note under the picker.
+The warning reads the same sets the generator switches on
+([src/export/behaviors.js](src/export/behaviors.js)), so the two cannot drift.
+
+Codegen lives in [src/export/behaviors.js](src/export/behaviors.js) (gestures,
+`@State`, generated methods) and [src/export/realitykit.js](src/export/realitykit.js)
+(the entity tree itself). The preview runtime is separate:
+[src/behaviors/runtime.js](src/behaviors/runtime.js) covers all 15 actions and
+11 of 12 triggers.
 
 ---
 
@@ -634,6 +650,17 @@ The exporter ([src/export/swiftui.js](src/export/swiftui.js)) emits:
   scaling, baseplate visibility, world alignment, viewpoints).
 - Modifier chains in declaration order.
 - RealityKit content emitted as inline `Entity` setup for volume scenes.
+- **Sizing**: `.frame(...)` from each view's frame mode — an explicit
+  width/height, or `maxWidth: .infinity` for a Fill axis — plus per-edge
+  `.padding(.top, …)` where the edges differ.
+- **Scrolling**: a stack marked Scrollable becomes a real `ScrollView`, with
+  the frame on the viewport and the padding on the scrolling content.
+- **Free placement**: a control dragged around a window plate exports the
+  matching `.offset(x:y:)`.
+
+Modifier order follows how the canvas composes a container — content inset,
+then box sized, then box painted — so `.padding()` precedes `.frame()`
+precedes `.background()`. See [VIEWS.md](VIEWS.md#the-round-trip-contract).
 
 ---
 
@@ -647,7 +674,7 @@ The exporter ([src/export/swiftui.js](src/export/swiftui.js)) emits:
 | `⌘C` / `⌘V`             | Copy / Paste selected                            |
 | `⌘D`                    | Duplicate selected                               |
 | `Delete` / `Backspace`  | Remove selected                                  |
-| Arrow keys              | Nudge position (Shift = 10× step)                |
+| Arrow keys              | Nudge position — a window moves in world space, a panel gains an `.offset` modifier (Shift = 10× step) |
 | `G` / `R` / `S`         | Modal Move / Rotate / Scale (Blender-style)      |
 | Click + Esc             | Cancel modal transform                           |
 | Esc                     | Exit Preview Mode                                |

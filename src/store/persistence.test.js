@@ -174,3 +174,52 @@ describe('rejecting bad input', () => {
     expect(back.scene.ambientLightIntensity).toBe(DEFAULT_SCENE.ambientLightIntensity)
   })
 })
+
+// A project saved before `destructive` was removed from BUTTON_STYLES still
+// carries `buttonStyle: 'destructive'`. Exporting that produced
+// `.buttonStyle(.destructive)`, which is not a SwiftUI ButtonStyle and does
+// not compile. The designer meant the destructive ROLE, so that is where the
+// loader puts it — the inspector then shows a value that still exists.
+describe('migrating a pre-buttonRole project', () => {
+  const projectWith = (button) => ({
+    format: 'visionos-designer-project',
+    version: PROJECT_SCHEMA_VERSION,
+    items: [
+      { id: 'tab-1', type: 'tab', name: 'Main', parentId: null, visible: true },
+      { id: 'win-1', type: 'window', name: 'W', parentId: 'tab-1', visible: true },
+      { id: 'btn-1', type: 'panel', panelType: 'button', name: 'Delete',
+        parentId: 'win-1', visible: true, ...button }
+    ],
+    activeTabId: 'tab-1',
+    scene: {},
+    assets: []
+  })
+
+  const buttonFrom = (raw) =>
+    deserializeProject(raw).items.find((it) => it.id === 'btn-1')
+
+  it('moves the old style value onto buttonRole', () => {
+    const btn = buttonFrom(projectWith({ buttonStyle: 'destructive' }))
+    expect(btn.buttonRole).toBe('destructive')
+    expect(btn.buttonStyle).toBe('automatic')
+  })
+
+  it('keeps a role the project already had', () => {
+    const btn = buttonFrom(projectWith({ buttonStyle: 'destructive', buttonRole: 'cancel' }))
+    expect(btn.buttonRole).toBe('cancel')
+    expect(btn.buttonStyle).toBe('automatic')
+  })
+
+  it('leaves every other button untouched', () => {
+    const btn = buttonFrom(projectWith({ buttonStyle: 'borderedProminent' }))
+    expect(btn.buttonStyle).toBe('borderedProminent')
+    expect(btn.buttonRole).toBeUndefined()
+  })
+
+  it('does not disturb a project that has nothing to migrate', () => {
+    const raw = projectWith({ buttonStyle: 'plain' })
+    const before = JSON.stringify(raw.items)
+    deserializeProject(raw)
+    expect(JSON.stringify(raw.items)).toBe(before)
+  })
+})

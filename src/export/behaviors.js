@@ -55,6 +55,15 @@ const GENERATED_ACTIONS = new Set([
   'wait', 'lookAt', 'playAnimation', 'setMaterial', 'spawn'
 ])
 
+// The behaviour vocabulary is deliberately wider than what this file can
+// generate: the rest is emitted as a documented "still to wire up" block
+// naming the real RealityKit API. That is an honest place to land, but the
+// designer only found out AFTER exporting. These two predicates let the
+// Behaviors inspector say so up front, reading the same sets the emitter
+// switches on so the warning cannot drift from the behaviour.
+export const triggerGeneratesSwift = (type) => GENERATED_TRIGGERS.has(type)
+export const actionGeneratesSwift = (type) => GENERATED_ACTIONS.has(type)
+
 const CURVE_TO_SWIFT = {
   linear: '.linear',
   easeIn: '.easeIn',

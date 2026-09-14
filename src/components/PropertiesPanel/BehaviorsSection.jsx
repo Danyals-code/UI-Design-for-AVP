@@ -13,6 +13,7 @@ import {
   getActionOptionGroups,
   defaultParamsFor
 } from '../../behaviors/registry'
+import { triggerGeneratesSwift, actionGeneratesSwift } from '../../export/behaviors'
 
 let nextLocalId = 1
 const newId = (prefix) => `${prefix}-${Date.now().toString(36)}-${nextLocalId++}`
@@ -180,6 +181,21 @@ function TargetEntitySelect({ value, items, allowSelf, allowUser, onChange }) {
 
 // ---- Trigger / action editors --------------------------------------
 
+// Not everything in the behaviour vocabulary reaches the Swift export. The
+// ones that don't are emitted as a documented "still to wire up" block naming
+// the real RealityKit API — which is honest, but the designer used to find out
+// only after exporting. `export/behaviors.js` owns the two predicates, so this
+// warning and the generator cannot disagree about which is which.
+function ExportNote({ generates, what }) {
+  if (generates) return null
+  return (
+    <div className="text-[9px] text-amber-400/80 leading-snug pl-14">
+      Previews here, but the Swift export documents this {what} rather than
+      generating it — the file names the RealityKit API to finish it with.
+    </div>
+  )
+}
+
 function TriggerEditor({ trigger, onChange, items }) {
   const schema = getTriggerSchema(trigger?.type)
   const setType = (type) => {
@@ -217,6 +233,7 @@ function TriggerEditor({ trigger, onChange, items }) {
           Device-only gesture — preview maps it to a pointer fallback.
         </div>
       )}
+      <ExportNote generates={triggerGeneratesSwift(trigger?.type || 'tap')} what="trigger" />
     </div>
   )
 }
@@ -270,6 +287,7 @@ function ActionEditor({ action, onChange, onRemove, items, isOnly }) {
           />
         )
       })}
+      <ExportNote generates={actionGeneratesSwift(action?.type || 'scaleTo')} what="action" />
     </div>
   )
 }
