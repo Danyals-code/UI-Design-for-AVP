@@ -97,11 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 661 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 668 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34).
+  +32 from #33 and +16 from #30 and +13 from #29 and +15 from #34 and +7 from #35).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1219,6 +1219,33 @@ box with a 60pt radius draws visibly rounded beside an identical sharp one, and
 a selected box with `.frame(depth: 400)` shows a wireframe reaching well past
 the 160pt object. Parity debt 10 → 7.
 
+**#35 — an unfrosted stack exported a frosted plate** ✅ **done**
+SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by definition.
+So a stack whose blur toggle was off — a flat plate on the canvas — exported as
+a frosted one. With the toggle off the exporter now emits the colour the canvas
+resolved the token to, through the same `resolveSemantic` the canvas calls, so
+the plate in the file is the plate on screen. A token with a first-party
+SwiftUI spelling (`systemBackground`) still emits that rather than a literal,
+because resolving it would throw away the system's own light/dark behaviour.
+The blur *radius* stays exempt — Materials are fixed tiers and carry no radius
+anywhere in SwiftUI.
+
+**The ledger gained a tier over this.** A window's `blur` is genuinely
+canvas-only, for a different and still-valid reason: the shell draws the window
+surface and there is no toggle to emit. But the parity scan matches `.blur` as
+text across one corpus and cannot tell `win.blur` from `stack.blur`, so the
+moment a stack's blur became two-sided the window's entry looked stale and the
+test demanded its deletion — which would have quietly dropped a true exemption
+off the record. `SHADOWED` says exactly that: still one-sided, but the scan
+cannot see it because another item type shares the name. It does not count as
+debt, and a separate test asserts the name really is read on both sides, so the
+tier cannot become the drawer inconvenient entries get put in. That test earned
+its place immediately by rejecting `blurAmount`, which I had marked SHADOWED
+out of symmetry and which nothing emits on either item type.
+
+*Acceptance:* 6 new exporter tests plus the shadowed-entry check; the fix was
+reverted to confirm three of them fail without it. Parity debt 7 → 6.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1245,7 +1272,8 @@ not a plan but an ordering of what the triage left, worst first:
 ✅ #30 presentation metrics  — done.
 ✅ #29 ornament chrome       — done.
 ✅ #34 three unrelated gaps  — done.
-1  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #35 unblurred stack exports a Material — done.
+1  #32 volume geometry. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
@@ -1318,7 +1346,7 @@ six entries were shown not to be work.
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
 | 33 | ~~**Container chrome the canvas ignores.**~~ — **fixed.** `expanded` now seeds the `@State` from the authored value, so a disclosure the designer opened exports open. `toolbarPlacement` now zones the bar leading \| principal \| trailing instead of stacking items in tree order down a column; the three placements that name another surface get a row of their own. `fitsAxes` now measures: the canvas draws the one branch the runtime would keep rather than every candidate on top of each other. 3 fields. | `layout.js`, `appleSystem.js`, `export/swiftui.js` | Medium |
 | 34 | ~~**Three canvas gaps with no common cause.**~~ — **fixed.** `boxCornerRadius` rounds the box on the canvas as `generateBox(cornerRadius:)` does on device; `depth` draws the Z-box `.frame(depth:)` reserves while the object is selected; `iconName` turned out to be a second home for `symbolName` and was deleted, with a migration. 3 fields. | `Panel3D.jsx`, `Entity3D.jsx`, `panels/registry.js` | Low |
-| 35 | **A stack with blur OFF still exports a frosted Material.** The toggle says the background is not frosted and `.background(.thickMaterial)` is emitted regardless. Fixable by emitting the resolved colour when the toggle is off — the blur *radius* beside it is exempt, since Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |
+| 35 | ~~**A stack with blur OFF still exports a frosted Material.**~~ — **fixed.** With the toggle off the exporter emits the colour the canvas resolved the token to, because SwiftUI has no unfrosted Material. The blur *radius* stays exempt: Materials carry no radius anywhere in SwiftUI. 1 field. | `export/swiftui.js` | Low |
 
 ### Sorted to EXEMPT
 

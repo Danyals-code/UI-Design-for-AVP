@@ -30,7 +30,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import {
   STACK, WINDOW, PANEL, MODIFIER_VISIBILITY, KNOWN_INVALID_EMISSIONS,
-  KNOWN_MISSING_SCROLLVIEWS, DEBT_CEILING, EXEMPT, DEBT, MIRROR
+  KNOWN_MISSING_SCROLLVIEWS, DEBT_CEILING, EXEMPT, DEBT, MIRROR, SHADOWED
 } from './parity.baseline'
 import { makeTab, makeWindow, makeStack, makePanel } from './store/factories'
 import {
@@ -114,11 +114,18 @@ function explain(missing, stale, ledgerName) {
   return '\n  ' + parts.join('\n\n  ')
 }
 
+// A field name another item type reads on BOTH sides is invisible to this
+// scan: the corpus is one blob of text and `.blur` is `.blur` whoever the
+// receiver is. Those entries declare themselves SHADOWED and are excluded from
+// the stale check — but only if the name really is two-sided, which is
+// asserted separately, so the tier cannot be used to park a live divergence.
+const isShadowed = (ledger, f) => ledger[f]?.tier === SHADOWED
+
 function checkLedger(fields, ledger, ledgerName) {
   const actual = asymmetricFields(fields)
   const declared = Object.keys(ledger)
   const missing = actual.filter((f) => !declared.includes(f))
-  const stale = declared.filter((f) => !actual.includes(f))
+  const stale = declared.filter((f) => !actual.includes(f) && !isShadowed(ledger, f))
   expect(missing.length + stale.length, explain(missing, stale, ledgerName)).toBe(0)
 }
 
@@ -141,11 +148,29 @@ describe('field parity', () => {
     checkLedger(allPanelFields(), PANEL, 'parity.baseline.js → PANEL')
   })
 
+  it('every shadowed entry is really shadowed', () => {
+    // The tier's one job is to record a divergence the scan cannot see. If the
+    // name is NOT read on both sides, the scan can see it after all and the
+    // entry has to go back to being a normal one — otherwise SHADOWED becomes
+    // the drawer anything inconvenient gets put in.
+    for (const [name, ledger] of [['STACK', STACK], ['WINDOW', WINDOW], ['PANEL', PANEL]]) {
+      for (const [field, entry] of Object.entries(ledger)) {
+        if (entry.tier !== SHADOWED) continue
+        expect(entry.by?.length, `${name}.${field} does not say what shadows it`).toBeGreaterThan(0)
+        expect(
+          CANVAS.includes(`.${field}`) && EXPORT.includes(`.${field}`),
+          `${name}.${field} is marked SHADOWED but the scan can see it — ` +
+          `give it a real tier`
+        ).toBe(true)
+      }
+    }
+  })
+
   it('every ledger entry carries a tier and a reason', () => {
     for (const [name, ledger] of [['STACK', STACK], ['WINDOW', WINDOW], ['PANEL', PANEL],
       ['MODIFIER_VISIBILITY', MODIFIER_VISIBILITY]]) {
       for (const [field, entry] of Object.entries(ledger)) {
-        expect([EXEMPT, DEBT, MIRROR], `${name}.${field} has no valid tier`).toContain(entry.tier)
+        expect([EXEMPT, DEBT, MIRROR, SHADOWED], `${name}.${field} has no valid tier`).toContain(entry.tier)
         expect(entry.why?.length, `${name}.${field} has no reason`).toBeGreaterThan(10)
       }
     }
@@ -513,7 +538,9 @@ function debtInventory() {
   const rows = []
   const collect = (label, ledger) => {
     for (const [field, entry] of Object.entries(ledger)) {
-      if (entry.tier === EXEMPT) continue
+      // EXEMPT is settled; SHADOWED is settled too — it is an exemption the
+      // scan happens to be unable to observe, not work anyone owes.
+      if (entry.tier === EXEMPT || entry.tier === SHADOWED) continue
       rows.push({
         group: label,
         field,

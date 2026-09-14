@@ -14,7 +14,8 @@
 // SwiftUI API string, so the output is mechanical to review against Apple's
 // docs.
 
-import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS, isPresentationPanel } from '../appleSystem'
+import { unitsToPt, textStyleDefaultWeight, NAVBAR_STYLE_SPECS, isPresentationPanel,
+  resolveSemantic } from '../appleSystem'
 import {
   emitPanel, isInteractivePanel, compileTapAction,
   panelFrameMode, panelHeightIsDerived
@@ -660,6 +661,10 @@ function emitPresentationModifier(p, pad, out, stateBag) {
   }
 }
 
+// The scene handed to `exportSwiftUI`, for emissions that need a resolved
+// colour rather than a token. See the note at the call site. AUDIT #35.
+let exportScene = {}
+
 // ---------- stack rendering ----------
 
 // Spec §1.26 — Render a `toolbar` stack as a `.toolbar { ... }` modifier
@@ -914,13 +919,20 @@ function renderStack(stack, items, pad, out, stateBag) {
   const f = frameModifier(stack)
   if (f) out.push(`${boxMod}${f}`)
   if (stack.background) {
-    const mat = swiftMaterial(stack.background)
+    // SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by
+    // definition. So a stack whose blur toggle is OFF — a flat plate on the
+    // canvas — used to export as a frosted one, describing a surface nobody
+    // had asked for. With the toggle off we emit the colour the canvas
+    // resolved the token to instead, which is the plate that is actually on
+    // screen. The blur RADIUS beside the toggle stays canvas-only: Materials
+    // are fixed tiers and carry no radius anywhere in SwiftUI. AUDIT #35.
+    const mat = stack.blur ? swiftMaterial(stack.background) : null
     if (mat) {
       out.push(`${boxMod}.background(${mat})`)
     } else {
       const bg = stack.background.startsWith('#')
         ? swiftColor(null, stack.background)
-        : swiftColor(stack.background, null)
+        : swiftColor(stack.background, resolveSemantic(stack.background, exportScene))
       out.push(`${boxMod}.background(${bg})`)
     }
   }
@@ -1375,6 +1387,11 @@ function renderAppFile(tabs, appName, scene = {}, items = []) {
 // ---------- public entry point ----------
 
 export function exportSwiftUI(items, appName = 'MyApp', scene = {}) {
+  // The scene's colour table, for the one emission that needs a resolved
+  // colour rather than a token: an unfrosted stack plate (AUDIT #35). Module
+  // state rather than a parameter threaded through every renderStack call,
+  // which is how `pendingBehaviorPlans` above already works.
+  exportScene = scene
   const tabs = items.filter((i) => i.type === 'tab')
   const files = []
   for (const tab of tabs) {

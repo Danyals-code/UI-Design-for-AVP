@@ -29,6 +29,14 @@
 //           standing trap — close it by unifying on one field, not by
 //           teaching both sides about both.
 //
+//   SHADOWED  Still one-sided, but the scan cannot see it any more: another
+//           item type uses the same field NAME and reads it on both sides.
+//           The scan matches `.field` as text across one corpus, so it cannot
+//           tell `win.blur` from `stack.blur`. A SHADOWED entry says which
+//           item type shadows it and keeps the reason on the record; the test
+//           checks the name really is two-sided, so the tier cannot be used
+//           to park an ordinary divergence. Does NOT count as debt.
+//
 // Reasons are written for the person who has to fix the entry, so they say
 // what diverges, not just that something does. `AUDIT.md` §8 carries the
 // numbered defect index referenced below.
@@ -36,11 +44,13 @@
 export const EXEMPT = 'EXEMPT'
 export const DEBT = 'DEBT'
 export const MIRROR = 'MIRROR'
+export const SHADOWED = 'SHADOWED'
 
 // Shorthand builders, so the tables below stay readable.
 const ex = (why) => ({ tier: EXEMPT, why })
 const debt = (why, defect = null) => ({ tier: DEBT, why, defect })
 const mirror = (why, defect = null) => ({ tier: MIRROR, why, defect })
+const shadowed = (why, by) => ({ tier: SHADOWED, why, by })
 
 // ---------------------------------------------------------------------------
 // Stack fields
@@ -55,7 +65,6 @@ export const STACK = {
   scrollX: ex('canvas-only: live scroll offset of the preview, not a document property'),
 
   // -- material -------------------------------------------------------------
-  blur: debt('canvas-only: a stack whose blur is OFF still exports a frosted Material — emit the resolved colour instead', 35),
   blurAmount: ex('canvas-only: SwiftUI Materials are fixed tiers with no radius control, so the tier is the only granularity that round-trips; the canvas exposes a continuous knob because three.js can render one'),
 
   // -- disclosure -----------------------------------------------------------
@@ -108,7 +117,14 @@ export const WINDOW = {
   // paints one because it has to draw something, and these three tune what it
   // paints. Nothing to carry.
   fillOpacity: ex('canvas-only: the window plate is system-drawn glass, with no SwiftUI control over its opacity'),
-  blur: ex('canvas-only: same — the shell draws the window surface, so there is no backdrop-blur toggle to emit'),
+  // A window's blur is still canvas-only, for the reason above. The scan
+  // stopped being able to see that in #35, when a STACK's `blur` began
+  // deciding whether its plate exports as a Material or as a flat colour: the
+  // scan matches `.blur` as text across one corpus and cannot tell the two
+  // receivers apart. SHADOWED keeps the reason on the record without claiming
+  // the scan proved it. `blurAmount` is NOT shadowed — nothing emits it on
+  // either item type — so it stays an ordinary exemption.
+  blur: shadowed('canvas-only: the shell draws the window surface, so there is no backdrop-blur toggle to emit', 'stack'),
   blurAmount: ex('canvas-only: same, and Materials carry no radius anywhere in SwiftUI'),
 
   volumeDepthMeters: debt('export-only: the declared depth is a dimension the canvas could draw; it sizes the volume from the window instead', 32),
@@ -342,4 +358,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 7
+export const DEBT_CEILING = 6

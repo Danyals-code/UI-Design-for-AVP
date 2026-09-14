@@ -25,7 +25,8 @@ import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
 import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
   isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
   dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible,
-  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn } from '../appleSystem'
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn,
+  resolveSemantic, buildDefaultSceneColors } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1698,5 +1699,68 @@ describe('a Label carries one glyph field', () => {
     const cu = makePanel('contentUnavailable', { parentId: win.id, text: 'No Results' })
     const swift = exportSwiftUI([tab, win, cu], 'App', {}).map((f) => f.content).join('\n')
     expect(swift).toContain('systemImage: "questionmark"')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// An unfrosted stack exports an unfrosted plate (AUDIT #35)
+//
+// SwiftUI has no unfrosted Material: `.thickMaterial` is blurred by
+// definition. So a stack whose blur toggle was OFF — a flat plate on the
+// canvas — exported as a frosted one, describing a surface nobody asked for.
+// ---------------------------------------------------------------------------
+describe('a stack plate exports frosted only when it is frosted', () => {
+  const scene = { designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {} }
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const stack = makeStack({ parentId: win.id, name: 'S', stackType: 'vstack', ...props })
+    const kid = makePanel('text', { parentId: stack.id, text: 'Hi' })
+    return exportSwiftUI([tab, win, stack, kid], 'App', scene).map((f) => f.content).join('\n')
+  }
+
+  it('emits the Material tier for a stack whose blur is on', () => {
+    expect(emit({ background: 'glassThick', blur: true })).toContain('.background(.thickMaterial)')
+  })
+
+  it('emits a colour, not a Material, when the blur is off', () => {
+    const swift = emit({ background: 'glassThick', blur: false })
+    expect(swift).not.toContain('.thickMaterial')
+    expect(swift).toContain('.background(Color(red:')
+  })
+
+  it('emits the colour the canvas paints the plate', () => {
+    // The canvas resolves the same token through the same function, so the
+    // plate in the file is the plate on screen.
+    const hex = resolveSemantic('glassThick', scene)
+    const [r, g, b] = [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(3))
+    expect(emit({ background: 'glassThick', blur: false }))
+      .toContain(`.background(Color(red: ${r}, green: ${g}, blue: ${b}))`)
+  })
+
+  it('follows the scene the project was exported with', () => {
+    const dark = { designScheme: 'dark', colors: buildDefaultSceneColors(), materialProps: {} }
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const stack = makeStack({ parentId: win.id, name: 'S', background: 'glassThick', blur: false })
+    const kid = makePanel('text', { parentId: stack.id, text: 'Hi' })
+    const inDark = exportSwiftUI([tab, win, stack, kid], 'App', dark).map((f) => f.content).join('\n')
+    expect(inDark).not.toBe(emit({ background: 'glassThick', blur: false }))
+  })
+
+  it('leaves a hex background exactly as authored', () => {
+    // Nothing to resolve, and the toggle changes nothing about it.
+    for (const blur of [true, false]) {
+      expect(emit({ background: '#ff0000', blur }))
+        .toContain('.background(Color(red: 1.000, green: 0.000, blue: 0.000))')
+    }
+  })
+
+  it('still prefers a real SwiftUI colour over a resolved literal', () => {
+    // `systemBackground` has a first-party spelling; resolving it to a hex
+    // would throw away the system's own light/dark behaviour.
+    expect(emit({ background: 'systemBackground', blur: false }))
+      .toContain('.background(Color(.systemBackground))')
   })
 })
