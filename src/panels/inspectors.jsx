@@ -558,7 +558,7 @@ function SliderInspector({ item, updateItem }) {
       <Row label="Step"><NumField value={step} step={0.05} onChange={(v) => updateItem(item.id, { sliderStep: Math.max(0, v) })} /></Row>
       <Row label="Min Label"><input value={item.sliderMinLabel || ''} onChange={(e) => updateItem(item.id, { sliderMinLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
       <Row label="Max Label"><input value={item.sliderMaxLabel || ''} onChange={(e) => updateItem(item.id, { sliderMaxLabel: e.target.value })} className="field flex-1" placeholder="(none)" /></Row>
-      <Row label="Size"><Select value={item.styles?.controlSize || 'regular'} options={CONTROL_SIZES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, controlSize: v } })} /></Row>
+      <Row label="Size"><Select value={item.controlSize || 'regular'} options={CONTROL_SIZES} onChange={(v) => updateItem(item.id, { controlSize: v })} /></Row>
     </Section>
   )
 }
@@ -888,9 +888,9 @@ export const INSPECTORS = {
       </Row>
       <Row label="Size">
         <Select
-          value={item.styles?.controlSize || 'regular'}
+          value={item.controlSize || 'regular'}
           options={CONTROL_SIZES}
-          onChange={(v) => updateItem(item.id, { styles: { ...item.styles, controlSize: v } })}
+          onChange={(v) => updateItem(item.id, { controlSize: v })}
         />
       </Row>
       <Row label="Tint">

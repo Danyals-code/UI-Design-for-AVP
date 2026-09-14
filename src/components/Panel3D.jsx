@@ -18,6 +18,7 @@ import {
   buttonRadiusPt,
   applyAspectRatio,
   outlineVisibleRows,
+  labelSlots,
   PICKER_STYLES_SHOWING_OPTIONS,
   MENU_STYLES_AS_BUTTON,
   dateComponentsParts,
@@ -878,6 +879,12 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   if (panelType === 'navbar') {
     resolvedFillOpacity = 0.0
   }
+  // `.textFieldStyle(.plain)` drops the field's chrome entirely — no recessed
+  // glass, just the text on whatever is behind it. Export-only until AUDIT #31.
+  if ((panelType === 'textfield' || panelType === 'securefield') &&
+      panel.styles?.textFieldStyle === 'plain') {
+    resolvedFillOpacity = 0.0
+  }
   if (panelType === 'button') {
     if (inOrnamentChrome && buttonStyle !== 'borderedProminent' && buttonStyle !== 'destructive') {
       resolvedFillOpacity = 0.0
@@ -1116,7 +1123,11 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
   // switch the same way they would on-device. The handler bypasses
   // the regular drag/select gate above (which early-returns in
   // preview) by reading directly from the store.
+  // `.toggleStyle(.button)` renders a Toggle as a pressed-in button carrying
+  // the label, not as a switch on the trailing edge. Export-only until AUDIT
+  // #31, so a toggle authored as a button previewed as a switch.
   const toggleOverlay = panelType === 'toggle' && (() => {
+    const toggleStyle = panel.styles?.toggleStyle || 'automatic'
     const TRACK_W = ptToUnits(52)
     const TRACK_H = ptToUnits(32)
     const trackX = size[0] / 2 - TRACK_W / 2 - ptToUnits(4)
@@ -1131,6 +1142,31 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
       e.stopPropagation()
       useStore.getState().updateItem(id, { toggleOn: !panel.toggleOn })
     }
+
+    if (toggleStyle === 'button') {
+      // A button toggle fills its frame and reads as on/off by its fill, the
+      // way `.buttonStyle(.bordered)` does when selected.
+      const on = !!panel.toggleOn
+      return (
+        <group onPointerDown={flip}>
+          <mesh position={[0, 0, 0.004]}>
+            <shapeGeometry args={[roundedRectShape(size[0], size[1], Math.min(cornerRadius || ptToUnits(12), size[1] / 2))]} />
+            <meshBasicMaterial
+              color={on ? accentColor : resolveSemantic('systemFill', scene)}
+              transparent
+              opacity={on ? 1 : 0.6}
+            />
+          </mesh>
+          <Text
+            position={[0, 0, 0.006]}
+            font={fontUrl} fontSize={finalFontSize}
+            color={on ? '#ffffff' : resolveSemantic('primary', scene)}
+            anchorX="center" anchorY="middle" maxWidth={size[0] * 0.9}
+          >{panel.text || 'Toggle'}</Text>
+        </group>
+      )
+    }
+
     return (
       <group onPointerDown={flip}>
         {/* Switch track */}
@@ -2336,11 +2372,18 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
 
   const labelOverlay = panelType === 'label' && (() => {
     const symbolName = panel.symbolName || 'info.circle'
-    // Empty-text labels are "icon-only" — used in templates as room/
-    // section glyphs without the SwiftUI `Label` text slot. We render
-    // just the icon (no tile, no placeholder "Label" text) so the row
-    // doesn't pick up an unintended blue chip + filler word.
-    const iconOnly = !panel.text
+    // `.labelStyle` decides which of the two slots a Label shows. It reached
+    // the export only: the canvas had its own parallel rule — an empty text
+    // slot means icon-only — which happens to agree with the field across
+    // every template, so nothing shipped diverges. But the two are separate
+    // mechanisms for one concept, and a label that carries text AND asks for
+    // `.iconOnly` drew the text here and hid it on device. The explicit field
+    // wins now; the empty-text rule stays as the fallback for `.automatic`,
+    // which is what a Label with nothing to say resolves to anyway.
+    // AUDIT #31.
+    const slots = labelSlots(panel.styles?.labelStyle, panel.text)
+    const iconOnly = slots.icon && !slots.title
+    const titleOnly = slots.title && !slots.icon
     // Apple's sidebar Label pattern (Settings.app): a coloured rounded-rect
     // tile behind the glyph instead of a circle. Driven by:
     //   iconTileColor  — fill color; null ⇒ classic circle fallback
@@ -2355,7 +2398,7 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const resolvedTile = tileColor
       ? (tileColor.startsWith('#') ? tileColor : resolveSemantic(tileColor, scene))
       : null
-    const tileShape = resolvedTile && !iconOnly
+    const tileShape = resolvedTile && !iconOnly && !titleOnly
       ? roundedRectShape(tileSize, tileSize, tileRadius)
       : null
     // Icon-only labels drop the coloured chip and paint the glyph in
@@ -2367,30 +2410,36 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     const glyphUnits = iconOnly ? finalFontSize : ptToUnits(18)
     return (
       <>
-        {!iconOnly && tileShape && (
+        {tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <shapeGeometry args={[tileShape]} />
             <meshBasicMaterial color={resolvedTile} />
           </mesh>
         )}
-        {!iconOnly && !tileShape && (
+        {!iconOnly && !titleOnly && !tileShape && (
           <mesh position={[iconX, 0, 0.005]}>
             <circleGeometry args={[iconR, 32]} />
             <meshBasicMaterial color={panel.iconColor || '#007aff'} />
           </mesh>
         )}
-        <SymbolIcon3D
-          name={symbolName}
-          sizeUnits={glyphUnits}
-          color={glyphColor}
-          weight={panel.fontWeight || 'medium'}
-          imageScale={panel.imageScale || 'medium'}
-          variant={panel.symbolVariant || null}
-          renderingMode={panel.symbolRenderingMode || 'monochrome'}
-          position={[iconX, 0, 0.006]}
-        />
+        {!titleOnly && (
+          <SymbolIcon3D
+            name={symbolName}
+            sizeUnits={glyphUnits}
+            color={glyphColor}
+            weight={panel.fontWeight || 'medium'}
+            imageScale={panel.imageScale || 'medium'}
+            variant={panel.symbolVariant || null}
+            renderingMode={panel.symbolRenderingMode || 'monochrome'}
+            position={[iconX, 0, 0.006]}
+          />
+        )}
         {!iconOnly && (
-          <Text position={[textX, 0, 0.005]} font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor} anchorX="left" anchorY="middle" maxWidth={size[0] * 0.65}>
+          <Text
+            position={[titleOnly ? -size[0] / 2 + ptToUnits(4) : textX, 0, 0.005]}
+            font={fontUrl} fontSize={finalFontSize} color={resolvedTextColor}
+            anchorX="left" anchorY="middle" maxWidth={size[0] * (titleOnly ? 0.95 : 0.65)}
+          >
             {panel.text}
           </Text>
         )}
@@ -2421,8 +2470,19 @@ function PanelSurface3D({ panel, localPosition, resolvedSize }) {
     // single-line field and grew on device. AUDIT #19.
     const vertical = panel.axis === 'vertical'
     const cap = Math.max(1, Number(panel.lineLimit) || 1)
+    // `.textFieldStyle(.roundedBorder)` draws a hairline border around the
+    // field; `.plain` drops the chrome entirely. `.automatic` is visionOS's
+    // recessed glass, which is what the panel's own fill already paints.
+    // Export-only until AUDIT #31.
+    const fieldStyle = panel.styles?.textFieldStyle || 'automatic'
     return (
       <>
+        {fieldStyle === 'roundedBorder' && (
+          <mesh position={[0, 0, 0.004]}>
+            <shapeGeometry args={[rimRingShape(size[0], size[1], cornerRadius, ptToUnits(1))]} />
+            <meshBasicMaterial color={resolveSemantic('separator', scene)} />
+          </mesh>
+        )}
         <Text
           position={[
             -size[0] / 2 + ptToUnits(14),

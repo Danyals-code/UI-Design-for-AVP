@@ -508,9 +508,14 @@ Two top-level tabs: **Object** (selected item) and **Scene** (global).
   it is the SwiftUI spelling. Two exceptions draw nothing and say so:
   `.fontDesign` and `.monospacedDigit` need a rounded / serif /
   monospaced face, and the app bundles Inter alone.
-- **Styles:** control-size + per-control style picker (toggleStyle,
-  pickerStyle, …). Hidden for buttons and toggles whose own inspector
-  already includes Size + Style.
+- **Styles:** control-size + per-control style picker (Toggle, Label,
+  TextField). All three change the canvas as well as the export: a
+  Toggle set to `.button` draws as a button rather than a switch, a
+  Label honours Icon Only / Title Only, and a TextField draws a rounded
+  border or drops its chrome for `.plain`. Hidden for buttons and
+  toggles whose own inspector already includes Size + Style. The
+  Picker row that used to sit here is gone — the picker's own Style
+  row is the one that works.
 - **Hover** (interactive controls): effect, disabled, default, group
   binding.
 - **SF Symbol** (types that support it - buttons, labels, links,

@@ -576,3 +576,35 @@ describe('parity debt', () => {
     expect(rows.length).toBeGreaterThanOrEqual(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// The styles bag (AUDIT #31)
+//
+// The ledger keys this bag as one field, so a single surviving read keeps it
+// looking symmetric while the others quietly stop drawing. That is how these
+// three got to export-only in the first place. Check each by name.
+// ---------------------------------------------------------------------------
+describe('per-control style fields', () => {
+  const BAG = ['toggleStyle', 'labelStyle', 'textFieldStyle']
+  // Match the READ, not the name: `styles?.labelStyle`. The bare name appears
+  // in the comments beside each of these, so a looser check passes on prose
+  // while the code that used to do the reading is gone — which is exactly
+  // what happened the first time this test was written.
+  const reads = (src, key) => src.includes(`styles?.${key}`) || src.includes(`styles.${key}`)
+
+  it('the canvas reads every field the bag still carries', () => {
+    for (const key of BAG) {
+      expect(
+        reads(CANVAS, key),
+        `the canvas no longer reads styles.${key} — the ledger keys the whole ` +
+        'bag as one field, so a surviving read of its siblings hides this'
+      ).toBe(true)
+    }
+  })
+
+  it('and the export still emits each of them', () => {
+    for (const key of BAG) {
+      expect(reads(EXPORT, key), `the export no longer emits styles.${key}`).toBe(true)
+    }
+  })
+})

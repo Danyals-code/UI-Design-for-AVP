@@ -361,8 +361,11 @@ export const PANELS = {
       // visionOS, so we elide the modifier when the user kept the default.
       const ts = panel.styles?.toggleStyle && panel.styles.toggleStyle !== 'automatic'
         ? `.toggleStyle(.${panel.styles.toggleStyle})` : ''
-      const cs = panel.styles?.controlSize && panel.styles.controlSize !== 'regular'
-        ? `.controlSize(.${panel.styles.controlSize})` : ''
+      // One home for control size — the top-level field phase 2.3 settled
+      // buttons on. `styles.controlSize` was a second copy only this emitter
+      // read. AUDIT #31.
+      const cs = panel.controlSize && panel.controlSize !== 'regular'
+        ? `.controlSize(.${panel.controlSize})` : ''
       const tint = panel.tint ? `.tint(${swiftColor(null, panel.tint)})` : ''
       push(`Toggle("${escapeString(panel.text || 'Toggle')}", isOn: .constant(${panel.toggleOn ? 'true' : 'false'}))${ts}${cs}${tint}`)
     }

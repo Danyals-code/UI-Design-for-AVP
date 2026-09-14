@@ -19,8 +19,10 @@ import {
   controlFraction, valueFromFraction, mixHex, applyAspectRatio,
   outlineVisibleRows,
   PICKER_STYLES, MENU_STYLES,
-  PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts
+  PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts,
+  LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots
 } from './appleSystem'
+import { DEFAULT_STYLES } from './store/factories'
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const scene = (over = {}) => ({ designScheme: 'light', colors: buildDefaultSceneColors(), materialProps: {}, ...over })
@@ -566,6 +568,75 @@ describe('dateComponentsParts', () => {
     for (const v of ['date', 'hourAndMinute', 'hourMinuteAndSecond', 'dateAndTime']) {
       const p = dateComponentsParts(v)
       expect(p.date || p.time, `${v} shows nothing at all`).toBe(true)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The styles bag (AUDIT #31)
+//
+// Three per-control style fields reached the export only. The renderer
+// branches on their case names as string literals — the shape that rots
+// quietly — so these pin every name against its real vocabulary, the same
+// guard the 1.8 style pickers got.
+// ---------------------------------------------------------------------------
+describe('the style cases the renderers branch on are real', () => {
+  const values = (vocab) => vocab.map((v) => v.value)
+
+  it('labelStyle: iconOnly and titleOnly are real LabelStyles', () => {
+    for (const v of ['iconOnly', 'titleOnly', 'titleAndIcon', 'automatic']) {
+      expect(values(LABEL_STYLES), `'${v}'`).toContain(v)
+    }
+  })
+
+  it('toggleStyle: button is a real ToggleStyle', () => {
+    expect(values(TOGGLE_STYLES)).toContain('button')
+    expect(values(TOGGLE_STYLES)).toContain('switch')
+  })
+
+  it('textFieldStyle: plain and roundedBorder are real TextFieldStyles', () => {
+    expect(values(TEXTFIELD_STYLES)).toContain('plain')
+    expect(values(TEXTFIELD_STYLES)).toContain('roundedBorder')
+  })
+
+  it('the styles bag holds only what both sides read', () => {
+    // Four fields were removed rather than wired, each a second home for a
+    // concept that already had one. A key reappearing here is that
+    // duplication coming back.
+    expect(Object.keys(DEFAULT_STYLES).sort())
+      .toEqual(['labelStyle', 'textFieldStyle', 'toggleStyle'])
+  })
+})
+
+describe('labelSlots', () => {
+  it('shows only the icon for iconOnly, only the title for titleOnly', () => {
+    expect(labelSlots('iconOnly', true)).toEqual({ icon: true, title: false })
+    expect(labelSlots('titleOnly', true)).toEqual({ icon: false, title: true })
+  })
+
+  it('honours iconOnly even when the label HAS text', () => {
+    // The case that used to diverge: the canvas drew the text because its
+    // only rule was "empty text means icon-only", and the device hid it.
+    expect(labelSlots('iconOnly', true).title).toBe(false)
+  })
+
+  it('shows both for titleAndIcon, whatever the text', () => {
+    expect(labelSlots('titleAndIcon', true)).toEqual({ icon: true, title: true })
+    expect(labelSlots('titleAndIcon', false)).toEqual({ icon: true, title: true })
+  })
+
+  it('falls back to the empty-text rule for automatic', () => {
+    expect(labelSlots('automatic', true)).toEqual({ icon: true, title: true })
+    expect(labelSlots('automatic', false)).toEqual({ icon: true, title: false })
+    expect(labelSlots(undefined, false)).toEqual({ icon: true, title: false })
+  })
+
+  it('never hides both slots', () => {
+    for (const style of ['automatic', 'iconOnly', 'titleOnly', 'titleAndIcon', undefined]) {
+      for (const hasText of [true, false]) {
+        const s = labelSlots(style, hasText)
+        expect(s.icon || s.title, `${style}/${hasText} draws nothing`).toBe(true)
+      }
     }
   })
 })

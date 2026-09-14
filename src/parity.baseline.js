@@ -238,7 +238,14 @@ export const PANEL = {
   boxCornerRadius: debt('export-only: canvas box primitive draws sharp edges; needs a rounded-box geometry', 34),
   depth: debt('export-only: canvas draws 2D panels flat and ignores .frame(depth:)', 34),
   iconName: debt('export-only: contentUnavailable draws a generic glyph instead of the named symbol', 34),
-  styles: debt('export-only: `toggleStyle` / `labelStyle` / `textFieldStyle` never reach the canvas. 18 labels across the shipped templates set `labelStyle: iconOnly` and draw their text anyway — the widest live divergence left. Its `controlSize` is also a duplicate of the top-level field phase 2.3 settled on', 31),
+  // `styles` left this table in phase #31. The bag now holds exactly the
+  // three fields both sides read — `toggleStyle`, `labelStyle` and
+  // `textFieldStyle` — and the four that were second homes for concepts with
+  // one are gone: `pickerStyle` and `tableStyle` (the emitters read the
+  // top-level fields; the copies here were written by a live inspector row
+  // and read by nobody), `buttonBorderShape` and `controlSize` (phase 2.3
+  // settled both on the top level). Saved projects carrying the old
+  // `styles.controlSize` are migrated on load.
 
   // -- canvas-only visuals the export drops ---------------------------------
   //
@@ -342,4 +349,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 21
+export const DEBT_CEILING = 20

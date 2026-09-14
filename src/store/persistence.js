@@ -73,12 +73,28 @@ export function serializeProject(state, { includeAssets = true } = {}) {
 // intent was the destructive ROLE, so that is where it lands. Doing it on
 // load (as well as in the emitter) means the inspector shows the corrected
 // value rather than an option that no longer exists.
+// Control size used to live in TWO places: the top-level `controlSize` that
+// phase 2.3 settled buttons on, and a copy inside the `styles` bag that only
+// the toggle emitter read. Phase 2.4-era projects can carry either, so the
+// copy is lifted onto the field that survived — and only when the top-level
+// one is still at its default, so a project that set both keeps the one the
+// button path was already using. AUDIT #31.
+function migrateStyles(it) {
+  const legacy = it?.styles?.controlSize
+  if (!legacy) return it
+  const { controlSize: _drop, ...styles } = it.styles
+  const next = { ...it, styles }
+  if (!it.controlSize || it.controlSize === 'regular') next.controlSize = legacy
+  return next
+}
+
 function migrate(raw) {
   if (!Array.isArray(raw.items)) return raw
   let changed = false
   const items = raw.items.map((it) => {
-    if (!it || it.type !== 'panel' || it.panelType !== 'button') return it
-    const next = normalizeButton(it)
+    if (!it || it.type !== 'panel') return it
+    let next = migrateStyles(it)
+    if (it.panelType === 'button') next = normalizeButton(next)
     if (next !== it) changed = true
     return next
   })

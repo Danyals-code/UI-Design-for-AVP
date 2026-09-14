@@ -9,7 +9,7 @@ import {
   TEXT_STYLES, TEXT_STYLE_ORDER,
   resolveSemantic,
   BUTTON_STYLES,
-  TOGGLE_STYLES, PICKER_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
+  TOGGLE_STYLES, LABEL_STYLES, TEXTFIELD_STYLES,
   CONTROL_SIZES,
   LIST_STYLES, LIST_STYLE_ORDER,
   SF_SYMBOLS,
@@ -332,16 +332,14 @@ export function TextSection({ item, updateItem, applyTextStyle, scene, sectionTi
 export function StylesSection({ item, updateItem }) {
   const t = item.panelType
   const isToggle = t === 'toggle'
-  const isPicker = t === 'picker'
   const isLabel  = t === 'label'
   const isTextField = t === 'textfield' || t === 'securefield'
   return (
     <Section title="Styles" defaultOpen={false}>
       {isToggle    && <Row label="Toggle"><Select value={item.styles?.toggleStyle || 'switch'} options={TOGGLE_STYLES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, toggleStyle: v } })} /></Row>}
-      {isPicker    && <Row label="Picker"><Select value={item.styles?.pickerStyle || 'menu'} options={PICKER_STYLES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, pickerStyle: v } })} /></Row>}
       {isLabel     && <Row label="Label"><Select value={item.styles?.labelStyle || 'titleAndIcon'} options={LABEL_STYLES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, labelStyle: v } })} /></Row>}
       {isTextField && <Row label="TextField"><Select value={item.styles?.textFieldStyle || 'roundedBorder'} options={TEXTFIELD_STYLES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, textFieldStyle: v } })} /></Row>}
-      <Row label="Size"><Select value={item.styles?.controlSize || 'regular'} options={CONTROL_SIZES} onChange={(v) => updateItem(item.id, { styles: { ...item.styles, controlSize: v } })} /></Row>
+      <Row label="Size"><Select value={item.controlSize || 'regular'} options={CONTROL_SIZES} onChange={(v) => updateItem(item.id, { controlSize: v })} /></Row>
     </Section>
   )
 }

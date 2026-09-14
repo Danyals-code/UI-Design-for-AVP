@@ -2104,3 +2104,22 @@ export function dateComponentsParts(components) {
     default:                    return { date: true,  time: true,  seconds: false }
   }
 }
+
+// Which of a Label's two slots are drawn, given `.labelStyle` and whether the
+// label has any text to show.
+//
+// `.automatic` is the interesting case: SwiftUI resolves it by context, and
+// the canvas's own long-standing rule — a Label with an empty text slot is
+// icon-only — is the same judgement for the one context a design surface has.
+// So the explicit style wins and the empty-text rule is what `.automatic`
+// falls back to. Before AUDIT #31 there was no explicit path at all: the
+// field reached the export only and the canvas had just the fallback, which
+// meant a Label carrying text AND asking for `.iconOnly` drew the text here
+// and hid it on device.
+export function labelSlots(labelStyle, hasText) {
+  const style = labelStyle || 'automatic'
+  if (style === 'iconOnly')  return { icon: true,  title: false }
+  if (style === 'titleOnly') return { icon: false, title: true }
+  if (style === 'titleAndIcon') return { icon: true, title: true }
+  return { icon: true, title: !!hasText }        // automatic
+}

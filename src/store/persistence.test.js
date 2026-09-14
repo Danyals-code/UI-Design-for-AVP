@@ -223,3 +223,53 @@ describe('migrating a pre-buttonRole project', () => {
     expect(JSON.stringify(raw.items)).toBe(before)
   })
 })
+
+// ---------------------------------------------------------------------------
+// The `styles` bag (AUDIT #31)
+//
+// Control size used to live in two places: the top-level `controlSize` phase
+// 2.3 settled buttons on, and a copy inside `styles` that only the toggle
+// emitter read. The copy is gone; projects saved before that carry it, so it
+// is lifted onto the field that survived.
+// ---------------------------------------------------------------------------
+describe('the styles bag migration', () => {
+  // Build a real saved file, then splice the legacy panel into it, so the
+  // migration is exercised through the same door a user's project comes in.
+  const load = (panel) => {
+    const saved = serializeProject(stateFor('welcome'))
+    const tab = saved.items.find((i) => i.type === 'tab')
+    const back = deserializeProject({ ...saved, items: [...saved.items, { ...panel, parentId: tab.id }] })
+    return back.items.find((i) => i.id === panel.id)
+  }
+
+  it('lifts a legacy styles.controlSize onto the top-level field', () => {
+    const out = load({ id: 'p1', type: 'panel', panelType: 'toggle', name: 'T', styles: { controlSize: 'large' } })
+    expect(out.controlSize).toBe('large')
+    expect(out.styles.controlSize).toBeUndefined()
+  })
+
+  it('keeps the top-level value when a project set both', () => {
+    // The button path was already reading the top-level one, so it wins.
+    const out = load({
+      id: 'p2', type: 'panel', panelType: 'button', name: 'B',
+      controlSize: 'small', styles: { controlSize: 'large' }
+    })
+    expect(out.controlSize).toBe('small')
+    expect(out.styles.controlSize).toBeUndefined()
+  })
+
+  it('leaves the three surviving style fields alone', () => {
+    const out = load({
+      id: 'p3', type: 'panel', panelType: 'label', name: 'L',
+      styles: { labelStyle: 'iconOnly', toggleStyle: 'button', textFieldStyle: 'plain' }
+    })
+    expect(out.styles).toEqual({ labelStyle: 'iconOnly', toggleStyle: 'button', textFieldStyle: 'plain' })
+  })
+
+  it('touches nothing when there is no legacy copy', () => {
+    const panel = { id: 'p4', type: 'panel', panelType: 'toggle', name: 'T', controlSize: 'regular' }
+    const out = load(panel)
+    expect(out.controlSize).toBe('regular')
+    expect(out.styles).toBeUndefined()
+  })
+})

@@ -50,14 +50,24 @@ export const textStyleToFontSize = (style) => ptToUnits(TEXT_STYLES[style]?.pt ?
 // (`.automatic` resolves to the visionOS-tuned look). Where the spec gives
 // a different concrete default than `.automatic`, we keep the `.automatic`
 // alias so the exporter can elide the `.xxxStyle()` modifier entirely.
+// Three style fields, each read by both sides since AUDIT #31.
+//
+// Four more used to live here and were removed rather than wired, because
+// each was a SECOND home for a concept that already had one:
+//
+//   pickerStyle        The picker's own inspector row writes the TOP-LEVEL
+//                      field, which is what the emitter and the canvas read.
+//                      The copy in here was written by the Styles section and
+//                      read by nobody — a live control wired to nothing.
+//   tableStyle         Same shape: the table emitter reads the top-level field.
+//   buttonBorderShape  Phase 2.3 settled buttons on the top-level field.
+//   controlSize        Buttons already read the top-level one (2.3); only the
+//                      toggle emitter read this copy. Collapsed onto the same
+//                      top-level field, with a migration for saved projects.
 export const DEFAULT_STYLES = {
   toggleStyle: 'automatic',     // → .switch on visionOS
-  pickerStyle: 'automatic',     // → .menu on visionOS
   labelStyle: 'automatic',      // icon+title in body, icon-only in toolbars
-  textFieldStyle: 'automatic',  // → recessed glass (.thickMaterial) on visionOS
-  controlSize: 'regular',
-  tableStyle: 'automatic',
-  buttonBorderShape: 'automatic'
+  textFieldStyle: 'automatic'   // → recessed glass (.thickMaterial) on visionOS
 }
 
 export const DEFAULT_ANIMATION = {

@@ -29,7 +29,7 @@ by one side and ignored by the other, so the two have drifted apart.
 That contract now exists: **`src/parity.test.js` (§6.0) is built and green**,
 and it measures the drift exactly rather than by sample. It found **114 open
 divergences**; **every phase in the plan has landed, the unnumbered tail has
-been sorted, and the count is now 21 — every one of them filed**.
+been sorted, and the count is now 20 — every one of them filed**.
 
 | Shape | At the audit | Now |
 | ----- | ------------ | --- |
@@ -1078,18 +1078,17 @@ unscheduled — see the scoping correction in §1.
 not a plan but an ordering of what the triage left, worst first:
 
 ```
-1  #31 the styles bag        — 18 shipped labels diverge today. Half a day.
-2  #33 container chrome      — an opened disclosure exports closed. Half a day.
-3  #30 presentation metrics  — two different detents look identical. ~1 day.
-4  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
-5  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
-6  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #31 the styles bag        — done.
+1  #33 container chrome      — an opened disclosure exports closed. Half a day.
+2  #30 presentation metrics  — two different detents look identical. ~1 day.
+3  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
+4  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
+5  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
-#31 and #33 lead not because they are large — they are the two smallest — but
-because each is *wrong* rather than absent: content the app ships previews one
-way and exports another.
+#33 leads not because it is large — it is the smallest — but because it is
+*wrong* rather than absent: a disclosure the designer opened exports closed.
 
 Rationale for putting Stage 2's first two phases before most of Stage 1: 2.1
 and 2.2 are where the *credibility* of the export lives — a generated file that
@@ -1153,7 +1152,7 @@ six entries were shown not to be work.
 | - | ------ | ----- | --- |
 | 29 | **Ornament chrome is export-only.** `ornamentAnchorMode`, `ornamentContentAlignment` and `ornamentVisibility` all emit and none reaches the canvas — an ornament marked `.hidden` still draws, and one anchored `.parent()` draws scene-anchored. 3 fields. | `SceneTree.jsx` | Medium |
 | 30 | **Presentation metrics are export-only.** `presentationCornerRadius`, `presentationDragIndicator`, `sheetFraction` and `sheetHeight` all emit; the canvas uses the panel's own radius, draws no grabber, and sizes sheets from `sheetDetent` alone — so a `.fraction(0.3)` detent and a `.height(200)` one look identical on screen and differ on device. 4 fields. | `SceneTree.jsx`, `Panel3D.jsx` | Medium |
-| 31 | **The `styles` bag never reaches the canvas — and it is actively wrong in the shipped templates.** `toggleStyle`, `labelStyle` and `textFieldStyle` are export-only, and **18 labels across the templates set `labelStyle: 'iconOnly'`**: every one of them draws its text on the canvas and hides it on device. The bag also carries a second `controlSize`, duplicating the top-level field phase 2.3 settled on. **The widest live divergence left.** | `Panel3D.jsx`, `store/factories.js` | **High** |
+| 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
 | 33 | **Container chrome the canvas ignores.** `expanded` — the emitted `@State private var isExpanded_… = false` is hard-coded, so **a disclosure the designer opened exports closed**; `toolbarPlacement` — toolbar items draw in tree order whatever placement says; `fitsAxes` — ViewThatFits picks a branch from the `activeChild` selector rather than measuring. 3 fields. | `export/swiftui.js`, `SceneTree.jsx` | Medium |
 | 34 | **Three canvas gaps with no common cause.** `boxCornerRadius` (the box primitive draws sharp edges; needs a rounded-box geometry), `depth` (2D panels draw flat and ignore `.frame(depth:)`), `iconName` (contentUnavailable draws a generic glyph rather than the named symbol). 3 fields. | `Panel3D.jsx` | Low |

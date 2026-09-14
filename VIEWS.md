@@ -126,6 +126,15 @@ turns a 640pt box with inset content into a 688pt box.
    `.monospacedDigit` need a rounded / serif / monospaced face and the app
    bundles Inter alone, so there is nothing honest to draw.
 
+The per-control **Styles** section is part of it as well. `toggleStyle`,
+`labelStyle` and `textFieldStyle` now change the canvas, and the bag holds
+only those three: `pickerStyle`, `tableStyle`, `buttonBorderShape` and
+`controlSize` were second homes for concepts that already had a top-level
+field, and the copies were read by nobody (`pickerStyle` even had its own live
+inspector row wired to nothing). A Label's two slots are decided by
+`labelSlots()` in `appleSystem.js`, where `.automatic` falls back to the
+canvas's own rule that a Label with no text is icon-only.
+
 Per-type **Style** pickers are part of the contract too: where a style changes
 what a view looks like, the canvas switches on it as well as the exporter. The
 names the renderer branches on live in `appleSystem.js`
