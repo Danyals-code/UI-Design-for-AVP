@@ -368,9 +368,9 @@ superset of all stack-type fields; the inspector and exporter consult
 | `expanded` | `false` | Disclosure default. The canvas lays the group out from it and the export seeds `@State private var isExpanded_…` from it, so an opened group ships open. |
 | `activeChild`, `activeTab` | `0`, `0` | NavStack / TabView active index. |
 | `ornament` | `null` | Anchor edge name when this stack is an ornament. |
-| `ornamentAnchorMode` | `'scene'` | `'scene'` \| `'parent'`. |
-| `ornamentContentAlignment` | `'center'` | |
-| `ornamentVisibility` | `'automatic'` | |
+| `ornamentAnchorMode` | `'scene'` | `'scene'` \| `'parent'`. Export-only by exemption: both anchors name the window frame, and a window is the only place either side puts an ornament, so the canvas has one box for the two of them. |
+| `ornamentContentAlignment` | `'center'` | Aligns the content against the anchor *point* — the named edge of the ornament is the edge that lands on it, so a bottom ornament aligned `leading` runs right from the window's bottom centre. |
+| `ornamentVisibility` | `'automatic'` | `hidden` takes the ornament off the canvas and out of its edge's stacking order, as it is off the device. `automatic` shows it, which is why the exporter elides it. |
 | `ornamentOffset` | `0` | |
 | `toolbarPlacement` | `'automatic'` | Drives `ToolbarItem(placement: …)` and the bar zone the canvas draws the item in. `.bottomBar` / `.bottomOrnament` / `.keyboard` name a surface the canvas's single bar is not; it draws them in a row beneath it. |
 | `environment` | `DEFAULT_ENVIRONMENT` | Per-stack environment overrides. |

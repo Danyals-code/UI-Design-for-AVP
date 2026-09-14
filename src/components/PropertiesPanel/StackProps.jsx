@@ -9,7 +9,8 @@ import {
   STACK_TYPES,
   TEXT_STYLES,
   TEXT_STYLE_ORDER,
-  TOOLBAR_PLACEMENTS
+  TOOLBAR_PLACEMENTS,
+  ORNAMENT_CONTENT_ALIGNMENTS
 } from '../../appleSystem'
 import {
   Row,
@@ -483,17 +484,9 @@ export function StackProps({ item }) {
         <Row label="Alignment">
           <Select
             value={item.ornamentContentAlignment || 'center'}
-            options={[
-              { value: 'center',        label: '.center' },
-              { value: 'leading',       label: '.leading' },
-              { value: 'trailing',      label: '.trailing' },
-              { value: 'top',           label: '.top' },
-              { value: 'bottom',        label: '.bottom' },
-              { value: 'topLeading',    label: '.topLeading' },
-              { value: 'topTrailing',   label: '.topTrailing' },
-              { value: 'bottomLeading', label: '.bottomLeading' },
-              { value: 'bottomTrailing',label: '.bottomTrailing' }
-            ]}
+            /* One list, from the table the canvas offsets by, so an
+               alignment cannot be offered without somewhere to move to. */
+            options={ORNAMENT_CONTENT_ALIGNMENTS.map((v) => ({ value: v, label: `.${v}` }))}
             onChange={(v) => updateItem(item.id, { ornamentContentAlignment: v })}
           />
         </Row>

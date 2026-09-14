@@ -6,7 +6,8 @@ import { useStore, isEffectivelyVisible } from '../store'
 import { layoutStack, computeSize, resolvedChildSizes, scrollAxesOf, resolvePadding } from '../layout'
 import { summarizeModifiers } from '../modifiers/registry'
 import { roundedRectShape, unevenRoundedRectShape, rimRingShape, ellipseShape } from '../shapes'
-import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth, sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET } from '../appleSystem'
+import { resolveSemantic, ptToUnits, unitsToPt, ORNAMENT_GAP, NAVBAR_HEIGHT_PT, MATERIALS, resolveAnyMaterial, isPresentationPanel, inspectorColumnWidth, sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET,
+  ornamentContentOffset, ornamentIsDrawn } from '../appleSystem'
 
 import { getInterFont } from '../fonts'
 import Panel3D from './Panel3D'
@@ -1151,7 +1152,11 @@ function Window3D({ window: win, items, previewPosition }) {
     !(c.type === 'stack' && c.ornament) &&
     !(c.type === 'panel' && isPresentationPanel(c.panelType))
   )
-  const ornamentChildren = allChildren.filter((c) => c.type === 'stack' && c.ornament)
+  // A hidden ornament is not drawn and does not take a slot on its edge — it
+  // is gone on device, so it is gone here. It stays in the layer tree, the way
+  // anything else switched off does. AUDIT #29.
+  const ornamentChildren = allChildren.filter((c) =>
+    c.type === 'stack' && c.ornament && ornamentIsDrawn(c.ornamentVisibility))
   const presentationChildren = allChildren.filter((c) => c.type === 'panel' && isPresentationPanel(c.panelType))
   // Per WWDC23 #10076, visionOS ornaments *overlap* the window plate
   // by 20pt rather than floating outside it with a gap. ORNAMENT_GAP
@@ -1202,6 +1207,14 @@ function Window3D({ window: win, items, previewPosition }) {
       else if (edge === 'top')      oy += off
       else if (edge === 'bottom')   oy -= off
     }
+
+    // Content alignment slides the ornament along its anchor point: the named
+    // edge of the ornament is the edge that sits on the point, so a bottom
+    // ornament aligned leading starts at the window's centre and runs right.
+    // Nine alignments drew one picture until AUDIT #29.
+    const [adx, ady] = ornamentContentOffset(orn.ornamentContentAlignment, [ow, oh])
+    ox += adx
+    oy += ady
 
     ornPositions.set(orn.id, [ox, oy, 0.015])
     ornSizes.set(orn.id, [ow, oh])

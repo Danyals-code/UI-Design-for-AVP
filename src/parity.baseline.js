@@ -61,9 +61,12 @@ export const STACK = {
   // -- disclosure -----------------------------------------------------------
 
   // -- ornaments ------------------------------------------------------------
-  ornamentAnchorMode: debt('export-only: canvas draws every ornament scene-anchored, ignoring .parent()', 29),
-  ornamentContentAlignment: debt('export-only: canvas ignores ornament content alignment', 29),
-  ornamentVisibility: debt('export-only: canvas always draws the ornament regardless of visibility', 29),
+  // `.scene(…)` and `.parent(…)` name the same rectangle here. Both sides only
+  // ever hang an ornament off a WINDOW — `renderWindow`'s ornamentKids and
+  // `Window3D`'s ornamentChildren are the only two places either side looks —
+  // and a window's root view fills its scene, so the two anchors resolve to one
+  // box. The canvas has no second rect to draw the difference against. AUDIT #29.
+  ornamentAnchorMode: ex('both anchors resolve to the window frame, which is the only place either side puts an ornament'),
   // `ornamentOffset` left this table in phase 1.5 (AUDIT #14). It was read by
   // NEITHER side — the number in the inspector moved nothing and reached no
   // file. The canvas now pushes the ornament that far out along the edge it
@@ -342,4 +345,4 @@ export const KNOWN_MISSING_SCROLLVIEWS = {
 // tightened rather than drifting upward over time.
 // ---------------------------------------------------------------------------
 
-export const DEBT_CEILING = 13
+export const DEBT_CEILING = 10

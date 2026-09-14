@@ -24,7 +24,8 @@ import { exportSwiftUI } from './swiftui'
 import { DEFAULT_SCENE, makeStack, makePanel } from '../store/factories'
 import { NAVBAR_STYLE_SPECS, ptToUnits, unitsToPt, BUTTON_STYLES, controlFraction,
   isPresentationPanel, inspectorColumnWidth, outlineVisibleRows,
-  dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible } from '../appleSystem'
+  dateComponentsParts, sheetDetentHeight, sheetDragIndicatorVisible,
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn } from '../appleSystem'
 import { computeSize } from '../layout'
 import { makeTab, makeWindow, makeModelEntity } from '../store/factories'
 import { TRIGGERS, ACTIONS, getTriggerSchema, getActionSchema, defaultParamsFor } from '../behaviors/registry'
@@ -1605,5 +1606,47 @@ describe('sheet presentation metrics reach both sides', () => {
     expect(emit({ presentationCornerRadius: 36 })).toContain('.presentationCornerRadius(36)')
     // 0 means "no override" on both sides — the plate keeps its own radius.
     expect(emit({ presentationCornerRadius: 0 })).not.toContain('.presentationCornerRadius(')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The ornament chrome the canvas draws is the chrome the file carries (#29)
+// ---------------------------------------------------------------------------
+describe('ornament chrome reaches both sides', () => {
+  const emit = (props) => {
+    const tab = makeTab({ name: 'T' })
+    const win = makeWindow({ name: 'W', parentId: tab.id })
+    const orn = makeStack({ parentId: win.id, name: 'O', ornament: 'bottom', ...props })
+    const kid = makePanel('button', { parentId: orn.id, text: 'Go' })
+    return exportSwiftUI([tab, win, orn, kid], 'App', {}).map((f) => f.content).join('\n')
+  }
+
+  it('emits a visibility exactly when the canvas changes what it draws', () => {
+    for (const v of ['automatic', 'visible', 'hidden']) {
+      const swift = emit({ ornamentVisibility: v })
+      const emitted = swift.includes(`visibility: .${v}`)
+      // `.automatic` is elided because it is the default on both sides.
+      expect(emitted, `${v}: the file and the canvas disagree`).toBe(v !== 'automatic')
+      if (v === 'hidden') expect(ornamentIsDrawn(v)).toBe(false)
+      else expect(ornamentIsDrawn(v)).toBe(true)
+    }
+  })
+
+  it('emits a content alignment exactly when the canvas moves the ornament', () => {
+    for (const a of ORNAMENT_CONTENT_ALIGNMENTS) {
+      const swift = emit({ ornamentContentAlignment: a })
+      const emitted = swift.includes(`contentAlignment: .${a}`)
+      const moves = ornamentContentOffset(a, [100, 40]).some((d) => d !== 0)
+      expect(emitted, `${a}: emitted=${emitted} but the canvas moves=${moves}`).toBe(moves)
+    }
+  })
+
+  it('still emits the anchor the exemption is about', () => {
+    // `ornamentAnchorMode` stays export-only on purpose — both anchors name
+    // the window frame, so the canvas has one box for the two of them. The
+    // export must keep carrying the distinction all the same.
+    expect(emit({ ornamentAnchorMode: 'parent' })).toContain('.parent(.bottom)')
+    expect(emit({ ornamentAnchorMode: 'scene' })).toContain('.scene(.bottom)')
   })
 })

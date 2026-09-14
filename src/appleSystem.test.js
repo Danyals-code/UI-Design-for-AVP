@@ -22,7 +22,8 @@ import {
   PICKER_STYLES_SHOWING_OPTIONS, MENU_STYLES_AS_BUTTON, dateComponentsParts,
   LABEL_STYLES, TOGGLE_STYLES, TEXTFIELD_STYLES, labelSlots,
   TOOLBAR_PLACEMENTS, TOOLBAR_ZONES, toolbarZoneOf,
-  sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET
+  sheetDetentHeight, sheetDragIndicatorVisible, MODAL_INSET,
+  ORNAMENT_CONTENT_ALIGNMENTS, ornamentContentOffset, ornamentIsDrawn
 } from './appleSystem'
 import { DEFAULT_STYLES, makeStack, makePanel } from './store/factories'
 
@@ -787,5 +788,75 @@ describe('sheetDragIndicatorVisible', () => {
   it('agrees with the value the panel starts on', () => {
     const sheet = makePanel('sheet', {})
     expect(sheetDragIndicatorVisible(sheet.presentationDragIndicator)).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// Ornament chrome (AUDIT #29)
+//
+// Two of the three fields reached the generated Swift and nothing on screen:
+// an ornament marked `.hidden` still drew, and nine content alignments drew
+// one picture. (The third, `ornamentAnchorMode`, is an honest exemption — see
+// the ledger.)
+// ---------------------------------------------------------------------------
+describe('ornamentContentOffset', () => {
+  const size = [100, 40]
+  const at = (a) => ornamentContentOffset(a, size)
+
+  it('leaves a centred ornament on its anchor', () => {
+    expect(at('center')).toEqual([0, 0])
+  })
+
+  it('puts the named edge on the anchor point', () => {
+    // Leading edge on the point means the body runs to the right of it.
+    expect(at('leading')).toEqual([50, 0])
+    expect(at('trailing')).toEqual([-50, 0])
+    // Scene space is y-up, so a top edge on the point hangs the body below.
+    expect(at('top')).toEqual([0, -20])
+    expect(at('bottom')).toEqual([0, 20])
+  })
+
+  it('combines both axes for the corner alignments', () => {
+    expect(at('topLeading')).toEqual([50, -20])
+    expect(at('bottomTrailing')).toEqual([-50, 20])
+    expect(at('topTrailing')).toEqual([-50, -20])
+    expect(at('bottomLeading')).toEqual([50, 20])
+  })
+
+  it('moves every alignment the vocabulary offers except the centred one', () => {
+    // The defect in one assertion: nine values, one picture.
+    const seen = new Set(ORNAMENT_CONTENT_ALIGNMENTS.map((a) => at(a).join(',')))
+    expect(seen.size).toBe(ORNAMENT_CONTENT_ALIGNMENTS.length)
+  })
+
+  it('scales with the ornament, since it is half of its own size', () => {
+    expect(ornamentContentOffset('leading', [200, 40])).toEqual([100, 0])
+  })
+
+  it('treats an unknown alignment as centred, as the exporter does', () => {
+    // The generator elides `contentAlignment:` unless it is not `.center`.
+    for (const a of [undefined, null, '', 'nonsense']) expect(at(a)).toEqual([0, 0])
+  })
+
+  it('offers the alignment the factory starts an ornament on', () => {
+    expect(ORNAMENT_CONTENT_ALIGNMENTS).toContain(makeStack({ ornament: 'bottom' }).ornamentContentAlignment)
+  })
+})
+
+describe('ornamentIsDrawn', () => {
+  it('takes a hidden ornament off the canvas, as it is off the device', () => {
+    expect(ornamentIsDrawn('hidden')).toBe(false)
+  })
+
+  it('draws a visible one, and an automatic one', () => {
+    // `.automatic` is the system's choice, which for an ornament that exists
+    // is to show it — and it is why the exporter emits no visibility for it.
+    expect(ornamentIsDrawn('visible')).toBe(true)
+    for (const v of ['automatic', undefined, null, '']) expect(ornamentIsDrawn(v)).toBe(true)
+  })
+
+  it('draws an ornament straight out of the factory', () => {
+    expect(ornamentIsDrawn(makeStack({ ornament: 'bottom' }).ornamentVisibility)).toBe(true)
   })
 })

@@ -2064,6 +2064,44 @@ export const isPresentationPanel = (panelType) => PRESENTATION_PANEL_TYPES.has(p
 // only until phase 1.3, because the canvas had no inspector presentation at
 // all to apply them to. AUDIT #7.
 // ---------------------------------------------------------------------------
+// Ornament content alignment (AUDIT #29)
+//
+// `.ornament(attachmentAnchor:contentAlignment:)` aligns the ornament's content
+// against the anchor POINT, the way every SwiftUI alignment does: the named
+// edge of the content is the edge that lands on the point. A bottom-anchored
+// ornament aligned `.leading` therefore starts at the window's bottom centre
+// and runs to the right of it, rather than straddling it.
+//
+// The canvas centred every ornament on its anchor whatever the field said, so
+// nine alignments drew one picture. The offset is half the ornament's own size
+// in the named direction — which is exactly what "put this edge on the point"
+// works out to.
+export const ORNAMENT_CONTENT_ALIGNMENTS = [
+  'center', 'leading', 'trailing', 'top', 'bottom',
+  'topLeading', 'topTrailing', 'bottomLeading', 'bottomTrailing'
+]
+
+export function ornamentContentOffset(alignment, [ornamentW, ornamentH]) {
+  const a = alignment || 'center'
+  // Scene space is x-right / y-up, so aligning the content's LEADING edge to
+  // the point pushes its centre right, and its TOP edge pushes the centre down.
+  const dx = a === 'leading' || a === 'topLeading' || a === 'bottomLeading' ? ornamentW / 2
+    : a === 'trailing' || a === 'topTrailing' || a === 'bottomTrailing' ? -ornamentW / 2
+    : 0
+  const dy = a === 'top' || a === 'topLeading' || a === 'topTrailing' ? -ornamentH / 2
+    : a === 'bottom' || a === 'bottomLeading' || a === 'bottomTrailing' ? ornamentH / 2
+    : 0
+  return [dx, dy]
+}
+
+// Whether the canvas draws an ornament at all. `.hidden` takes it away on
+// device and took nothing away here until AUDIT #29; `.automatic` is the
+// system's choice, which for an ornament that exists is to show it.
+export function ornamentIsDrawn(ornamentVisibility) {
+  return ornamentVisibility !== 'hidden'
+}
+
+// ---------------------------------------------------------------------------
 // Sheet detents and sheet chrome (AUDIT #30)
 //
 // `.presentationDetents([…])` names the height a sheet rests at, measured from

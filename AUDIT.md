@@ -97,11 +97,11 @@ Measured on the commit above: **33,857 lines** across 78 source files.
 npm run check
 ```
 
-- **Tests:** 633 passing, 11 files (365 at the audit; +89 from the harness and
+- **Tests:** 646 passing, 11 files (365 at the audit; +89 from the harness and
   the Stage 2 phases, then +9 from 1.4, +20 from 1.7, +17 from 1.1, +12 from
   1.3, +14 from 1.2, +10 from 1.6 — the first tests the behaviour runtime has
   had — +11 from 1.8, +9 from 1.9 and +14 from 1.5, then +15 from #31 and
-  +32 from #33 and +16 from #30).
+  +32 from #33 and +16 from #30 and +13 from #29).
 - **Lint:** 0 errors, 55 warnings (all `react-hooks/exhaustive-deps` hygiene in
   `Panel3D.jsx` / `SceneTree.jsx` — no correctness issues).
 - **Build:** passes.
@@ -1152,6 +1152,37 @@ as undeclared without it. Verified in the app: three sheets at `.large`,
 `.fraction(0.3)` and `.height(200)` draw at three visibly different heights,
 bottom-aligned, each with a grabber and a 44pt corner. Parity debt 17 → 13.
 
+**#29 — ornament chrome** ✅ **done**
+Two of the three were real, and the third turned out to be an exemption.
+
+- **`ornamentVisibility`.** `.hidden` takes the ornament off the device and
+  took nothing off the canvas. It is now gone from the canvas too, and gone
+  from the edge's stacking order — a hidden ornament should not push the one
+  below it outward. It stays in the layer tree, the way anything else switched
+  off does.
+- **`ornamentContentAlignment`.** The nine alignments drew one picture. They
+  align the content against the anchor *point*, the way every SwiftUI alignment
+  does — the named edge of the content is the edge that lands on the point — so
+  a bottom ornament aligned `.leading` starts at the window's bottom centre and
+  runs right rather than straddling it. The offset is half the ornament's own
+  size in the named direction, which is what that works out to. The inspector's
+  dropdown is generated from the same list the canvas offsets by.
+- **`ornamentAnchorMode` is an exemption, not a fix.** `.scene(…)` and
+  `.parent(…)` name the same rectangle here. Both sides only ever hang an
+  ornament off a *window* — `renderWindow`'s `ornamentKids` and `Window3D`'s
+  `ornamentChildren` are the only two places either looks — and a window's root
+  view fills its scene, so the two anchors resolve to one box. There is no
+  second rect for the canvas to draw the difference against. Moved to EXEMPT
+  with that reason rather than left as debt nobody can pay.
+
+*Acceptance:* 13 new tests, including one that asserts a content alignment is
+emitted exactly when the canvas moves the ornament, and one that keeps the
+exempt field's two anchors emitting distinctly. The canvas wiring was ripped
+out to confirm the harness flags both fields. Verified in the app: an ornament
+marked hidden sits in the layer tree and draws nothing at its edge, while two
+top ornaments aligned `.leading` and `.trailing` offset in opposite directions
+from each other. Parity debt 13 → 10.
+
 ---
 
 ## 7. Suggested sequencing
@@ -1176,9 +1207,9 @@ not a plan but an ordering of what the triage left, worst first:
 ✅ #31 the styles bag        — done.
 ✅ #33 container chrome      — done.
 ✅ #30 presentation metrics  — done.
-1  #29 ornament chrome       — a hidden ornament still draws. ~1 day.
-2  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
-3  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
+✅ #29 ornament chrome       — done.
+1  #34 three unrelated gaps  — rounded box is the only real work here. ~1 day.
+2  #32 volume geometry · #35 unblurred stack exports a Material. Half a day.
 —  #5  fontDesign / monospacedDigit — blocked on shipping font assets.
 ```
 
@@ -1245,7 +1276,7 @@ six entries were shown not to be work.
 
 | # | Defect | Where | Sev |
 | - | ------ | ----- | --- |
-| 29 | **Ornament chrome is export-only.** `ornamentAnchorMode`, `ornamentContentAlignment` and `ornamentVisibility` all emit and none reaches the canvas — an ornament marked `.hidden` still draws, and one anchored `.parent()` draws scene-anchored. 3 fields. | `SceneTree.jsx` | Medium |
+| 29 | ~~**Ornament chrome is export-only.**~~ — **fixed, two of three.** A hidden ornament no longer draws and no longer takes a slot on its edge, and `ornamentContentAlignment` slides the ornament along its anchor point instead of nine values drawing one picture. `ornamentAnchorMode` is now an exemption rather than debt: both anchors name the window frame, the only place either side puts an ornament. 3 fields. | `appleSystem.js`, `SceneTree.jsx` | Medium |
 | 30 | ~~**Presentation metrics are export-only.**~~ — **fixed.** A detent is now the sheet's height rather than a nudge, so `.fraction(0.3)` and `.height(200)` draw at the heights they ship at; the grabber draws when `presentationDragIndicator` asks for it, and `presentationCornerRadius` rounds the plate. 4 fields. | `appleSystem.js`, `SceneTree.jsx`, `Panel3D.jsx` | Medium |
 | 31 | ~~**The `styles` bag never reaches the canvas.**~~ — **fixed.** `toggleStyle`, `labelStyle` and `textFieldStyle` draw now; four more keys were second homes for concepts that already had one and were removed. **Correction to this row as first written:** it claimed 18 shipped labels diverge. They do not — all 25 `iconOnly` labels in the templates also have empty text, which the canvas's own long-standing rule already draws icon-only, so the two mechanisms happen to agree in shipped content. The divergence was real but *latent*: a label carrying text and asking for `.iconOnly` drew the text here and hid it on device. Medium, not High. | `Panel3D.jsx`, `store/factories.js` | — |
 | 32 | **Volume geometry is export-only.** `volumeDepthMeters` is a dimension the canvas could draw and it sizes the volume from the window instead; `supportedVolumeViewpoints` could bound the orbit in Preview, where the camera is the wearer's (editor mode must stay free). 2 fields. | `SceneTree.jsx`, `Canvas3D.jsx` | Low |
